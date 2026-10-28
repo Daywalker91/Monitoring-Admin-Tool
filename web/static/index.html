@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="style.css">
   <script src="charts.js" defer></script>
   <script src="alerts.js" defer></script>
+  <script src="updates.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -16,7 +17,7 @@
     <nav id="tabs" class="segmented" aria-label="Ansicht">
       <button type="button" data-view="hosts">Hosts</button>
       <button type="button" data-view="alerts">Alarme<span class="count"></span></button>
-      <button type="button" data-view="rules">Regeln</button>
+      <button type="button" data-view="rules">Einstellungen</button>
     </nav>
     <button type="button" id="alert-badge" class="alert-badge" hidden></button>
     <span id="summary" class="muted"></span>
@@ -31,6 +32,10 @@
     <p id="error" class="error" hidden></p>
 
     <section id="view-hosts" class="view">
+    <div id="update-banner" class="banner" hidden>
+      <span id="update-banner-text"></span>
+      <button type="button" id="update-banner-all" class="secondary">Alle aktualisieren</button>
+    </div>
     <!-- Desktop: Tabelle. Schmale Bildschirme: dieselben Zeilen werden per CSS zu Karten. -->
     <div class="table-wrap">
       <table id="hosts">
@@ -96,6 +101,17 @@
         <button type="button" id="test-alert" class="secondary" hidden>Testnachricht senden</button>
         <ul id="test-result" class="plain"></ul>
       </div>
+      <div class="panel">
+        <h2>Agent-Updates</h2>
+        <p class="muted small">Neue Agent-Versionen kommen als signierte GitHub-Releases. Agenten prüfen die
+          Signatur selbst und aktualisieren sich nur auf Knopfdruck.</p>
+        <dl id="update-info" class="info"></dl>
+        <div class="form-actions">
+          <button type="button" id="update-check" class="secondary" hidden>Jetzt prüfen</button>
+          <button type="button" id="update-all" class="secondary" hidden>Alle aktualisieren</button>
+          <span id="update-result" class="small" role="status"></span>
+        </div>
+      </div>
     </section>
   </main>
 
@@ -139,6 +155,7 @@
           <section>
             <h3>Agent</h3>
             <dl class="info"></dl>
+            <div class="host-update-slot"></div>
             <button type="button" class="danger delete" hidden>Host aus Liste entfernen</button>
           </section>
           <section class="host-alerts-slot"></section>

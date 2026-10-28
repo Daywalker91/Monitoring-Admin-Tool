@@ -98,6 +98,8 @@ function hostRow(h) {
   const nAlerts = alertCountFor(h.id);
   if (nAlerts) host.append(el("span", alertBadgeText(nAlerts), "pill crit host-alerts"));
   if (h.muted_until) host.append(el("span", "🔕 stumm", "pill host-alerts"));
+  const upd = hostUpdatePill(h);
+  if (upd) host.append(upd);
   tr.append(host);
 
   tr.append(cell("system", null, [h.platform || h.os, h.platform_version, h.arch].filter(Boolean).join(" · ")));
@@ -281,6 +283,7 @@ function detailRow(h) {
 
   tr.querySelector(".history-slot").replaceWith(historySection(h));
   tr.querySelector(".host-alerts-slot").replaceWith(hostAlertSection(h));
+  tr.querySelector(".host-update-slot").replaceWith(hostUpdateSection(h));
 
   const cores = tr.querySelector(".cores");
   (m.cpu?.per_core || []).forEach((v, i) => {
@@ -374,11 +377,14 @@ async function refresh() {
   try {
     // In der Alarmansicht auch beendete Alarme laden, sonst nur aktive.
     const withPast = currentView === "alerts";
-    const [hosts, alerts] = await Promise.all([fetchJSON("api/hosts"), fetchJSON("api/alerts" + (withPast ? "?all=1" : ""))]);
+    const [hosts, alerts] = await Promise.all([fetchJSON("api/hosts"), fetchJSON("api/alerts" + (withPast ? "?all=1" : "")),
+      loadUpdateStatus()]);
     activeAlerts = alerts.filter(a => a.resolved_at === null);
     renderAlertBadge();
     if (withPast) renderAlerts(alerts);
     render(hosts);
+    renderUpdateBanner(hosts);
+    if (currentView === "rules") renderUpdatePanel(hosts);
     errBox.hidden = true;
     document.getElementById("updated").textContent = "aktualisiert " + new Date().toLocaleTimeString("de-DE");
   } catch (e) {
