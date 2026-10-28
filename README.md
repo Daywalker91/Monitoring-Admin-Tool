@@ -241,10 +241,10 @@ prüft die Signatur gegen den eingebauten Schlüssel und veröffentlicht den Rel
 Einmalige Einrichtung des Schlüssels:
 
 ```powershell
-go run ./server/cmd/mat-server release keygen -out $env:TEMPelease.key
+go run ./server/cmd/mat-server release keygen -out $env:TEMP\release.key
 # Ausgabe "öffentlicher schlüssel: …" in internal/release/key.go eintragen und committen
-gh secret set RELEASE_SIGNING_KEY --env release --body (Get-Content $env:TEMPelease.key)
-Remove-Item $env:TEMPelease.key
+Get-Content $env:TEMP\release.key | gh secret set RELEASE_SIGNING_KEY --env release   # über stdin, nicht als Argument
+Remove-Item $env:TEMP\release.key
 ```
 
 In den Repo-Einstellungen: Environment `release` mit *Required reviewers* (nur du) und eine Tag-Regel
