@@ -26,8 +26,10 @@ function fmtDuration(sec) {
 }
 
 function fmtDateTime(unix) {
-  return new Date(unix * 1000).toLocaleString("de-DE",
-    { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const d = new Date(unix * 1000);
+  // Jahr nur, wenn es nicht das laufende ist (z. B. Ablauf des Zertifikats)
+  const year = d.getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {};
+  return d.toLocaleString("de-DE", { day: "2-digit", month: "2-digit", ...year, hour: "2-digit", minute: "2-digit" });
 }
 
 // Wert eines Alarms: Prozent, bei "offline" die Zeit ohne Verbindung (in Minuten gespeichert).
