@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -40,7 +41,8 @@ type Server struct {
 	gui   fs.FS
 	log   *slog.Logger
 
-	metricsToken []byte // leer = /metrics deaktiviert
+	metricsToken   []byte         // leer = /metrics deaktiviert
+	trustedProxies []netip.Prefix // Proxies, deren X-Forwarded-*-Header gelten
 
 	alerts   *alert.Evaluator   // nil = keine Alarmauswertung
 	notifier *notify.Dispatcher // nil = keine externen Kanäle
@@ -86,7 +88,7 @@ func (s *Server) Handler() http.Handler {
 		public.Handle("GET "+f, static)
 	}
 	public.Handle("/", s.requireSession(private))
-	return securityHeaders(public)
+	return s.realIP(securityHeaders(public))
 }
 
 // securityHeaders setzt restriktive Header für GUI und API.

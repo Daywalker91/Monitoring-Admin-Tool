@@ -19,6 +19,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"syscall"
@@ -62,6 +63,8 @@ func main() {
 	logLevel := flag.String("log-level", envOr("MAT_LOG_LEVEL", "info"), "Log-Level: debug, info, warn, error")
 	tlsCert := flag.String("tls-cert", os.Getenv("MAT_TLS_CERT"), "TLS-Zertifikat (PEM); mit -tls-key → HTTPS/wss")
 	tlsKey := flag.String("tls-key", os.Getenv("MAT_TLS_KEY"), "TLS-Schlüssel (PEM)")
+	proxies := flag.String("trusted-proxies", os.Getenv("MAT_TRUSTED_PROXIES"),
+		"Reverse-Proxies (IPs/Netze, Komma), deren X-Forwarded-For/-Proto gelten, z. B. 10.42.0.0/16")
 	flag.Parse()
 
 	if (*tlsCert == "") != (*tlsKey == "") {
@@ -97,6 +100,12 @@ func main() {
 		log.Warn(w)
 	}
 
+	trusted, err := api.ParseTrustedProxies(*proxies)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "-trusted-proxies:", err)
+		os.Exit(2)
+	}
+
 	var tlsCfg *tls.Config
 	if *tlsCert != "" {
 		pair, err := tls.LoadX509KeyPair(*tlsCert, *tlsKey)
@@ -107,14 +116,14 @@ func main() {
 		tlsCfg = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{pair}}
 	}
 
-	if err := run(*listen, *dbPath, *retention, token, metricsToken, tlsCfg, chans, log); err != nil {
+	if err := run(*listen, *dbPath, *retention, token, metricsToken, tlsCfg, chans, trusted, log); err != nil {
 		log.Error("server beendet mit fehler", "err", err)
 		os.Exit(1)
 	}
 }
 
 func run(listen, dbPath string, retention time.Duration, token, metricsToken string, tlsCfg *tls.Config,
-	chans []notify.Channel, log *slog.Logger) error {
+	chans []notify.Channel, trusted []netip.Prefix, log *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -138,7 +147,8 @@ func run(listen, dbPath string, retention time.Duration, token, metricsToken str
 	}
 	apiSrv := api.New(st, auth.New(st), token, web.Static(), log).
 		WithMetricsToken(metricsToken).
-		WithAlerts(evaluator, dispatcher)
+		WithAlerts(evaluator, dispatcher).
+		WithTrustedProxies(trusted)
 	go apiSrv.RunAlerts(ctx)
 
 	srv := &http.Server{
@@ -153,7 +163,7 @@ func run(listen, dbPath string, retention time.Duration, token, metricsToken str
 	errCh := make(chan error, 1)
 	go func() {
 		log.Info("server startet", "version", version, "listen", listen, "db", dbPath, "retention", retention,
-			"metrics", metricsToken != "", "tls", tlsCfg != nil, "notify", dispatcher.Channels())
+			"metrics", metricsToken != "", "tls", tlsCfg != nil, "notify", dispatcher.Channels(), "trusted_proxies", len(trusted))
 		if tlsCfg != nil {
 			errCh <- srv.ListenAndServeTLS("", "") // Zertifikat steckt bereits in TLSConfig
 		} else {

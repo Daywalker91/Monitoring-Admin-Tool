@@ -84,7 +84,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		Expires:  expires,
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   isHTTPS(r),
 		SameSite: http.SameSiteStrictMode,
 	})
 	s.log.Info("angemeldet", "user", req.Username, "remote", r.RemoteAddr)
@@ -103,7 +103,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: "", Path: "/", Expires: time.Unix(0, 0), MaxAge: -1,
-		HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode,
+		HttpOnly: true, Secure: isHTTPS(r), SameSite: http.SameSiteStrictMode,
 	})
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -113,8 +113,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 }
 
 // clientIP liefert die IP des Absenders (ohne Port) für die Fehlversuchssperre.
-// Hinter einem Reverse-Proxy wäre das die Proxy-IP; X-Forwarded-For wird bewusst
-// nicht ausgewertet, weil es gefälscht werden kann.
+// Hinter einem vertrauenswürdigen Proxy hat realIP RemoteAddr bereits ersetzt.
 func clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
