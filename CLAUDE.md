@@ -46,7 +46,8 @@ Ressourcenziele für den Agenten (Geräte mit max. 1 GB RAM):
   - Windows 11: ca. 25–27 MB Working Set, ca. 58 MB Private Bytes
   - Raspberry Pi (arm): noch offen
 
-Server: läuft als Docker-Container (linux/amd64 bzw. arm64) oder direkt als Binary.
+Server: läuft als Pod in k3s (Nodes sind arm64; Image multi-arch amd64/arm64 auf ghcr.io), als Windows-Dienst
+oder direkt als Binary. Agenten laufen immer direkt auf den Hosts (Windows-Dienst bzw. systemd), nie als Pod.
 
 ## Code-Architektur
 
@@ -57,7 +58,8 @@ Server: läuft als Docker-Container (linux/amd64 bzw. arm64) oder direkt als Bin
 /web      Frontend-Dateien (werden per go:embed eingebettet)
 /proto    gemeinsame Nachrichtentypen (JSON) zwischen Agent und Server
 /internal kleine gemeinsame Hilfspakete ohne schwere Abhängigkeiten (winsvc: Windows-Dienst, logfile)
-/deploy   Dockerfile für den Server, systemd-Unit, später Windows-Service
+/deploy   Dockerfile, k8s-Manifeste (k3s), systemd-Unit, install-agent.sh, env-Vorlage
+.github   Workflow: Multi-Arch-Server-Image nach ghcr.io
 build.ps1 baut den Agenten für alle Zielplattformen nach /dist
 ```
 
@@ -129,8 +131,11 @@ go run ./server/cmd/mat-server -listen 127.0.0.1:8080 -db .\data\mat.db
 go run ./agent/cmd/mat-agent -server ws://127.0.0.1:8080/ws/agent -token dev-token
 # GUI: http://127.0.0.1:8080/
 
-# Server-Image bauen
+# Server-Image bauen (lokal; im CI baut .github/workflows/server-image.yml multi-arch)
 docker build -f deploy/Dockerfile -t mat-server .
+
+# k8s-Manifeste prüfen (nur lesen / Probelauf)
+kubectl kustomize deploy/k8s
 ```
 
 ## Arbeitsweise
@@ -140,6 +145,7 @@ docker build -f deploy/Dockerfile -t mat-server .
 - Vor jedem Commit `go vet ./...` und `go test ./...` ausführen.
 - Lokal unter Windows testen (Agent und Server auf demselben Rechner).
 - **Keine systemverändernden Befehle** ausführen (keine Dienste installieren, keine Systemeinstellungen ändern usw.).
+  Das gilt auch für den Cluster: `kubectl` nur lesend oder mit `--dry-run`; `apply`/`delete` nur nach Rückfrage.
 
 ## Konventionen
 

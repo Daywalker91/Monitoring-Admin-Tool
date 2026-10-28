@@ -43,9 +43,61 @@ docker build -f deploy/Dockerfile -t mat-server .
 
 Per Flags (`-server`, `-token`, `-id`, `-interval`, `-process-interval`, `-log-level`, `-ca`) oder JSON-Datei
 (`-config agent.json`, Vorlage: [deploy/agent.example.json](deploy/agent.example.json)).
-Das Token kann auch über `MAT_AGENT_TOKEN` gesetzt werden.
+Das Token kann auch über `MAT_AGENT_TOKEN` gesetzt werden. Ohne `-config` und `-server` liest der Agent
+die Konfiguration vom festen Ort (`%ProgramData%\mat-agent\agent.json` bzw. `/etc/mat-agent/agent.json`).
+`mat-agent check [flags]` prüft die Konfiguration, ohne zu verbinden.
 
-Linux: systemd-Unit unter [deploy/systemd/mat-agent.service](deploy/systemd/mat-agent.service).
+## Installation als Dienst
+
+### Agent unter Windows
+
+In einer **Administrator-PowerShell**:
+
+```powershell
+$env:MAT_AGENT_TOKEN = "<token>"     # nicht als -token, sonst steht es in der Prozessliste
+.\dist\mat-agent-windows-amd64.exe service install -server wss://192.168.4.56/ws/agent -ca server.crt
+mat-agent service status              # geht auch ohne Administrator
+```
+
+Das kopiert das Programm nach `C:\Program Files\mat-agent`, schreibt die Konfiguration nach
+`C:\ProgramData\mat-agent\agent.json` (nur SYSTEM und Administratoren lesbar, CA-Datei daneben) und
+richtet den Dienst mit Autostart und Neustart nach Fehlern ein. Log: `C:\ProgramData\mat-agent\agent.log`.
+Erneutes `service install` aktualisiert Programm und Konfiguration; Flags überschreiben einzelne Werte.
+Entfernen: `service uninstall` (mit `-purge` auch Konfiguration und Log).
+
+### Agent unter Linux / Raspberry Pi
+
+`.\build.ps1` legt Skript und systemd-Unit mit nach `dist\`. Den Ordner auf das Gerät kopieren, dann:
+
+```sh
+sudo sh install-agent.sh --server wss://192.168.4.56/ws/agent --ca server.crt
+```
+
+Das Skript wählt das Programm passend zur Architektur, fragt das Token verdeckt ab (oder nimmt
+`MAT_AGENT_TOKEN`), schreibt `/etc/mat-agent/agent.json` mit 0600, prüft sie und startet den Dienst.
+Ohne `--server` aktualisiert es nur das Programm. Log: `journalctl -u mat-agent -f`.
+Entfernen: `sudo sh install-agent.sh --uninstall [--purge]`.
+
+### Server unter Windows
+
+Einstellungen in eine env-Datei (Vorlage: [deploy/server.env.example](deploy/server.env.example)), dann in
+einer Administrator-PowerShell:
+
+```powershell
+.\dist\mat-server-windows-amd64.exe service install -env-file data\server.env -import-db data\mat.db
+mat-server user add admin -env-file C:\ProgramData\mat-server\server.env -db C:\ProgramData\mat-server\mat.db
+```
+
+`-import-db` übernimmt die bisherige Datenbank (den Server vorher beenden). Danach liegen env-Datei,
+Datenbank und Log (`server.log`) in `C:\ProgramData\mat-server`, nur für Administratoren lesbar.
+Ohne Dienst lässt sich die env-Datei auch direkt nutzen: `mat-server -env-file data\server.env`.
+
+### Server in Kubernetes (k3s) oder Docker
+
+Siehe [deploy/k8s/README.md](deploy/k8s/README.md). Das Image `ghcr.io/daywalker91/mat-server`
+(amd64 + arm64) baut der Workflow `.github/workflows/server-image.yml` bei jedem Push auf `main`.
+Hinter einem Reverse-Proxy `MAT_TRUSTED_PROXIES` setzen (z. B. `10.42.0.0/16`), sonst sieht der Server
+nur die IP des Proxys.
 
 ## API
 
