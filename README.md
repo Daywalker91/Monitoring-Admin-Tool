@@ -5,7 +5,7 @@ ein zentraler Server mit Web-GUI.
 
 **Stand:** M1 fertig – Metriken erfassen (CPU, RAM/Swap, Netzwerk, Speicher, Top-Prozesse),
 per WebSocket übertragen, in SQLite speichern (7 Tage Historie) und als responsive Host-Liste anzeigen.
-M2 in Arbeit – GUI-Login ✓, Verlaufsdiagramme ✓, Prometheus-Endpunkt ✓, HTTPS.
+M2 fertig – GUI-Login, Verlaufsdiagramme, Prometheus-Endpunkt, HTTPS/wss.
 
 ## Schnellstart (lokal)
 
@@ -40,7 +40,7 @@ docker build -f deploy/Dockerfile -t mat-server .
 
 ## Agent konfigurieren
 
-Per Flags (`-server`, `-token`, `-id`, `-interval`, `-process-interval`, `-log-level`) oder JSON-Datei
+Per Flags (`-server`, `-token`, `-id`, `-interval`, `-process-interval`, `-log-level`, `-ca`) oder JSON-Datei
 (`-config agent.json`, Vorlage: [deploy/agent.example.json](deploy/agent.example.json)).
 Das Token kann auch über `MAT_AGENT_TOKEN` gesetzt werden.
 
@@ -61,6 +61,23 @@ Alle `/api/*`-Endpunkte außer Login/Logout erfordern eine Session.
 | `DELETE /api/hosts/{id}`        | Host samt Historie entfernen (nur offline) |
 | `GET /healthz`                  | Health-Check                               |
 | `GET /metrics`                  | Prometheus-Format (eigenes Bearer-Token)   |
+
+## HTTPS / wss
+
+```powershell
+# 1. Zertifikat erzeugen (IP und/oder Name, unter dem Agenten und Browser den Server erreichen)
+mat-server gen-cert -hosts 192.168.0.10,monitor.lan -out data
+
+# 2. Server mit TLS starten (alternativ MAT_TLS_CERT / MAT_TLS_KEY)
+mat-server -listen 0.0.0.0:8443 -tls-cert data/server.crt -tls-key data/server.key
+
+# 3. data/server.crt auf die Agenten kopieren und vertrauen
+mat-agent -server wss://192.168.0.10:8443/ws/agent -ca server.crt
+```
+
+Das Zertifikat ist selbst signiert: Der Agent vertraut mit `-ca` genau diesem Zertifikat (keine
+Prüfung wird abgeschaltet). Im Browser erscheint beim ersten Aufruf eine Warnung, bis das Zertifikat
+dort als vertrauenswürdig importiert wird. Bei TLS bekommt das Session-Cookie automatisch `Secure`.
 
 ## Prometheus / Grafana
 

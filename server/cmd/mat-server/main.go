@@ -6,11 +6,13 @@
 //	mat-server user add|passwd <name>      Benutzer anlegen bzw. Passwort ändern
 //	mat-server user list                   Benutzer auflisten
 //	mat-server user del <name>             Benutzer löschen
+//	mat-server gen-cert -hosts <ip,name>   selbst signiertes TLS-Zertifikat erzeugen
 //	mat-server version                     Version ausgeben
 package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -43,6 +45,12 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "gen-cert":
+			if err := runGenCert(os.Args[2:]); err != nil {
+				fmt.Fprintln(os.Stderr, "fehler:", err)
+				os.Exit(1)
+			}
+			return
 		}
 	}
 
@@ -50,7 +58,14 @@ func main() {
 	dbPath := flag.String("db", envOr("MAT_DB", "data/mat.db"), "Pfad zur SQLite-Datenbank")
 	retention := flag.Duration("retention", 7*24*time.Hour, "Aufbewahrungsdauer der Historie")
 	logLevel := flag.String("log-level", envOr("MAT_LOG_LEVEL", "info"), "Log-Level: debug, info, warn, error")
+	tlsCert := flag.String("tls-cert", os.Getenv("MAT_TLS_CERT"), "TLS-Zertifikat (PEM); mit -tls-key → HTTPS/wss")
+	tlsKey := flag.String("tls-key", os.Getenv("MAT_TLS_KEY"), "TLS-Schlüssel (PEM)")
 	flag.Parse()
+
+	if (*tlsCert == "") != (*tlsKey == "") {
+		fmt.Fprintln(os.Stderr, "-tls-cert und -tls-key müssen zusammen angegeben werden")
+		os.Exit(2)
+	}
 
 	var level slog.Level
 	_ = level.UnmarshalText([]byte(*logLevel))
@@ -70,13 +85,23 @@ func main() {
 		os.Exit(2)
 	}
 
-	if err := run(*listen, *dbPath, *retention, token, metricsToken, log); err != nil {
+	var tlsCfg *tls.Config
+	if *tlsCert != "" {
+		pair, err := tls.LoadX509KeyPair(*tlsCert, *tlsKey)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "tls-zertifikat laden:", err)
+			os.Exit(2)
+		}
+		tlsCfg = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{pair}}
+	}
+
+	if err := run(*listen, *dbPath, *retention, token, metricsToken, tlsCfg, log); err != nil {
 		log.Error("server beendet mit fehler", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(listen, dbPath string, retention time.Duration, token, metricsToken string, log *slog.Logger) error {
+func run(listen, dbPath string, retention time.Duration, token, metricsToken string, tlsCfg *tls.Config, log *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -96,6 +121,7 @@ func run(listen, dbPath string, retention time.Duration, token, metricsToken str
 		Addr:              listen,
 		Handler:           api.New(st, auth.New(st), token, web.Static(), log).WithMetricsToken(metricsToken).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
+		TLSConfig:         tlsCfg,
 		// Anfrage-Kontexte hängen am Signal-Kontext, damit offene WebSockets beim Beenden schließen.
 		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
@@ -103,8 +129,12 @@ func run(listen, dbPath string, retention time.Duration, token, metricsToken str
 	errCh := make(chan error, 1)
 	go func() {
 		log.Info("server startet", "version", version, "listen", listen, "db", dbPath, "retention", retention,
-			"metrics", metricsToken != "")
-		errCh <- srv.ListenAndServe()
+			"metrics", metricsToken != "", "tls", tlsCfg != nil)
+		if tlsCfg != nil {
+			errCh <- srv.ListenAndServeTLS("", "") // Zertifikat steckt bereits in TLSConfig
+		} else {
+			errCh <- srv.ListenAndServe()
+		}
 	}()
 
 	select {

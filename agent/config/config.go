@@ -4,6 +4,8 @@
 package config
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -22,6 +24,9 @@ type Config struct {
 	IntervalSec        int    `json:"interval_sec"`
 	ProcessIntervalSec int    `json:"process_interval_sec"`
 	LogLevel           string `json:"log_level"` // debug, info, warn, error
+	// CAFile ist ein PEM-Zertifikat, dem bei wss:// vertraut wird (z. B. das
+	// selbst signierte Server-Zertifikat). Leer = System-Zertifikate.
+	CAFile string `json:"ca_file"`
 }
 
 // Defaults liefert die Standardkonfiguration.
@@ -41,6 +46,7 @@ func Load(args []string) (Config, error) {
 	interval := fs.Int("interval", 0, "Messintervall in Sekunden (10–15 empfohlen)")
 	procInterval := fs.Int("process-interval", 0, "Intervall für Top-Prozesse in Sekunden")
 	logLevel := fs.String("log-level", "", "Log-Level: debug, info, warn, error")
+	caFile := fs.String("ca", "", "PEM-Zertifikat, dem bei wss:// vertraut wird (selbst signierter Server)")
 	if err := fs.Parse(args); err != nil {
 		return cfg, err
 	}
@@ -62,6 +68,7 @@ func Load(args []string) (Config, error) {
 	setString(&cfg.Token, *token)
 	setString(&cfg.AgentID, *id)
 	setString(&cfg.LogLevel, *logLevel)
+	setString(&cfg.CAFile, *caFile)
 	if *interval > 0 {
 		cfg.IntervalSec = *interval
 	}
@@ -89,7 +96,27 @@ func (c *Config) Validate() error {
 	if c.ProcessIntervalSec < c.IntervalSec || c.ProcessIntervalSec > 3600 {
 		return fmt.Errorf("process_interval_sec muss zwischen interval_sec und 3600 liegen, ist %d", c.ProcessIntervalSec)
 	}
+	if c.CAFile != "" && u.Scheme != "wss" {
+		return errors.New("ca_file ist nur mit wss:// sinnvoll")
+	}
 	return nil
+}
+
+// TLSConfig liefert die TLS-Einstellungen für die Verbindung. Ohne CAFile
+// werden die System-Zertifikate verwendet (Rückgabe nil).
+func (c *Config) TLSConfig() (*tls.Config, error) {
+	if c.CAFile == "" {
+		return nil, nil
+	}
+	pemData, err := os.ReadFile(c.CAFile)
+	if err != nil {
+		return nil, fmt.Errorf("ca_file lesen: %w", err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(pemData) {
+		return nil, fmt.Errorf("ca_file %s enthält kein gültiges PEM-Zertifikat", c.CAFile)
+	}
+	return &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}, nil
 }
 
 // Insecure meldet, ob unverschlüsselt (ws://) zu einem entfernten Host verbunden wird.

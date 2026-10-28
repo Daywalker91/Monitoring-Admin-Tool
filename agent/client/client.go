@@ -27,15 +27,24 @@ const (
 
 // Client verbindet den Agenten mit dem Server.
 type Client struct {
-	cfg   config.Config
-	hello proto.Hello
-	col   *collector.Collector
-	log   *slog.Logger
+	cfg        config.Config
+	hello      proto.Hello
+	col        *collector.Collector
+	log        *slog.Logger
+	httpClient *http.Client // nil = Standard (System-Zertifikate)
 }
 
-// New erzeugt einen Client.
-func New(cfg config.Config, hello proto.Hello, col *collector.Collector, log *slog.Logger) *Client {
-	return &Client{cfg: cfg, hello: hello, col: col, log: log}
+// New erzeugt einen Client. Ein Fehler entsteht nur bei ungültiger TLS-Konfiguration.
+func New(cfg config.Config, hello proto.Hello, col *collector.Collector, log *slog.Logger) (*Client, error) {
+	c := &Client{cfg: cfg, hello: hello, col: col, log: log}
+	tlsCfg, err := cfg.TLSConfig()
+	if err != nil {
+		return nil, err
+	}
+	if tlsCfg != nil {
+		c.httpClient = &http.Client{Transport: &http.Transport{TLSClientConfig: tlsCfg}}
+	}
+	return c, nil
 }
 
 // Run verbindet sich und hält die Verbindung, bis ctx beendet wird. Bei
@@ -70,7 +79,10 @@ func (c *Client) session(ctx context.Context) (connected bool, err error) {
 
 	header := http.Header{}
 	header.Set("Authorization", "Bearer "+c.cfg.Token)
-	conn, resp, err := websocket.Dial(dialCtx, c.cfg.ServerURL, &websocket.DialOptions{HTTPHeader: header})
+	conn, resp, err := websocket.Dial(dialCtx, c.cfg.ServerURL, &websocket.DialOptions{
+		HTTPHeader: header,
+		HTTPClient: c.httpClient,
+	})
 	if err != nil {
 		if resp != nil && resp.StatusCode == http.StatusUnauthorized {
 			return false, errors.New("server lehnt token ab (401)")

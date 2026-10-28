@@ -65,8 +65,13 @@ func main() {
 		"interval_sec", cfg.IntervalSec, "process_interval_sec", cfg.ProcessIntervalSec)
 
 	col := collector.New()
+	cl, err := client.New(cfg, hello, col, log)
+	if err != nil {
+		log.Error("tls-konfiguration", "err", err)
+		os.Exit(2)
+	}
 	col.Prime(ctx)
-	client.New(cfg, hello, col, log).Run(ctx)
+	cl.Run(ctx)
 	log.Info("agent beendet")
 }
 

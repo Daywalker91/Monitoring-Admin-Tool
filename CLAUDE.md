@@ -11,7 +11,8 @@ sammelt die Daten und steuert (später) Admin-Aktionen.
 Es wird in Meilensteinen gearbeitet. Alles, was zu keinem beauftragten Meilenstein gehört, wird nur vorbereitet, nicht umgesetzt.
 
 - **M1 (fertig):** Metriken erfassen, übertragen, speichern, anzeigen; responsive GUI
-- **M2 (aktuell):** GUI-Login, Verlaufsdiagramme, `/metrics` für Prometheus, HTTPS/wss
+- **M2 (fertig):** GUI-Login, Verlaufsdiagramme, `/metrics` für Prometheus, HTTPS/wss
+- **M3:** noch nicht festgelegt
 
 ## Tech-Stack
 
@@ -72,7 +73,6 @@ Vorbereitet für später (nicht umsetzen, solange nicht beauftragt):
 
 - **Fähigkeiten** (`capabilities`, z. B. `packages`, `users`, `reboot`): der Agent meldet sie, die GUI zeigt nur passende Aktionen
 - **Jobs**: Admin-Aktionen mit festem Aktionsnamen und validierten Parametern
-- **`/metrics`-Endpoint** im Prometheus-Format für Grafana
 
 ## Sicherheitsregeln
 
@@ -85,7 +85,8 @@ Der Agent läuft als root bzw. SYSTEM, deshalb gilt:
   er vertraut dem Server nicht blind.
 - Der Agent öffnet **keine eingehenden Ports**; er verbindet sich nur ausgehend zum Server.
 - Agenten authentifizieren sich mit einem Token (`Authorization: Bearer …`). Ohne konfiguriertes Token startet der Server nicht.
-  Außerhalb von localhost/LAN-Tests ist `wss://` (TLS) Pflicht.
+  Außerhalb von localhost/LAN-Tests ist `wss://` (TLS) Pflicht. Selbst signierte Zertifikate (`mat-server gen-cert`)
+  werden im Agenten per `ca_file` gepinnt — `InsecureSkipVerify` ist verboten. TLS mindestens 1.2.
 - Alle Netzwerkeingaben gelten als nicht vertrauenswürdig: Größenlimit für WebSocket-Nachrichten, Felder validieren,
   SQL nur mit Platzhaltern, in der GUI Werte per `textContent` setzen (kein `innerHTML` mit Fremddaten).
 - **GUI-Login**: Alles außer Login-Seite, `/ws/agent` (Agent-Token) und `/healthz` erfordert eine Session.

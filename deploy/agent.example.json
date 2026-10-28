@@ -1,8 +1,9 @@
 {
-  "server_url": "wss://monitor.example.lan/ws/agent",
+  "server_url": "wss://monitor.example.lan:8443/ws/agent",
   "token": "HIER-TOKEN-EINTRAGEN",
   "agent_id": "",
   "interval_sec": 10,
   "process_interval_sec": 30,
-  "log_level": "info"
+  "log_level": "info",
+  "ca_file": "/etc/mat-agent/server.crt"
 }
