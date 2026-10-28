@@ -322,3 +322,130 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; padding
   .hide-sm { display: none; }
   .agent-id { display: block; margin-left: 0; }
 }
+
+/* Ansichten und Alarme */
+h2 { font-size: 15px; margin: 0 0 10px; }
+.view > h2 { margin-top: 18px; }
+.view > h2:first-child { margin-top: 0; }
+.view .table-wrap + h2 { margin-top: 22px; }
+.view > p.muted { margin: 0 0 10px; }
+
+#tabs button { padding: 5px 12px; font-size: 13px; }
+
+.pill {
+  display: inline-block;
+  padding: 1px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+.pill.crit { color: var(--crit); border-color: var(--crit); }
+.host-alerts { margin-left: 8px; vertical-align: 1px; }
+
+.alert-badge {
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--panel);
+  background: var(--crit);
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+table.alerts tbody tr { border-top: 1px solid var(--border); cursor: pointer; }
+table.alerts tbody tr:hover { background: var(--bg); }
+
+.panel {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-width: 760px;
+}
+.panel > p { margin: 0 0 12px; }
+
+#rules td { vertical-align: middle; border-top: 1px solid var(--border); }
+#rules .rule-help { display: block; font-weight: 400; }
+#rules input[type="number"] {
+  width: 5.5em;
+  padding: 6px;
+  font: inherit;
+  font-size: 16px; /* verhindert Auto-Zoom auf iOS */
+  text-align: right;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+#rules input[type="checkbox"] { width: 18px; height: 18px; }
+#rules .unit { color: var(--muted); }
+
+.form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 14px; }
+button.primary, button.secondary {
+  padding: 8px 16px;
+  font: inherit;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+}
+button.primary { color: #fff; background: var(--bar); border: 0; }
+button.secondary { color: var(--bar); background: transparent; border: 1px solid var(--bar); }
+button.secondary[disabled] { opacity: 0.6; cursor: wait; }
+.ok-text { color: var(--ok); }
+ul.plain { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 4px; }
+
+@media (max-width: 760px) {
+  header nav { order: 5; width: 100%; }
+  #tabs button { flex: 1; }
+  .alert-badge { order: 4; }
+
+  /* Regeln als Karten: Name oben, Eingaben darunter */
+  #rules thead { display: none; }
+  #rules, #rules tbody { display: block; }
+  #rules tr {
+    display: grid;
+    grid-template-columns: auto 1fr 1fr;
+    grid-template-areas: "on name name" ". thr dur";
+    gap: 6px 10px;
+    padding: 10px 0;
+    border-top: 1px solid var(--border);
+  }
+  #rules td { display: block; padding: 0; border: 0; text-align: left; white-space: normal; }
+  #rules td[data-label]::before { content: attr(data-label); display: block; font-size: 11px; color: var(--muted); }
+  #rules .c-on { grid-area: on; }
+  #rules .c-name { grid-area: name; }
+  #rules .c-thr { grid-area: thr; }
+  #rules .c-dur { grid-area: dur; }
+
+  /* Alarme als Karten */
+  table.alerts thead { display: none; }
+  table.alerts, table.alerts tbody { display: block; }
+  .view .table-wrap:has(table.alerts) { background: none; border: 0; }
+  table.alerts tbody tr {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-areas: "host host state" "rule value dur" "start start start";
+    gap: 6px 12px;
+    margin-bottom: 10px;
+    padding: 12px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  table.alerts td { display: block; padding: 0; text-align: left; white-space: normal; min-width: 0; }
+  table.alerts td[data-label]::before { content: attr(data-label); display: block; font-size: 11px; color: var(--muted); }
+  table.alerts .c-state { grid-area: state; text-align: right; }
+  table.alerts .c-host { grid-area: host; font-size: 15px; }
+  table.alerts .c-host::before { display: none !important; }
+  table.alerts .c-rule { grid-area: rule; }
+  table.alerts .c-value { grid-area: value; }
+  table.alerts .c-dur { grid-area: dur; }
+  table.alerts .c-start { grid-area: start; }
+  table.alerts td.hide-sm { display: none; }
+}

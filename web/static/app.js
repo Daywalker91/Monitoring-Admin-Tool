@@ -4,17 +4,30 @@
 "use strict";
 
 const REFRESH_MS = 5000;
-// IDs der aufgeklappten Hosts; stehen im URL-Hash (#open=a,b), damit sie einen Reload überstehen.
-const openHosts = new Set(
-  new URLSearchParams(location.hash.slice(1)).get("open")?.split(",").filter(Boolean) ?? []
-);
+const VIEWS = ["hosts", "alerts", "rules"];
+// Ansicht und aufgeklappte Hosts stehen im URL-Hash (#view=alerts&open=a,b),
+// damit sie einen Reload überstehen.
+const hashParams = new URLSearchParams(location.hash.slice(1));
+const openHosts = new Set(hashParams.get("open")?.split(",").filter(Boolean) ?? []);
+let currentView = VIEWS.includes(hashParams.get("view")) ? hashParams.get("view") : "hosts";
 let lastHosts = [];
 
 function saveOpenHosts() {
-  const url = openHosts.size
-    ? "#open=" + [...openHosts].map(encodeURIComponent).join(",")
-    : location.pathname + location.search;
-  history.replaceState(null, "", url);
+  const parts = [];
+  if (currentView !== "hosts") parts.push("view=" + currentView);
+  if (openHosts.size) parts.push("open=" + [...openHosts].map(encodeURIComponent).join(","));
+  history.replaceState(null, "", parts.length ? "#" + parts.join("&") : location.pathname + location.search);
+}
+
+function showView(view) {
+  currentView = view;
+  for (const v of VIEWS) document.getElementById("view-" + v).hidden = v !== view;
+  for (const b of document.querySelectorAll("#tabs button")) {
+    b.setAttribute("aria-pressed", String(b.dataset.view === view));
+  }
+  saveOpenHosts();
+  if (view === "rules") loadRules(); // nur beim Öffnen laden, damit Eingaben erhalten bleiben
+  refresh();
 }
 
 function el(tag, text, cls) {
@@ -82,6 +95,8 @@ function hostRow(h) {
   host.append(el("span", h.hostname, "hostname"));
   // Agent-ID nur zeigen, wenn sie vom Hostnamen abweicht (sonst sehen mehrere Einträge gleich aus).
   if (h.id !== h.hostname.toLowerCase()) host.append(el("span", h.id, "agent-id"));
+  const nAlerts = alertCountFor(h.id);
+  if (nAlerts) host.append(el("span", alertBadgeText(nAlerts), "pill crit host-alerts"));
   tr.append(host);
 
   tr.append(cell("system", null, [h.platform || h.os, h.platform_version, h.arch].filter(Boolean).join(" · ")));
@@ -344,13 +359,23 @@ function render(hosts) {
 // Session abgelaufen oder abgemeldet: zur Login-Seite.
 function toLogin() { location.replace("login.html"); }
 
+async function fetchJSON(url) {
+  const resp = await fetch(url, { cache: "no-store" });
+  if (resp.status === 401) { toLogin(); throw new Error("nicht angemeldet"); }
+  if (!resp.ok) throw new Error("HTTP " + resp.status);
+  return resp.json();
+}
+
 async function refresh() {
   const errBox = document.getElementById("error");
   try {
-    const resp = await fetch("api/hosts", { cache: "no-store" });
-    if (resp.status === 401) return toLogin();
-    if (!resp.ok) throw new Error("HTTP " + resp.status);
-    render(await resp.json());
+    // In der Alarmansicht auch beendete Alarme laden, sonst nur aktive.
+    const withPast = currentView === "alerts";
+    const [hosts, alerts] = await Promise.all([fetchJSON("api/hosts"), fetchJSON("api/alerts" + (withPast ? "?all=1" : ""))]);
+    activeAlerts = alerts.filter(a => a.resolved_at === null);
+    renderAlertBadge();
+    if (withPast) renderAlerts(alerts);
+    render(hosts);
     errBox.hidden = true;
     document.getElementById("updated").textContent = "aktualisiert " + new Date().toLocaleTimeString("de-DE");
   } catch (e) {
@@ -371,6 +396,11 @@ document.getElementById("logout").addEventListener("click", async () => {
   try { await fetch("api/logout", { method: "POST" }); } finally { toLogin(); }
 });
 
+for (const b of document.querySelectorAll("#tabs button")) {
+  b.addEventListener("click", () => showView(b.dataset.view));
+}
+document.getElementById("alert-badge").addEventListener("click", () => showView("alerts"));
+
 initUser();
-refresh();
+showView(currentView);
 setInterval(refresh, REFRESH_MS);

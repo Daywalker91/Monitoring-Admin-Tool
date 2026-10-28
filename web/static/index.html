@@ -7,11 +7,18 @@
   <title>Homelab Monitor</title>
   <link rel="stylesheet" href="style.css">
   <script src="charts.js" defer></script>
+  <script src="alerts.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
   <header>
     <h1>Homelab Monitor</h1>
+    <nav id="tabs" class="segmented" aria-label="Ansicht">
+      <button type="button" data-view="hosts">Hosts</button>
+      <button type="button" data-view="alerts">Alarme<span class="count"></span></button>
+      <button type="button" data-view="rules">Regeln</button>
+    </nav>
+    <button type="button" id="alert-badge" class="alert-badge" hidden></button>
     <span id="summary" class="muted"></span>
     <span id="updated" class="muted"></span>
     <span class="user">
@@ -22,6 +29,8 @@
 
   <main>
     <p id="error" class="error" hidden></p>
+
+    <section id="view-hosts" class="view">
     <!-- Desktop: Tabelle. Schmale Bildschirme: dieselben Zeilen werden per CSS zu Karten. -->
     <div class="table-wrap">
       <table id="hosts">
@@ -43,6 +52,47 @@
       </table>
     </div>
     <p id="empty" class="muted" hidden>Noch keine Agenten verbunden.</p>
+    </section>
+
+    <section id="view-alerts" class="view" hidden>
+      <h2>Aktive Alarme</h2>
+      <p id="alerts-active-empty" class="muted">Keine aktiven Alarme.</p>
+      <div class="table-wrap">
+        <table id="alerts-active" class="alerts">
+          <thead><tr><th></th><th>Host</th><th>Regel</th><th class="num">Wert</th><th class="num hide-sm">Schwelle</th><th>Beginn</th><th class="num">Dauer</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <h2>Verlauf (7 Tage)</h2>
+      <p id="alerts-past-empty" class="muted">Keine beendeten Alarme.</p>
+      <div class="table-wrap">
+        <table id="alerts-past" class="alerts">
+          <thead><tr><th></th><th>Host</th><th>Regel</th><th class="num">Wert</th><th class="num hide-sm">Schwelle</th><th>Beginn</th><th class="num">Dauer</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="view-rules" class="view" hidden>
+      <form id="rules-form" class="panel">
+        <h2>Alarmregeln</h2>
+        <p id="rules-hint" class="muted small"></p>
+        <table id="rules">
+          <thead><tr><th>Aktiv</th><th>Regel</th><th class="num">Schwelle</th><th class="num">Mindestdauer</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="form-actions">
+          <button type="submit" class="primary">Speichern</button>
+          <span id="rules-status" role="status"></span>
+        </div>
+      </form>
+      <div class="panel">
+        <h2>Benachrichtigungen</h2>
+        <p id="channels" class="muted"></p>
+        <button type="button" id="test-alert" class="secondary" hidden>Testnachricht senden</button>
+        <ul id="test-result" class="plain"></ul>
+      </div>
+    </section>
   </main>
 
   <template id="detail-tpl">
