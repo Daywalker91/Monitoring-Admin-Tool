@@ -88,8 +88,11 @@ Der Agent läuft als root bzw. SYSTEM, deshalb gilt:
   Außerhalb von localhost/LAN-Tests ist `wss://` (TLS) Pflicht.
 - Alle Netzwerkeingaben gelten als nicht vertrauenswürdig: Größenlimit für WebSocket-Nachrichten, Felder validieren,
   SQL nur mit Platzhaltern, in der GUI Werte per `textContent` setzen (kein `innerHTML` mit Fremddaten).
-- Die GUI hat in M1 **keinen Login** und ist nur für ein vertrauenswürdiges Netz gedacht. Bevor Admin-Aktionen
-  kommen, braucht die GUI Authentifizierung.
+- **GUI-Login**: Alles außer Login-Seite, `/ws/agent` (Agent-Token) und `/healthz` erfordert eine Session.
+  Passwörter mit bcrypt (Kosten 12, min. 10 Zeichen); Session-Token zufällig (32 Byte), in der DB nur als SHA-256;
+  Cookie `HttpOnly`, `SameSite=Strict`, `Secure` bei TLS; 7 Tage gültig; 5 Fehlversuche → 5 Minuten Sperre pro IP.
+  Benutzer werden nur per CLI angelegt (`mat-server user add`), nie über die GUI oder Umgebungsvariablen.
+- Ändernde Anfragen (POST/DELETE) prüfen zusätzlich den `Origin`-Header (Same-Origin).
 - Zugangsdaten, Tokens und Passwörter niemals committen und niemals loggen — Konfiguration über `.env` /
   lokale Config-Dateien (in `.gitignore`).
 
@@ -104,6 +107,7 @@ go test ./...
 .\build.ps1
 
 # Lokal testen (Server + Agent auf demselben Rechner)
+go run ./server/cmd/mat-server user add admin -db .\data\mat.db   # einmalig, Passwort wird abgefragt
 $env:MAT_AGENT_TOKEN = "dev-token"
 go run ./server/cmd/mat-server -listen 127.0.0.1:8080 -db .\data\mat.db
 go run ./agent/cmd/mat-agent -server ws://127.0.0.1:8080/ws/agent -token dev-token

@@ -1,4 +1,12 @@
 // mat-server nimmt Metriken der Agenten an, speichert sie und liefert die Web-GUI aus.
+//
+// Aufruf:
+//
+//	mat-server [flags]                     Server starten
+//	mat-server user add|passwd <name>      Benutzer anlegen bzw. Passwort ändern
+//	mat-server user list                   Benutzer auflisten
+//	mat-server user del <name>             Benutzer löschen
+//	mat-server version                     Version ausgeben
 package main
 
 import (
@@ -15,6 +23,7 @@ import (
 	"time"
 
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/api"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/server/auth"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/store"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/web"
 )
@@ -23,6 +32,20 @@ import (
 var version = "dev"
 
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "version":
+			fmt.Println(version)
+			return
+		case "user":
+			if err := runUser(os.Args[2:]); err != nil {
+				fmt.Fprintln(os.Stderr, "fehler:", err)
+				os.Exit(1)
+			}
+			return
+		}
+	}
+
 	listen := flag.String("listen", envOr("MAT_LISTEN", ":8080"), "Adresse für HTTP (GUI, API, Agenten)")
 	dbPath := flag.String("db", envOr("MAT_DB", "data/mat.db"), "Pfad zur SQLite-Datenbank")
 	retention := flag.Duration("retention", 7*24*time.Hour, "Aufbewahrungsdauer der Historie")
@@ -56,11 +79,15 @@ func run(listen, dbPath string, retention time.Duration, token string, log *slog
 	}
 	defer st.Close()
 
+	if users, err := st.Users(ctx); err == nil && len(users) == 0 {
+		log.Warn("noch kein benutzer für die gui angelegt – anlegen mit: mat-server user add <name>", "db", dbPath)
+	}
+
 	go api.RunRetention(ctx, st, retention, log)
 
 	srv := &http.Server{
 		Addr:              listen,
-		Handler:           api.New(st, token, web.Static(), log).Handler(),
+		Handler:           api.New(st, auth.New(st), token, web.Static(), log).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		// Anfrage-Kontexte hängen am Signal-Kontext, damit offene WebSockets beim Beenden schließen.
 		BaseContext: func(net.Listener) context.Context { return ctx },

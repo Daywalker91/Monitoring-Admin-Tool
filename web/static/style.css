@@ -129,6 +129,54 @@ button.danger {
 }
 button.danger:hover { background: var(--crit); color: var(--panel); }
 
+/* Kopfzeile: Benutzer und Abmelden rechts */
+header .user { margin-left: auto; display: flex; align-items: baseline; gap: 10px; }
+button.link {
+  padding: 0;
+  font: inherit;
+  color: var(--bar);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+button.link:hover { text-decoration: underline; }
+
+/* Login-Seite */
+body.login-page { display: grid; place-items: center; min-height: 100vh; padding: 16px; }
+.login-box {
+  width: 100%;
+  max-width: 340px;
+  padding: 24px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.login-box h1 { margin-bottom: 18px; }
+.login-box form { display: grid; gap: 14px; }
+.login-box label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.login-box input {
+  padding: 10px;
+  font: inherit;
+  font-size: 16px; /* verhindert Auto-Zoom auf iOS */
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.login-box input:focus { outline: 2px solid var(--bar); outline-offset: -1px; }
+.login-box button[type="submit"] {
+  padding: 10px;
+  font: inherit;
+  font-weight: 600;
+  color: #fff;
+  background: var(--bar);
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.login-box button[disabled] { opacity: 0.6; cursor: wait; }
+.login-box .error { margin: 0; font-size: 13px; }
+
 /* Mittlere Breiten (Tablet): weniger wichtige Spalten ausblenden */
 @media (max-width: 1100px) {
   #hosts .c-system, #hosts > thead th:nth-child(3) { display: none; }

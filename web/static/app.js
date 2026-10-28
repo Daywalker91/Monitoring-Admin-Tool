@@ -181,6 +181,7 @@ async function deleteHost(h) {
   if (!confirm("Host „" + h.hostname + "“ (" + h.id + ") samt Historie aus der Liste entfernen?")) return;
   try {
     const resp = await fetch("api/hosts/" + encodeURIComponent(h.id), { method: "DELETE" });
+    if (resp.status === 401) return toLogin();
     if (!resp.ok && resp.status !== 404) throw new Error((await resp.text()).trim() || "HTTP " + resp.status);
     openHosts.delete(h.id);
     saveOpenHosts();
@@ -205,10 +206,14 @@ function render(hosts) {
   document.getElementById("empty").hidden = hosts.length > 0;
 }
 
+// Session abgelaufen oder abgemeldet: zur Login-Seite.
+function toLogin() { location.replace("login.html"); }
+
 async function refresh() {
   const errBox = document.getElementById("error");
   try {
     const resp = await fetch("api/hosts", { cache: "no-store" });
+    if (resp.status === 401) return toLogin();
     if (!resp.ok) throw new Error("HTTP " + resp.status);
     render(await resp.json());
     errBox.hidden = true;
@@ -219,5 +224,18 @@ async function refresh() {
   }
 }
 
+async function initUser() {
+  try {
+    const resp = await fetch("api/me", { cache: "no-store" });
+    if (resp.status === 401) return toLogin();
+    if (resp.ok) document.getElementById("username").textContent = (await resp.json()).username;
+  } catch { /* Anzeige des Namens ist nicht kritisch */ }
+}
+
+document.getElementById("logout").addEventListener("click", async () => {
+  try { await fetch("api/logout", { method: "POST" }); } finally { toLogin(); }
+});
+
+initUser();
 refresh();
 setInterval(refresh, REFRESH_MS);

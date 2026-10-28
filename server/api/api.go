@@ -19,6 +19,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/Daywalker91/Monitoring-Admin-Tool/proto"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/server/auth"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/store"
 )
 
@@ -31,6 +32,7 @@ const (
 // Server bündelt die HTTP-Handler.
 type Server struct {
 	store *store.Store
+	auth  *auth.Manager
 	token []byte
 	gui   fs.FS
 	log   *slog.Logger
@@ -42,21 +44,36 @@ type Server struct {
 
 // New erzeugt einen Server. token ist das gemeinsame Agent-Token, gui die
 // Frontend-Dateien.
-func New(st *store.Store, token string, gui fs.FS, log *slog.Logger) *Server {
-	return &Server{store: st, token: []byte(token), gui: gui, log: log,
+func New(st *store.Store, am *auth.Manager, token string, gui fs.FS, log *slog.Logger) *Server {
+	return &Server{store: st, auth: am, token: []byte(token), gui: gui, log: log,
 		conns: make(map[string]*websocket.Conn), nowFor: time.Now}
 }
 
-// Handler liefert den HTTP-Router.
+// Dateien, die ohne Anmeldung erreichbar sein müssen (Login-Seite).
+var publicFiles = []string{"/login.html", "/login.js", "/style.css"}
+
+// Handler liefert den HTTP-Router. Alles außer Login, Agent-WebSocket und
+// Health-Check erfordert eine gültige Session.
 func (s *Server) Handler() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /ws/agent", s.handleAgent)
-	mux.HandleFunc("GET /api/hosts", s.handleHosts)
-	mux.HandleFunc("GET /api/hosts/{id}/history", s.handleHistory)
-	mux.HandleFunc("DELETE /api/hosts/{id}", s.handleDeleteHost)
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
-	mux.Handle("GET /", http.FileServerFS(s.gui))
-	return securityHeaders(mux)
+	static := http.FileServerFS(s.gui)
+
+	private := http.NewServeMux()
+	private.HandleFunc("GET /api/me", s.handleMe)
+	private.HandleFunc("GET /api/hosts", s.handleHosts)
+	private.HandleFunc("GET /api/hosts/{id}/history", s.handleHistory)
+	private.HandleFunc("DELETE /api/hosts/{id}", s.handleDeleteHost)
+	private.Handle("GET /", static)
+
+	public := http.NewServeMux()
+	public.HandleFunc("GET /ws/agent", s.handleAgent)
+	public.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
+	public.HandleFunc("POST /api/login", s.handleLogin)
+	public.HandleFunc("POST /api/logout", s.handleLogout)
+	for _, f := range publicFiles {
+		public.Handle("GET "+f, static)
+	}
+	public.Handle("/", s.requireSession(private))
+	return securityHeaders(public)
 }
 
 // securityHeaders setzt restriktive Header für GUI und API.
@@ -324,7 +341,8 @@ func writeJSON(w http.ResponseWriter, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// RunRetention löscht stündlich Historienpunkte, die älter als retention sind.
+// RunRetention löscht stündlich Historienpunkte, die älter als retention sind,
+// sowie abgelaufene Sessions.
 func RunRetention(ctx context.Context, st *store.Store, retention time.Duration, log *slog.Logger) {
 	prune := func() {
 		n, err := st.Prune(ctx, time.Now().Add(-retention))
@@ -332,6 +350,9 @@ func RunRetention(ctx context.Context, st *store.Store, retention time.Duration,
 			log.Error("retention", "err", err)
 		} else if n > 0 {
 			log.Info("alte historie gelöscht", "rows", n)
+		}
+		if _, err := st.PruneSessions(ctx, time.Now()); err != nil {
+			log.Error("sessions bereinigen", "err", err)
 		}
 	}
 	prune()
