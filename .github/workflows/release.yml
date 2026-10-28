@@ -1,0 +1,64 @@
+# Agent-Release für das Self-Update: bei einem Tag v1.2.3 alle Agent-Binaries
+# bauen, release.json signieren und als GitHub-Release veröffentlichen.
+#
+# Voraussetzungen (Einstellungen des Repos, einmalig):
+#   - Environment "release" mit Pflicht-Freigabe (Required reviewers) und dem
+#     Secret RELEASE_SIGNING_KEY (privater Schlüssel aus `mat-server release keygen`).
+#   - Tag-Regel (Ruleset) für v*: nur der Besitzer darf solche Tags anlegen.
+# Der öffentliche Schlüssel steht in internal/release/key.go; der Schritt
+# "Prüfen" bricht ab, wenn Secret und eingebauter Schlüssel nicht zusammenpassen.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Prüfen
+        run: |
+          go vet ./...
+          go test ./...
+
+  release:
+    needs: test
+    runs-on: ubuntu-latest
+    # Wartet auf die Freigabe; erst danach ist das Signatur-Secret verfügbar.
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Agenten bauen
+        shell: pwsh
+        run: ./build.ps1 -Version "${{ github.ref_name }}"
+
+      - name: Signieren
+        env:
+          MAT_RELEASE_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: go run ./server/cmd/mat-server release sign -version "${{ github.ref_name }}" -dir dist
+
+      - name: Mit eingebautem Schlüssel prüfen
+        run: go run ./server/cmd/mat-server release verify -dir dist
+
+      - name: Release veröffentlichen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" dist/* --title "${{ github.ref_name }}" --generate-notes --verify-tag

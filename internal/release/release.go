@@ -35,11 +35,6 @@ const (
 	MaxBinaryBytes    = 64 << 20
 )
 
-// publicKey ist der öffentliche Signaturschlüssel (base64, 32 Byte). Leer =
-// Self-Update ist abgeschaltet. Für Test-Builds per
-// -ldflags "-X github.com/Daywalker91/Monitoring-Admin-Tool/internal/release.publicKey=…" überschreibbar.
-var publicKey = ""
-
 // ErrNoKey bedeutet, dass kein öffentlicher Schlüssel eingebaut ist.
 var ErrNoKey = errors.New("kein signaturschlüssel eingebaut – self-update ist abgeschaltet")
 

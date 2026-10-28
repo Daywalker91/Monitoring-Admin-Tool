@@ -4,7 +4,10 @@
 
 .EXAMPLE
     .\build.ps1
-    .\build.ps1 -Version 0.1.0 -Server
+    .\build.ps1 -Version v0.5.0 -Server
+
+.NOTES
+    Releases baut und signiert .github/workflows/release.yml (bei einem Tag v*).
 #>
 param(
     # Versionskennung, die ins Binary geschrieben wird (Standard: git describe).
@@ -71,7 +74,8 @@ finally {
 }
 
 # Installationsdateien für Linux dazulegen: dist\ auf das Zielsystem kopieren genügt.
-Copy-Item (Join-Path $PSScriptRoot "deploy\install-agent.sh") $dist
-Copy-Item (Join-Path $PSScriptRoot "deploy\systemd\mat-agent.service") $dist
+# Pfade mit "/", damit das Skript auch mit PowerShell 7 unter Linux läuft (Release-Workflow).
+Copy-Item (Join-Path $PSScriptRoot "deploy/install-agent.sh") $dist
+Copy-Item (Join-Path $PSScriptRoot "deploy/systemd/mat-agent.service") $dist
 
 Write-Host "Fertig: $dist"
