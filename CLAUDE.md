@@ -12,7 +12,8 @@ Es wird in Meilensteinen gearbeitet. Alles, was zu keinem beauftragten Meilenste
 
 - **M1 (fertig):** Metriken erfassen, übertragen, speichern, anzeigen; responsive GUI
 - **M2 (fertig):** GUI-Login, Verlaufsdiagramme, `/metrics` für Prometheus, HTTPS/wss
-- **M3:** noch nicht festgelegt
+- **M3 (fertig):** Alarme (Schwellwerte, GUI-Anzeige, Benachrichtigung per ntfy und E-Mail)
+- **M4:** noch nicht festgelegt
 
 ## Tech-Stack
 
@@ -51,7 +52,8 @@ Server: läuft als Docker-Container (linux/amd64 bzw. arm64) oder direkt als Bin
 
 ```
 /agent    Agent: Collector (Metriken) und später Executor (Jobs)
-/server   Server: API, WebSocket-Endpunkt, SQLite-Speicher, liefert die GUI aus
+/server   Server: API, WebSocket-Endpunkt, SQLite-Speicher, liefert die GUI aus;
+          server/alert wertet Alarmregeln aus, server/notify verschickt Nachrichten (ntfy, SMTP)
 /web      Frontend-Dateien (werden per go:embed eingebettet)
 /proto    gemeinsame Nachrichtentypen (JSON) zwischen Agent und Server
 /deploy   Dockerfile für den Server, systemd-Unit, später Windows-Service
@@ -69,7 +71,14 @@ Datenfluss M1:
 3. Server speichert den letzten Stand pro Host sowie eine kompakte Historie (Retention 7 Tage) in SQLite
    und zeigt eine Host-Liste mit aktuellen Werten in der Web-GUI.
 
+Alarme (M3): feste Regeltypen (`offline`, `cpu`, `mem`, `swap`, `disk` je Mountpoint), keine frei
+formulierbaren Ausdrücke. Auswertung im Server bei jeder Metrik-Nachricht, Offline-Prüfung alle 30 s.
+Auslösen nach ununterbrochener Mindestdauer, Ende mit 5 Prozentpunkten Hysterese, je Alarm genau
+eine Nachricht beim Auslösen und eine beim Ende. Offene Alarme stehen in SQLite und überstehen Neustarts.
+
 Vorbereitet für später (nicht umsetzen, solange nicht beauftragt):
+
+- Alarm-Schwellwerte pro Host, Erinnerungen bei lange aktiven Alarmen, weitere Kanäle (Telegram, Gotify)
 
 - **Fähigkeiten** (`capabilities`, z. B. `packages`, `users`, `reboot`): der Agent meldet sie, die GUI zeigt nur passende Aktionen
 - **Jobs**: Admin-Aktionen mit festem Aktionsnamen und validierten Parametern
@@ -94,6 +103,9 @@ Der Agent läuft als root bzw. SYSTEM, deshalb gilt:
   Cookie `HttpOnly`, `SameSite=Strict`, `Secure` bei TLS; 7 Tage gültig; 5 Fehlversuche → 5 Minuten Sperre pro IP.
   Benutzer werden nur per CLI angelegt (`mat-server user add`), nie über die GUI oder Umgebungsvariablen.
 - Ändernde Anfragen (POST/DELETE) prüfen zusätzlich den `Origin`-Header (Same-Origin).
+- Benachrichtigungskanäle (`MAT_NTFY_*`, `MAT_SMTP_*`) nur über Umgebungsvariablen, nie über GUI oder DB.
+  SMTP nur mit STARTTLS/TLS (Klartext nur zu localhost). Texte in Nachrichten stammen teils von Agenten
+  (Hostname, Mountpoint): Steuerzeichen werden entfernt, Betreff RFC-2047-kodiert (keine Header-Injection).
 - `/metrics` hat ein eigenes Token (`MAT_METRICS_TOKEN`, Bearer) und ist ohne Token abgeschaltet (404) — nie offen.
 - Zugangsdaten, Tokens und Passwörter niemals committen und niemals loggen — Konfiguration über `.env` /
   lokale Config-Dateien (in `.gitignore`).

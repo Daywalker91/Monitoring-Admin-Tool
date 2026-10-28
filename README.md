@@ -6,6 +6,7 @@ ein zentraler Server mit Web-GUI.
 **Stand:** M1 fertig – Metriken erfassen (CPU, RAM/Swap, Netzwerk, Speicher, Top-Prozesse),
 per WebSocket übertragen, in SQLite speichern (7 Tage Historie) und als responsive Host-Liste anzeigen.
 M2 fertig – GUI-Login, Verlaufsdiagramme, Prometheus-Endpunkt, HTTPS/wss.
+M3 fertig – Alarme mit Schwellwerten, Anzeige in der GUI, Benachrichtigung per ntfy und E-Mail.
 
 ## Schnellstart (lokal)
 
@@ -59,8 +60,56 @@ Alle `/api/*`-Endpunkte außer Login/Logout erfordern eine Session.
 | `GET /api/hosts`                | alle Hosts mit letztem Stand               |
 | `GET /api/hosts/{id}/history`   | Historie, `?hours=1..168`, `?points=0..2000` verdichtet |
 | `DELETE /api/hosts/{id}`        | Host samt Historie entfernen (nur offline) |
+| `GET /api/alerts`               | aktive Alarme, `?all=1` mit Verlauf (7 Tage) |
+| `GET /api/alert-rules`          | Regeln und konfigurierte Kanäle            |
+| `POST /api/alert-rules`         | Regeln speichern (`{"rules":[…]}`)         |
+| `POST /api/alerts/test`         | Testnachricht an alle Kanäle               |
 | `GET /healthz`                  | Health-Check                               |
 | `GET /metrics`                  | Prometheus-Format (eigenes Bearer-Token)   |
+
+## Alarme
+
+Der Server prüft feste Regeltypen; Schwelle und Mindestdauer lassen sich in der GUI unter „Regeln“ ändern:
+
+| Regel   | Standard               | Bedeutung                                   |
+|---------|------------------------|---------------------------------------------|
+| Offline | 2 min                  | Agent nicht verbunden                       |
+| CPU     | 90 % für 5 min         | CPU-Auslastung gesamt                       |
+| RAM     | 90 % für 5 min         | Arbeitsspeicher belegt                      |
+| Swap    | 80 % für 10 min        | Swap belegt (nur Hosts mit Swap)            |
+| Disk    | 90 % für 1 min         | Belegung je Mountpoint                      |
+
+Ein Alarm löst aus, wenn der Wert die Mindestdauer lang ununterbrochen über der Schwelle liegt, und endet,
+wenn er 5 Prozentpunkte unter die Schwelle fällt. Pro Alarm gibt es genau zwei Nachrichten: beim Auslösen
+und beim Ende. Aktive Alarme stehen oben in der GUI und unter „Alarme“, zusammen mit dem Verlauf der letzten 7 Tage.
+
+### Benachrichtigungen
+
+Kanäle werden nur über Umgebungsvariablen des Servers eingerichtet (Zugangsdaten nie in GUI oder Datenbank).
+Ohne Kanal erscheinen Alarme nur in der GUI. Funktionstest: „Regeln“ → „Testnachricht senden“.
+
+**ntfy** (Push aufs Handy, [ntfy.sh](https://ntfy.sh) oder selbst gehostet):
+
+```powershell
+$env:MAT_NTFY_URL   = "https://ntfy.sh/mein-geheimes-topic"   # Topic-Name schwer erratbar wählen
+$env:MAT_NTFY_TOKEN = "tk_..."                                # optional, bei geschütztem Topic
+```
+
+In der ntfy-App das Topic abonnieren. `http://` geht auch, ist aber unverschlüsselt (nur im LAN).
+
+**E-Mail** (SMTP mit STARTTLS oder TLS; unverschlüsselt nur zu localhost):
+
+```powershell
+$env:MAT_SMTP_HOST = "smtp.example.com"
+$env:MAT_SMTP_PORT = "587"                # Standard: 587 bei starttls, 465 bei tls
+$env:MAT_SMTP_TLS  = "starttls"           # starttls (Standard), tls oder none
+$env:MAT_SMTP_USER = "monitor@example.com"
+$env:MAT_SMTP_PASS = "..."
+$env:MAT_SMTP_FROM = "Homelab Monitor <monitor@example.com>"
+$env:MAT_SMTP_TO   = "ich@example.com,du@example.com"
+```
+
+Fehlgeschlagene Sendungen werden nach 10 s, 1 min und 5 min erneut versucht.
 
 ## HTTPS / wss
 
@@ -94,7 +143,7 @@ scrape_configs:
       - targets: ["192.168.0.10:8080"]
 ```
 
-Metriken (Präfix `mat_`): `host_up`, `host_info`, `host_last_seen_timestamp_seconds`, `host_boot_time_seconds`,
+Metriken (Präfix `mat_`): `alerts_firing` (je Host und Regel), `host_up`, `host_info`, `host_last_seen_timestamp_seconds`, `host_boot_time_seconds`,
 `cpu_usage_percent`, `cpu_core_usage_percent`, `load1/5/15` (nicht unter Windows), `memory_total/used_bytes`,
 `swap_total/used_bytes`, `network_{receive,transmit}_{bytes,packets}_per_second`, `network_{receive,transmit}_errors_total`,
 `filesystem_size/used_bytes`.
