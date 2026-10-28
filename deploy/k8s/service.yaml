@@ -5,7 +5,7 @@ kind: Service
 metadata:
   name: mat-server
   annotations:
-    metallb.universe.tf/loadBalancerIPs: 192.168.4.56 # anpassen: freie IP aus dem Pool
+    metallb.universe.tf/loadBalancerIPs: 192.168.100.50 # Beispiel – anpassen: freie IP aus dem MetalLB-Pool
 spec:
   type: LoadBalancer
   externalTrafficPolicy: Local

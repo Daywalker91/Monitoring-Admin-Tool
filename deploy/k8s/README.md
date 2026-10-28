@@ -20,7 +20,7 @@ kubectl -n monitoring create secret docker-registry ghcr-pull `
   --docker-server=ghcr.io --docker-username=Daywalker91 --docker-password=<TOKEN>
 
 # 3. TLS-Zertifikat für die Service-IP (und ggf. einen DNS-Namen)
-mat-server gen-cert -hosts 192.168.4.56,monitor.lan -out data
+mat-server gen-cert -hosts 192.168.100.50,monitor.lan -out data
 kubectl -n monitoring create secret tls mat-server-tls --cert data\server.crt --key data\server.key
 
 # 4. Tokens und Benachrichtigungen (Werte nie committen; Vorlage: secret.example.yaml)
@@ -39,12 +39,12 @@ kubectl -n monitoring rollout status deploy/mat-server
 kubectl -n monitoring exec -it deploy/mat-server -- mat-server user add admin
 ```
 
-GUI: `https://192.168.4.56/` (Browser-Warnung bis zum Import von `server.crt`).
+GUI: `https://192.168.100.50/` (Browser-Warnung bis zum Import von `server.crt`).
 
-Agenten verbinden sich mit `wss://192.168.4.56/ws/agent` und pinnen das Zertifikat:
+Agenten verbinden sich mit `wss://192.168.100.50/ws/agent` und pinnen das Zertifikat:
 
 ```sh
-sudo sh install-agent.sh --server wss://192.168.4.56/ws/agent --ca server.crt
+sudo sh install-agent.sh --server wss://192.168.100.50/ws/agent --ca server.crt
 ```
 
 ## Mit ArgoCD

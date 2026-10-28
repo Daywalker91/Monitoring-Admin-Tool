@@ -56,7 +56,7 @@ In einer **Administrator-PowerShell**:
 
 ```powershell
 $env:MAT_AGENT_TOKEN = "<token>"     # nicht als -token, sonst steht es in der Prozessliste
-.\dist\mat-agent-windows-amd64.exe service install -server wss://192.168.4.56/ws/agent -ca server.crt
+.\dist\mat-agent-windows-amd64.exe service install -server wss://192.168.100.50/ws/agent -ca server.crt
 mat-agent service status              # geht auch ohne Administrator
 ```
 
@@ -71,7 +71,7 @@ Entfernen: `service uninstall` (mit `-purge` auch Konfiguration und Log).
 `.\build.ps1` legt Skript und systemd-Unit mit nach `dist\`. Den Ordner auf das Gerät kopieren, dann:
 
 ```sh
-sudo sh install-agent.sh --server wss://192.168.4.56/ws/agent --ca server.crt
+sudo sh install-agent.sh --server wss://192.168.100.50/ws/agent --ca server.crt
 ```
 
 Das Skript wählt das Programm passend zur Architektur, fragt das Token verdeckt ab (oder nimmt
@@ -181,13 +181,13 @@ Fehlgeschlagene Sendungen werden nach 10 s, 1 min und 5 min erneut versucht.
 
 ```powershell
 # 1. Zertifikat erzeugen (IP und/oder Name, unter dem Agenten und Browser den Server erreichen)
-mat-server gen-cert -hosts 192.168.0.10,monitor.lan -out data
+mat-server gen-cert -hosts 192.168.100.10,monitor.lan -out data
 
 # 2. Server mit TLS starten (alternativ MAT_TLS_CERT / MAT_TLS_KEY)
 mat-server -listen 0.0.0.0:8443 -tls-cert data/server.crt -tls-key data/server.key
 
 # 3. data/server.crt auf die Agenten kopieren und vertrauen
-mat-agent -server wss://192.168.0.10:8443/ws/agent -ca server.crt
+mat-agent -server wss://192.168.100.10:8443/ws/agent -ca server.crt
 ```
 
 Das Zertifikat ist selbst signiert: Der Agent vertraut mit `-ca` genau diesem Zertifikat (keine
@@ -206,7 +206,7 @@ scrape_configs:
     authorization:
       credentials: "<MAT_METRICS_TOKEN>"
     static_configs:
-      - targets: ["192.168.0.10:8080"]
+      - targets: ["192.168.100.10:8080"]
 ```
 
 Metriken (Präfix `mat_`): `alerts_firing` (je Host und Regel), `host_up`, `host_info`, `host_last_seen_timestamp_seconds`, `host_boot_time_seconds`,

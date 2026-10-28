@@ -19,7 +19,7 @@ import (
 )
 
 const certUsage = `Selbst signiertes TLS-Zertifikat für den Server erzeugen:
-  mat-server gen-cert -hosts 192.168.0.10,monitor.lan [-out data] [-days 1825] [-force]
+  mat-server gen-cert -hosts 192.168.100.10,monitor.lan [-out data] [-days 1825] [-force]
 
 Erzeugt <out>/server.crt und <out>/server.key (nur für den Besitzer lesbar).
 server.crt auf die Agenten kopieren und dort mit -ca bzw. "ca_file" angeben.`
