@@ -77,6 +77,10 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("schema anlegen: %w", err)
 	}
+	if err := migrate(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("datenbank migrieren: %w", err)
+	}
 	return &Store{db: db}, nil
 }
 
@@ -252,8 +256,10 @@ func (s *Store) DeleteHost(ctx context.Context, hostID string) (found bool, err 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM metrics_history WHERE host_id = ?`, hostID); err != nil {
 		return false, fmt.Errorf("historie löschen: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM alerts WHERE host_id = ?`, hostID); err != nil {
-		return false, fmt.Errorf("alarme löschen: %w", err)
+	for _, table := range []string{"alerts", "alert_overrides", "host_mutes"} { // feste Liste
+		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE host_id = ?`, hostID); err != nil {
+			return false, fmt.Errorf("%s löschen: %w", table, err)
+		}
 	}
 	res, err := tx.ExecContext(ctx, `DELETE FROM hosts WHERE id = ?`, hostID)
 	if err != nil {

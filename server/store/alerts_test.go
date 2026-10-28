@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -80,5 +82,85 @@ func TestAlertLifecycle(t *testing.T) {
 	all, _ = s.Alerts(ctx, false, time.Time{}, 100)
 	if len(all) != 0 {
 		t.Fatalf("nach host löschen: %d alarme", len(all))
+	}
+}
+
+func TestAlertOverridesMutesSettings(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	now := time.Now()
+	s.UpsertHost(ctx, proto.Hello{AgentID: "nas", Hostname: "nas", IntervalSec: 10}, "x", now)
+
+	rules := []AlertRule{{Kind: "disk", Enabled: true, Threshold: 95, ForSec: 60}, {Kind: "offline", Enabled: false, ForSec: 120}}
+	if err := s.SetAlertOverrides(ctx, "nas", rules); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.AlertOverrides(ctx)
+	if len(got["nas"]) != 2 || got["nas"][0].Kind != "disk" || got["nas"][1].Enabled {
+		t.Fatalf("overrides: %+v", got)
+	}
+	s.SetAlertOverrides(ctx, "nas", nil)
+	if got, _ := s.AlertOverrides(ctx); len(got) != 0 {
+		t.Fatalf("nach leeren: %+v", got)
+	}
+
+	until := now.Add(time.Hour).Truncate(time.Second)
+	s.SetHostMute(ctx, "nas", until)
+	if m, _ := s.HostMutes(ctx); !m["nas"].Equal(until) {
+		t.Fatalf("mute: %+v", m)
+	}
+
+	if _, ok, _ := s.AlertSetting(ctx, "reminder_hours"); ok {
+		t.Fatal("einstellung ohne wert vorhanden")
+	}
+	s.SetAlertSetting(ctx, "reminder_hours", "4")
+	if v, ok, _ := s.AlertSetting(ctx, "reminder_hours"); !ok || v != "4" {
+		t.Fatalf("einstellung: %q %v", v, ok)
+	}
+
+	if exists, _ := s.HostExists(ctx, "nas"); !exists {
+		t.Fatal("host nicht gefunden")
+	}
+	s.SetAlertOverrides(ctx, "nas", rules)
+	s.DeleteHost(ctx, "nas")
+	if m, _ := s.HostMutes(ctx); len(m) != 0 {
+		t.Fatalf("mute nach host löschen: %+v", m)
+	}
+	if got, _ := s.AlertOverrides(ctx); len(got) != 0 {
+		t.Fatalf("overrides nach host löschen: %+v", got)
+	}
+}
+
+func TestMigrateNotifiedAt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Tabelle im Stand von M3, ohne notified_at.
+	if _, err := db.Exec(`CREATE TABLE alerts (id INTEGER PRIMARY KEY AUTOINCREMENT, host_id TEXT NOT NULL,
+		kind TEXT NOT NULL, target TEXT NOT NULL DEFAULT '', threshold REAL NOT NULL, value REAL NOT NULL,
+		peak REAL NOT NULL, started_at INTEGER NOT NULL, resolved_at INTEGER)`); err != nil {
+		t.Fatal(err)
+	}
+	db.Exec(`INSERT INTO alerts (host_id, kind, threshold, value, peak, started_at) VALUES ('h', 'cpu', 90, 95, 95, 1)`)
+	db.Close()
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	alerts, err := s.Alerts(ctx, true, time.Time{}, 10)
+	if err != nil || len(alerts) != 1 || alerts[0].NotifiedAt != nil {
+		t.Fatalf("nach migration: %+v %v", alerts, err)
+	}
+	if err := s.SetAlertNotified(ctx, alerts[0].ID, time.Unix(100, 0)); err != nil {
+		t.Fatal(err)
+	}
+	alerts, _ = s.Alerts(ctx, true, time.Time{}, 10)
+	if alerts[0].NotifiedAt == nil || *alerts[0].NotifiedAt != 100 {
+		t.Fatalf("notified_at: %+v", alerts[0])
 	}
 }
