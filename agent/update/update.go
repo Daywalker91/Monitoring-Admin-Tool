@@ -43,7 +43,7 @@ const (
 type Updater struct {
 	Exe        string       // Pfad des laufenden Binaries
 	Version    string       // eigene Version
-	BaseURL    string       // Server-Basis, z. B. https://10.0.0.108 (siehe BaseURL)
+	BaseURL    string       // Server-Basis, z. B. https://192.168.100.50 (siehe BaseURL)
 	Token      string       // Agent-Token
 	HTTPClient *http.Client // mit gepinntem Zertifikat; nil = Standard
 	Log        *slog.Logger

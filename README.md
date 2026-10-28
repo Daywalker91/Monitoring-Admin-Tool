@@ -232,7 +232,7 @@ Binary zurück und meldet das in der GUI.
 
 - Nur Agenten, die als Windows-Dienst oder unter systemd laufen, melden die Fähigkeit `update`;
   im Vordergrund gestartete Agenten bieten kein Update an.
-- Agenten vor v0.5.0 können sich noch nicht selbst aktualisieren: einmal von Hand neu installieren
+- Agenten vor v1.0.0 können sich noch nicht selbst aktualisieren: einmal von Hand neu installieren
   (`service install` bzw. `install-agent.sh` mit dem neuen Binary).
 - Der Server braucht ausgehend Zugriff auf `api.github.com` und `objects.githubusercontent.com`.
   `MAT_UPDATE_REPO=off` schaltet die Prüfung ab, `MAT_UPDATE_REPO=<owner>/<repo>` nimmt ein anderes Repo.

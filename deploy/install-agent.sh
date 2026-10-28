@@ -4,7 +4,7 @@
 #   sudo sh install-agent.sh --server wss://monitor.lan:8443/ws/agent [--ca server.crt] [--id name]
 #   sudo sh install-agent.sh                 # nur Programm aktualisieren, Konfiguration bleibt
 #   sudo sh install-agent.sh --uninstall [--purge]
-#   weitere Optionen: --version v0.5.0 | --download | --binary <datei>
+#   weitere Optionen: --version v1.0.0 | --download | --binary <datei>
 #
 # Das Token wird abgefragt (oder aus MAT_AGENT_TOKEN gelesen), damit es nicht in
 # der Prozessliste oder der Shell-History landet. Das passende Programm

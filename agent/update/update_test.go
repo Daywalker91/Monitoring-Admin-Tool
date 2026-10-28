@@ -187,7 +187,7 @@ func TestApplyRejects(t *testing.T) {
 
 func TestBaseURL(t *testing.T) {
 	for in, want := range map[string]string{
-		"wss://10.0.0.108/ws/agent":        "https://10.0.0.108",
+		"wss://192.168.100.50/ws/agent":    "https://192.168.100.50",
 		"ws://127.0.0.1:8080/ws/agent":     "http://127.0.0.1:8080",
 		"wss://example.org/mat/ws/agent/":  "https://example.org/mat",
 		"wss://example.org/ws/agent?x=1#y": "https://example.org",

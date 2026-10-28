@@ -14,19 +14,19 @@
         powershell -ExecutionPolicy Bypass -File .\install-agent.ps1 …
 
 .EXAMPLE
-    .\install-agent.ps1 -Server wss://10.0.0.108/ws/agent -Ca .\server.crt
+    .\install-agent.ps1 -Server wss://192.168.100.50/ws/agent -Ca .\server.crt
     .\install-agent.ps1                        # nur Programm aktualisieren, Konfiguration bleibt
-    .\install-agent.ps1 -Version v0.5.0 -Server wss://10.0.0.108/ws/agent -Ca .\server.crt -Id pc-buero
+    .\install-agent.ps1 -Version v1.0.0 -Server wss://192.168.100.50/ws/agent -Ca .\server.crt -Id pc-1
     .\install-agent.ps1 -Uninstall [-Purge]
 #>
 param(
-    # Server-URL, z. B. wss://10.0.0.108/ws/agent. Ohne: vorhandene Konfiguration bleibt.
+    # Server-URL, z. B. wss://192.168.100.50/ws/agent. Ohne: vorhandene Konfiguration bleibt.
     [string]$Server = "",
     # Zertifikat des Servers (server.crt) für wss:// mit selbst signiertem Zertifikat.
     [string]$Ca = "",
     # Agent-ID (Standard: Hostname).
     [string]$Id = "",
-    # Release-Version, z. B. v0.5.0 (Standard: neueste).
+    # Release-Version, z. B. v1.0.0 (Standard: neueste).
     [string]$Version = "",
     # Vorhandenes Programm statt Download.
     [string]$Binary = "",
