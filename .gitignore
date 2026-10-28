@@ -1,0 +1,22 @@
+# Umgebungs- und Geheimnisdateien
+.env
+.env.*
+!.env.example
+*.local.*
+
+# Editor / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Build-Ausgaben und lokale Daten
+dist/
+data/
+*.db
+*.db-wal
+*.db-shm
