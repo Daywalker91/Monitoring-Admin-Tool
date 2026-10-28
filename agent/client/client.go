@@ -19,8 +19,11 @@ import (
 )
 
 const (
-	backoffMin   = time.Second
-	backoffMax   = time.Minute
+	backoffMin = time.Second
+	backoffMax = time.Minute
+	// replacedWait gilt, wenn der Server die Verbindung beendet, weil ein anderer
+	// Agent dieselbe ID benutzt. So verdrängen sich zwei Agenten nicht im Sekundentakt.
+	replacedWait = 5 * time.Minute
 	writeTimeout = 10 * time.Second
 	dialTimeout  = 15 * time.Second
 )
@@ -60,7 +63,13 @@ func (c *Client) Run(ctx context.Context) {
 			backoff = backoffMin // nach erfolgreicher Verbindung wieder schnell neu versuchen
 		}
 		wait := jitter(backoff)
-		c.log.Warn("verbindung zum server getrennt", "err", err, "retry_in", wait.Round(time.Millisecond))
+		if websocket.CloseStatus(err) == proto.CloseReplaced {
+			wait = jitter(replacedWait)
+			c.log.Error("server hat die verbindung ersetzt: agent-id wird bereits von einem anderen agenten verwendet",
+				"agent_id", c.hello.AgentID, "retry_in", wait.Round(time.Second))
+		} else {
+			c.log.Warn("verbindung zum server getrennt", "err", err, "retry_in", wait.Round(time.Millisecond))
+		}
 
 		select {
 		case <-ctx.Done():
@@ -93,12 +102,37 @@ func (c *Client) session(ctx context.Context) (connected bool, err error) {
 	conn.SetReadLimit(proto.MaxMessageBytes)
 	c.log.Info("mit server verbunden", "url", c.cfg.ServerURL)
 
-	// In M1 sendet der Server nichts außer Steuerframes. CloseRead liest im
-	// Hintergrund (Ping/Pong/Close) und beendet sessCtx, wenn die Verbindung endet.
-	sessCtx := conn.CloseRead(ctx)
+	// Der Server sendet bisher nur Steuerframes. Der Leser verarbeitet Ping/Pong/Close
+	// im Hintergrund, merkt sich den Grund des Endes und beendet sessCtx.
+	sessCtx, cancelSess := context.WithCancel(ctx)
+	defer cancelSess()
+	readDone := make(chan struct{})
+	var readErr error
+	go func() {
+		defer close(readDone)
+		defer cancelSess()
+		for {
+			if _, _, err := conn.Read(sessCtx); err != nil {
+				readErr = err
+				return
+			}
+		}
+	}()
+	// fail meldet einen Schreibfehler. Hat der Server die Verbindung mit einem
+	// Close-Code beendet, ist das der eigentliche Grund und wird bevorzugt.
+	fail := func(err error) (bool, error) {
+		select {
+		case <-readDone:
+			if websocket.CloseStatus(readErr) != -1 {
+				return true, readErr
+			}
+		case <-time.After(time.Second):
+		}
+		return true, err
+	}
 
 	if err := c.send(sessCtx, conn, proto.TypeHello, c.hello); err != nil {
-		return true, err
+		return fail(err)
 	}
 
 	metricsTick := time.NewTicker(time.Duration(c.cfg.IntervalSec) * time.Second)
@@ -108,10 +142,10 @@ func (c *Client) session(ctx context.Context) (connected bool, err error) {
 
 	// Direkt nach dem Verbinden einen vollständigen Stand senden.
 	if err := c.sendMetrics(sessCtx, conn); err != nil {
-		return true, err
+		return fail(err)
 	}
 	if err := c.sendProcesses(sessCtx, conn); err != nil {
-		return true, err
+		return fail(err)
 	}
 
 	for {
@@ -119,15 +153,17 @@ func (c *Client) session(ctx context.Context) (connected bool, err error) {
 		case <-sessCtx.Done():
 			if ctx.Err() != nil {
 				conn.Close(websocket.StatusGoingAway, "agent wird beendet")
+				return true, ctx.Err()
 			}
-			return true, sessCtx.Err()
+			<-readDone
+			return true, readErr
 		case <-metricsTick.C:
 			if err := c.sendMetrics(sessCtx, conn); err != nil {
-				return true, err
+				return fail(err)
 			}
 		case <-procTick.C:
 			if err := c.sendProcesses(sessCtx, conn); err != nil {
-				return true, err
+				return fail(err)
 			}
 		}
 	}

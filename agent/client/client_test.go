@@ -107,3 +107,29 @@ func TestInvalidCAFile(t *testing.T) {
 		t.Fatal("ungültige ca-datei akzeptiert")
 	}
 }
+
+func TestReplacedCloseCode(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		conn.Read(r.Context()) // hello abwarten
+		conn.Close(proto.CloseReplaced, "agent-id wird bereits verwendet")
+	}))
+	t.Cleanup(ts.Close)
+
+	cfg := config.Config{ServerURL: "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/agent",
+		Token: "tok", IntervalSec: 10, ProcessIntervalSec: 30}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	c, err := New(cfg, proto.Hello{AgentID: "t"}, collector.New(), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	connected, err := c.session(ctx)
+	if !connected || websocket.CloseStatus(err) != proto.CloseReplaced {
+		t.Fatalf("connected=%v err=%v, erwartet close-code %d", connected, err, proto.CloseReplaced)
+	}
+}

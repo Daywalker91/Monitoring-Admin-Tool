@@ -282,3 +282,49 @@ func TestGUIAndHeaders(t *testing.T) {
 		t.Error("CSP-Header fehlt")
 	}
 }
+
+func TestDuplicateAgentIDReplacesOld(t *testing.T) {
+	ts := newTestServer(t)
+	c := login(t, ts)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	dial := func() *websocket.Conn {
+		h := http.Header{"Authorization": {"Bearer secret"}}
+		conn, _, err := websocket.Dial(ctx, wsURL(ts), &websocket.DialOptions{HTTPHeader: h})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { conn.CloseNow() })
+		data, _ := proto.Encode(proto.TypeHello, proto.Hello{AgentID: "dup", Hostname: "dup", IntervalSec: 10})
+		if err := conn.Write(ctx, websocket.MessageText, data); err != nil {
+			t.Fatal(err)
+		}
+		return conn
+	}
+
+	first := dial()
+	// Warten, bis die erste Verbindung registriert ist.
+	for {
+		var hosts []hostView
+		resp, err := c.Get(ts.URL + "/api/hosts")
+		if err != nil {
+			t.Fatal(err)
+		}
+		json.NewDecoder(resp.Body).Decode(&hosts)
+		resp.Body.Close()
+		if len(hosts) == 1 && hosts[0].Online {
+			break
+		}
+		if ctx.Err() != nil {
+			t.Fatal("erste verbindung nicht online")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	dial()
+	_, _, err := first.Read(ctx)
+	if got := websocket.CloseStatus(err); got != proto.CloseReplaced {
+		t.Fatalf("close-code der alten verbindung: %d (%v), erwartet %d", got, err, proto.CloseReplaced)
+	}
+}

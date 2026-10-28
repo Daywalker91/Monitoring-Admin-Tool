@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -40,7 +41,7 @@ type Server struct {
 	metricsToken []byte // leer = /metrics deaktiviert
 
 	mu     sync.Mutex
-	conns  map[string]*websocket.Conn // aktuell verbundene Agenten je ID
+	conns  map[string]agentConn // aktuell verbundene Agenten je ID
 	nowFor func() time.Time
 }
 
@@ -48,7 +49,7 @@ type Server struct {
 // Frontend-Dateien.
 func New(st *store.Store, am *auth.Manager, token string, gui fs.FS, log *slog.Logger) *Server {
 	return &Server{store: st, auth: am, token: []byte(token), gui: gui, log: log,
-		conns: make(map[string]*websocket.Conn), nowFor: time.Now}
+		conns: make(map[string]agentConn), nowFor: time.Now}
 }
 
 // Dateien, die ohne Anmeldung erreichbar sein müssen (Login-Seite).
@@ -125,9 +126,9 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.register(hello.AgentID, conn)
-	defer s.unregister(hello.AgentID, conn)
 	log := s.log.With("agent_id", hello.AgentID, "remote", r.RemoteAddr)
+	s.register(hello.AgentID, agentConn{conn, r.RemoteAddr}, log)
+	defer s.unregister(hello.AgentID, conn)
 	log.Info("agent verbunden", "hostname", hello.Hostname, "version", hello.AgentVersion,
 		"os", hello.OS, "arch", hello.Arch)
 
@@ -235,21 +236,42 @@ func (s *Server) pingLoop(ctx context.Context, conn *websocket.Conn, cancel cont
 	}
 }
 
+// agentConn ist eine aktive Agent-Verbindung.
+type agentConn struct {
+	conn   *websocket.Conn
+	remote string
+}
+
 // register merkt sich die Verbindung. Meldet sich dieselbe Agent-ID erneut an,
-// wird die ältere Verbindung geschlossen.
-func (s *Server) register(id string, conn *websocket.Conn) {
+// wird die ältere Verbindung mit proto.CloseReplaced geschlossen. Kommt die neue
+// Verbindung von einer anderen Adresse, sind vermutlich zwei Agenten mit
+// derselben ID konfiguriert.
+func (s *Server) register(id string, ac agentConn, log *slog.Logger) {
 	s.mu.Lock()
-	old := s.conns[id]
-	s.conns[id] = conn
+	old, ok := s.conns[id]
+	s.conns[id] = ac
 	s.mu.Unlock()
-	if old != nil {
-		old.Close(websocket.StatusPolicyViolation, "durch neue verbindung ersetzt")
+	if !ok {
+		return
 	}
+	if hostOf(old.remote) != hostOf(ac.remote) {
+		log.Warn("agent-id von zwei adressen verwendet – ältere verbindung getrennt",
+			"old_remote", old.remote)
+	}
+	old.conn.Close(proto.CloseReplaced, "agent-id wird bereits verwendet")
+}
+
+// hostOf liefert die IP ohne Port.
+func hostOf(addr string) string {
+	if h, _, err := net.SplitHostPort(addr); err == nil {
+		return h
+	}
+	return addr
 }
 
 func (s *Server) unregister(id string, conn *websocket.Conn) {
 	s.mu.Lock()
-	if s.conns[id] == conn {
+	if s.conns[id].conn == conn {
 		delete(s.conns, id)
 	}
 	s.mu.Unlock()
@@ -258,7 +280,8 @@ func (s *Server) unregister(id string, conn *websocket.Conn) {
 func (s *Server) online(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.conns[id] != nil
+	_, ok := s.conns[id]
+	return ok
 }
 
 // hostView ergänzt den gespeicherten Host um den Live-Status.

@@ -16,6 +16,10 @@ const Version = 1
 // MaxMessageBytes begrenzt die Größe einer einzelnen Nachricht (Schutz vor Speicherüberlauf).
 const MaxMessageBytes = 1 << 20
 
+// CloseReplaced ist der WebSocket-Close-Code, mit dem der Server eine Verbindung
+// beendet, weil sich ein anderer Agent mit derselben ID angemeldet hat.
+const CloseReplaced = 4001
+
 // Nachrichtentypen.
 const (
 	TypeHello     = "hello"     // Agent → Server: Anmeldung mit Host-Infos und Fähigkeiten
