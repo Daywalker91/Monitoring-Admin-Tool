@@ -56,13 +56,20 @@ dessen SHA-256-Summe aus `release.json` (nur HTTPS). Mit `--version`/`-Version` 
 Version, mit `--binary`/`-Binary` ein vorhandenes Programm (z. B. aus `.\build.ps1` → `dist\`).
 Spätere Updates laufen über die GUI (siehe Agent-Updates).
 
+Am einfachsten: In der GUI unter **Einstellungen → Agent installieren** steht der fertige Befehl für
+Windows und Linux, mit Server-URL und dem SHA-256-Fingerabdruck des Server-Zertifikats. Damit holt
+das Skript das Zertifikat selbst vom Server und übernimmt es nur, wenn der Fingerabdruck stimmt –
+`server.crt` muss nicht auf die Hosts kopiert werden. Statt `-Fingerprint`/`--fingerprint` geht
+weiterhin `-Ca`/`--ca` mit der Datei. Ohne beides fragt das Skript bei einem nicht
+vertrauenswürdigen Zertifikat nach und zeigt den Fingerabdruck zum Vergleich an.
+
 ### Agent unter Windows
 
-`install-agent.ps1` aus dem Release laden, `server.crt` daneben legen, dann in einer
-**Administrator-PowerShell**:
+In einer **Administrator-PowerShell** (Befehl aus der GUI):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install-agent.ps1 -Server wss://192.168.100.50/ws/agent -Ca .\server.crt
+$f = "$env:TEMP\install-agent.ps1"; Invoke-WebRequest -UseBasicParsing https://github.com/Daywalker91/Monitoring-Admin-Tool/releases/latest/download/install-agent.ps1 -OutFile $f
+powershell -ExecutionPolicy Bypass -File $f -Server wss://192.168.100.50/ws/agent -Fingerprint <sha256>
 ```
 
 Das Token wird verdeckt abgefragt (oder aus `MAT_AGENT_TOKEN` genommen). Das Skript ruft
@@ -83,10 +90,10 @@ mat-agent service status              # geht auch ohne Administrator
 
 ```sh
 curl -fsSLO https://github.com/Daywalker91/Monitoring-Admin-Tool/releases/latest/download/install-agent.sh
-sudo sh install-agent.sh --server wss://192.168.100.50/ws/agent --ca server.crt
+sudo sh install-agent.sh --server wss://192.168.100.50/ws/agent --fingerprint <sha256>
 ```
 
-Das Skript erkennt die Architektur (amd64, arm64, armv7), lädt das Programm (liegt es neben dem
+Für `--fingerprint` braucht das Skript `openssl`. Es erkennt die Architektur (amd64, arm64, armv7), lädt das Programm (liegt es neben dem
 Skript oder in `../dist`, wird dieses genommen), fragt das Token verdeckt ab (oder nimmt
 `MAT_AGENT_TOKEN`), schreibt `/etc/mat-agent/agent.json` mit 0600, prüft sie und startet den Dienst.
 Ohne `--server` aktualisiert es nur das Programm. Log: `journalctl -u mat-agent -f`.

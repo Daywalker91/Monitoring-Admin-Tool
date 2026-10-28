@@ -41,10 +41,11 @@ kubectl -n monitoring exec -it deploy/mat-server -- mat-server user add admin
 
 GUI: `https://192.168.100.50/` (Browser-Warnung bis zum Import von `server.crt`).
 
-Agenten verbinden sich mit `wss://192.168.100.50/ws/agent` und pinnen das Zertifikat:
+Agenten verbinden sich mit `wss://192.168.100.50/ws/agent` und pinnen das Zertifikat. Den fertigen
+Installationsbefehl mit Fingerabdruck zeigt die GUI unter Einstellungen → Agent installieren, z. B.:
 
 ```sh
-sudo sh install-agent.sh --server wss://192.168.100.50/ws/agent --ca server.crt
+sudo sh install-agent.sh --server wss://192.168.100.50/ws/agent --fingerprint <sha256>
 ```
 
 ## Versionen
