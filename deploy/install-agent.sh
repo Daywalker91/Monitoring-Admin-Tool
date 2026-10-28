@@ -1,10 +1,16 @@
 #!/bin/sh
 # Installiert den Agenten des Monitoring-Admin-Tool als systemd-Dienst (Linux, auch Raspberry Pi).
 #
-#   sudo sh install-agent.sh --server wss://monitor.lan:8443/ws/agent [--ca server.crt] [--id name]
+#   sudo sh install-agent.sh --server wss://monitor.lan:8443/ws/agent [--fingerprint <sha256>] [--id name]
 #   sudo sh install-agent.sh                 # nur Programm aktualisieren, Konfiguration bleibt
 #   sudo sh install-agent.sh --uninstall [--purge]
-#   weitere Optionen: --version v1.0.0 | --download | --binary <datei>
+#   weitere Optionen: --ca server.crt | --version v1.0.0 | --download | --binary <datei>
+#
+# Server-Zertifikat: mit --fingerprint (SHA-256, steht in der GUI unter
+# Einstellungen → Agent installieren) holt das Skript das Zertifikat per openssl
+# selbst und übernimmt es nur, wenn der Fingerabdruck stimmt. Alternativ --ca mit
+# der Datei server.crt. Ohne beides fragt es bei einem nicht vertrauenswürdigen
+# Zertifikat nach.
 #
 # Das Token wird abgefragt (oder aus MAT_AGENT_TOKEN gelesen), damit es nicht in
 # der Prozessliste oder der Shell-History landet. Das passende Programm
@@ -35,18 +41,19 @@ systemctl_() {
 }
 
 usage() {
-	sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
 	exit "${1:-0}"
 }
 
 # Quelle der Releases; MAT_RELEASE_URL nur für Tests oder Forks.
 RELEASES=${MAT_RELEASE_URL:-https://github.com/Daywalker91/Monitoring-Admin-Tool/releases}
 
-server= ca= id= binary= uninstall= purge= version= download=
+server= ca= fingerprint= id= binary= uninstall= purge= version= download=
 while [ $# -gt 0 ]; do
 	case "$1" in
 	--server) server=${2:?}; shift 2 ;;
 	--ca) ca=${2:?}; shift 2 ;;
+	--fingerprint) fingerprint=${2:?}; shift 2 ;;
 	--id) id=${2:?}; shift 2 ;;
 	--binary) binary=${2:?}; shift 2 ;;
 	--version) version=${2:?}; download=1; shift 2 ;;
@@ -106,6 +113,16 @@ if [ -n "$ca" ]; then
 	*) die "--ca ist nur mit wss:// sinnvoll" ;;
 	esac
 fi
+if [ -n "$fingerprint" ]; then
+	fingerprint=$(printf '%s' "$fingerprint" | tr -d ': ' | tr 'A-F' 'a-f')
+	printf '%s' "$fingerprint" | grep -Eq '^[0-9a-f]{64}$' ||
+		die "--fingerprint muss ein sha-256-wert sein (64 hex-zeichen)"
+	[ -z "$ca" ] || die "--fingerprint und --ca schließen sich aus"
+	case "$server" in
+	wss://*) ;;
+	*) die "--fingerprint nur zusammen mit --server wss://…" ;;
+	esac
+fi
 if [ -n "$version" ] && ! printf '%s' "$version" | grep -Eq '^v[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}$'; then
 	die "--version im format v1.2.3 angeben"
 fi
@@ -120,6 +137,70 @@ fi
 tmpdir=
 cleanup() { [ -z "$tmpdir" ] || rm -rf "$tmpdir"; }
 trap cleanup EXIT
+
+# server_cert schreibt das Zertifikat, das der Server beim TLS-Handshake vorlegt,
+# als PEM nach $1. Gesendet wird dabei nichts; geprüft wird über den Fingerabdruck.
+server_cert() {
+	command -v openssl >/dev/null 2>&1 || die "openssl fehlt – server.crt von hand mit --ca angeben"
+	hostport=${server#wss://}
+	hostport=${hostport%%/*}
+	case "$hostport" in
+	*\]) hostport="$hostport:443" ;;
+	*\]:* | *:*) ;;
+	*) hostport="$hostport:443" ;;
+	esac
+	host=${hostport%:*}
+	host=${host#[}
+	host=${host%]}
+	# SNI nur für Namen, nicht für IP-Adressen ($server enthält keine Leerzeichen).
+	sni=
+	printf '%s' "$host" | grep -Eq '^[0-9.]+$|:' || sni="-servername $host"
+	to=
+	command -v timeout >/dev/null 2>&1 && to="timeout 15"
+	# shellcheck disable=SC2086
+	$to openssl s_client -connect "$hostport" $sni </dev/null 2>/dev/null |
+		openssl x509 -outform PEM >"$1" 2>/dev/null ||
+		die "kein zertifikat von $hostport erhalten"
+}
+
+# system_trusts prüft, ob das System dem Server-Zertifikat ohnehin vertraut.
+system_trusts() {
+	url=$(printf '%s' "https://${server#wss://}" | sed 's#/ws/agent/*$#/healthz#')
+	if command -v curl >/dev/null 2>&1; then
+		curl -fsS --max-time 10 -o /dev/null "$url" 2>/dev/null
+	elif command -v wget >/dev/null 2>&1; then
+		wget -q -T 10 -O /dev/null "$url" 2>/dev/null
+	else
+		return 1
+	fi
+}
+
+# --- Server-Zertifikat übernehmen ---------------------------------------------
+case "$server" in
+wss://*)
+	if [ -z "$ca" ] && { [ -n "$fingerprint" ] || ! system_trusts; }; then
+		tmpdir=$(mktemp -d)
+		server_cert "$tmpdir/server.crt"
+		got=$(openssl x509 -in "$tmpdir/server.crt" -noout -fingerprint -sha256 | sed 's/.*=//' | tr -d ':' | tr 'A-F' 'a-f')
+		if [ -n "$fingerprint" ]; then
+			[ "$got" = "$fingerprint" ] || die "fingerabdruck des servers stimmt nicht – falscher server oder abgefangen? abbruch"
+			info "fingerabdruck des server-zertifikats stimmt"
+		else
+			echo "Das Zertifikat des Servers ist nicht vertrauenswürdig (selbst signiert?)."
+			echo "SHA-256: $(printf '%s' "$got" | tr 'a-f' 'A-F' | sed 's/../&:/g; s/:$//')"
+			echo "Vergleichen mit der GUI: Einstellungen → Agent installieren."
+			[ -t 0 ] || die "kein terminal für die rückfrage – --fingerprint angeben"
+			printf 'Stimmt der Fingerabdruck? (j/n) '
+			read -r answer || true
+			case "$answer" in
+			j | ja | y | yes) ;;
+			*) die "abgebrochen" ;;
+			esac
+		fi
+		ca="$tmpdir/server.crt"
+	fi
+	;;
+esac
 
 # fetch lädt eine Release-Datei; ohne MAT_RELEASE_URL nur über HTTPS.
 fetch() {
@@ -154,7 +235,7 @@ if [ -z "$binary" ] && [ -z "$download" ]; then
 	done
 fi
 if [ -z "$binary" ]; then
-	tmpdir=$(mktemp -d)
+	[ -n "$tmpdir" ] || tmpdir=$(mktemp -d)
 	info "lade $name (${version:-neueste version}) von $RELEASES"
 	fetch release.json "$tmpdir/release.json"
 	fetch "$name" "$tmpdir/$name"
