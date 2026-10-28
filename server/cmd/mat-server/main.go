@@ -24,8 +24,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Daywalker91/Monitoring-Admin-Tool/server/alert"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/api"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/auth"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/server/notify"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/store"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/web"
 )
@@ -85,6 +87,16 @@ func main() {
 		os.Exit(2)
 	}
 
+	// Benachrichtigungskanäle (ntfy, E-Mail) nur aus der Umgebung.
+	chans, warnings, err := notify.FromEnv(os.Getenv)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "benachrichtigungen:", err)
+		os.Exit(2)
+	}
+	for _, w := range warnings {
+		log.Warn(w)
+	}
+
 	var tlsCfg *tls.Config
 	if *tlsCert != "" {
 		pair, err := tls.LoadX509KeyPair(*tlsCert, *tlsKey)
@@ -95,13 +107,14 @@ func main() {
 		tlsCfg = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{pair}}
 	}
 
-	if err := run(*listen, *dbPath, *retention, token, metricsToken, tlsCfg, log); err != nil {
+	if err := run(*listen, *dbPath, *retention, token, metricsToken, tlsCfg, chans, log); err != nil {
 		log.Error("server beendet mit fehler", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(listen, dbPath string, retention time.Duration, token, metricsToken string, tlsCfg *tls.Config, log *slog.Logger) error {
+func run(listen, dbPath string, retention time.Duration, token, metricsToken string, tlsCfg *tls.Config,
+	chans []notify.Channel, log *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -117,9 +130,20 @@ func run(listen, dbPath string, retention time.Duration, token, metricsToken str
 
 	go api.RunRetention(ctx, st, retention, log)
 
+	dispatcher := notify.NewDispatcher(log, chans...)
+	go dispatcher.Run(ctx)
+	evaluator, err := alert.New(ctx, st, api.NotifyEvent(dispatcher), log, time.Now())
+	if err != nil {
+		return err
+	}
+	apiSrv := api.New(st, auth.New(st), token, web.Static(), log).
+		WithMetricsToken(metricsToken).
+		WithAlerts(evaluator, dispatcher)
+	go apiSrv.RunAlerts(ctx)
+
 	srv := &http.Server{
 		Addr:              listen,
-		Handler:           api.New(st, auth.New(st), token, web.Static(), log).WithMetricsToken(metricsToken).Handler(),
+		Handler:           apiSrv.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		TLSConfig:         tlsCfg,
 		// Anfrage-Kontexte hängen am Signal-Kontext, damit offene WebSockets beim Beenden schließen.
@@ -129,7 +153,7 @@ func run(listen, dbPath string, retention time.Duration, token, metricsToken str
 	errCh := make(chan error, 1)
 	go func() {
 		log.Info("server startet", "version", version, "listen", listen, "db", dbPath, "retention", retention,
-			"metrics", metricsToken != "", "tls", tlsCfg != nil)
+			"metrics", metricsToken != "", "tls", tlsCfg != nil, "notify", dispatcher.Channels())
 		if tlsCfg != nil {
 			errCh <- srv.ListenAndServeTLS("", "") // Zertifikat steckt bereits in TLSConfig
 		} else {

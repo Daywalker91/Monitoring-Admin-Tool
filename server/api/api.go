@@ -20,7 +20,9 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/Daywalker91/Monitoring-Admin-Tool/proto"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/server/alert"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/auth"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/server/notify"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/store"
 )
 
@@ -39,6 +41,9 @@ type Server struct {
 	log   *slog.Logger
 
 	metricsToken []byte // leer = /metrics deaktiviert
+
+	alerts   *alert.Evaluator   // nil = keine Alarmauswertung
+	notifier *notify.Dispatcher // nil = keine externen Kanäle
 
 	mu     sync.Mutex
 	conns  map[string]agentConn // aktuell verbundene Agenten je ID
@@ -65,6 +70,10 @@ func (s *Server) Handler() http.Handler {
 	private.HandleFunc("GET /api/hosts", s.handleHosts)
 	private.HandleFunc("GET /api/hosts/{id}/history", s.handleHistory)
 	private.HandleFunc("DELETE /api/hosts/{id}", s.handleDeleteHost)
+	private.HandleFunc("GET /api/alerts", s.handleAlerts)
+	private.HandleFunc("POST /api/alerts/test", s.handleTestAlert)
+	private.HandleFunc("GET /api/alert-rules", s.handleGetAlertRules)
+	private.HandleFunc("POST /api/alert-rules", s.handleSetAlertRules)
 	private.Handle("GET /", static)
 
 	public := http.NewServeMux()
@@ -136,7 +145,7 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	go s.pingLoop(ctx, conn, cancel)
 
-	err = s.readLoop(ctx, conn, hello.AgentID, log)
+	err = s.readLoop(ctx, conn, hello, log)
 	if status := websocket.CloseStatus(err); status == websocket.StatusNormalClosure || status == websocket.StatusGoingAway {
 		log.Info("agent getrennt")
 	} else {
@@ -161,7 +170,8 @@ func (s *Server) readHello(ctx context.Context, conn *websocket.Conn) (proto.Hel
 	return hello, hello.Validate()
 }
 
-func (s *Server) readLoop(ctx context.Context, conn *websocket.Conn, id string, log *slog.Logger) error {
+func (s *Server) readLoop(ctx context.Context, conn *websocket.Conn, hello proto.Hello, log *slog.Logger) error {
+	id := hello.AgentID
 	for {
 		env, err := readEnvelope(ctx, conn)
 		if err != nil {
@@ -181,6 +191,9 @@ func (s *Server) readLoop(ctx context.Context, conn *websocket.Conn, id string, 
 			}
 			if err := s.store.SaveMetrics(ctx, id, m, env.Data, now); err != nil {
 				log.Error("metrics speichern", "err", err)
+			}
+			if s.alerts != nil {
+				s.alerts.Observe(ctx, id, hello.Hostname, m, now)
 			}
 		case proto.TypeProcesses:
 			var p proto.Processes
@@ -363,6 +376,9 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 	if !found {
 		http.Error(w, "host nicht gefunden", http.StatusNotFound)
 		return
+	}
+	if s.alerts != nil {
+		s.alerts.Forget(id)
 	}
 	s.log.Info("host gelöscht", "agent_id", id, "remote", r.RemoteAddr)
 	w.WriteHeader(http.StatusNoContent)

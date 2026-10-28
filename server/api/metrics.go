@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/Daywalker91/Monitoring-Admin-Tool/proto"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/server/alert"
 )
 
 // WithMetricsToken aktiviert /metrics (Prometheus-Textformat), geschützt durch
@@ -99,8 +100,19 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var firing map[string]map[string]int
+	if s.alerts != nil {
+		firing = s.alerts.ActiveCount()
+	}
+
 	mw := newMetricsWriter()
 	for _, h := range hosts {
+		if s.alerts != nil {
+			for _, d := range alert.DefaultRules {
+				mw.add("mat_alerts_firing", "gauge", "Anzahl aktiver Alarme je Host und Regeltyp.",
+					float64(firing[h.ID][d.Kind]), "host", h.ID, "rule", d.Kind)
+			}
+		}
 		host := []string{"host", h.ID}
 		up := 0.0
 		online := s.online(h.ID)
