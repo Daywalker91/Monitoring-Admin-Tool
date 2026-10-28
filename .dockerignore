@@ -1,0 +1,6 @@
+.git
+dist
+data
+*.db*
+.env
+.env.*

@@ -1,0 +1,34 @@
+# systemd-Unit für den Agenten.
+# Installation (auf dem Zielsystem, als root):
+#   install -m 0755 mat-agent-linux-<arch> /usr/local/bin/mat-agent
+#   install -d -m 0700 /etc/mat-agent
+#   install -m 0600 agent.example.json /etc/mat-agent/agent.json   # anpassen!
+#   install -m 0644 mat-agent.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now mat-agent
+
+[Unit]
+Description=Homelab Monitoring Agent
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/mat-agent -config /etc/mat-agent/agent.json
+Restart=always
+RestartSec=5
+
+# Läuft als root, weil später Admin-Jobs (Pakete, Neustart) ausgeführt werden.
+User=root
+Environment=GOMEMLIMIT=20MiB
+# Harte Obergrenze, falls etwas schiefläuft (Ziel im Betrieb: 10–25 MB).
+MemoryMax=64M
+
+# Härtung, die M1 (nur Metriken) nicht einschränkt. Für Admin-Jobs später prüfen.
+NoNewPrivileges=yes
+ProtectHome=read-only
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+
+[Install]
+WantedBy=multi-user.target

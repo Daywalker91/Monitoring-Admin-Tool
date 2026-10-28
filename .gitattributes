@@ -1,0 +1,3 @@
+# Einheitliche Zeilenenden; Skripte für Windows behalten CRLF.
+* text=auto eol=lf
+*.ps1 text eol=crlf
