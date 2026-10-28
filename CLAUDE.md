@@ -93,6 +93,7 @@ Der Agent läuft als root bzw. SYSTEM, deshalb gilt:
   Cookie `HttpOnly`, `SameSite=Strict`, `Secure` bei TLS; 7 Tage gültig; 5 Fehlversuche → 5 Minuten Sperre pro IP.
   Benutzer werden nur per CLI angelegt (`mat-server user add`), nie über die GUI oder Umgebungsvariablen.
 - Ändernde Anfragen (POST/DELETE) prüfen zusätzlich den `Origin`-Header (Same-Origin).
+- `/metrics` hat ein eigenes Token (`MAT_METRICS_TOKEN`, Bearer) und ist ohne Token abgeschaltet (404) — nie offen.
 - Zugangsdaten, Tokens und Passwörter niemals committen und niemals loggen — Konfiguration über `.env` /
   lokale Config-Dateien (in `.gitignore`).
 

@@ -37,6 +37,8 @@ type Server struct {
 	gui   fs.FS
 	log   *slog.Logger
 
+	metricsToken []byte // leer = /metrics deaktiviert
+
 	mu     sync.Mutex
 	conns  map[string]*websocket.Conn // aktuell verbundene Agenten je ID
 	nowFor func() time.Time
@@ -67,6 +69,7 @@ func (s *Server) Handler() http.Handler {
 	public := http.NewServeMux()
 	public.HandleFunc("GET /ws/agent", s.handleAgent)
 	public.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
+	public.HandleFunc("GET /metrics", s.handleMetrics) // eigenes Token statt Session
 	public.HandleFunc("POST /api/login", s.handleLogin)
 	public.HandleFunc("POST /api/logout", s.handleLogout)
 	for _, f := range publicFiles {

@@ -63,13 +63,20 @@ func main() {
 		os.Exit(2)
 	}
 
-	if err := run(*listen, *dbPath, *retention, token, log); err != nil {
+	// Optional: Token für /metrics (Prometheus). Ohne Token ist der Endpunkt aus.
+	metricsToken := os.Getenv("MAT_METRICS_TOKEN")
+	if metricsToken != "" && len(metricsToken) < 16 {
+		fmt.Fprintln(os.Stderr, "MAT_METRICS_TOKEN muss mindestens 16 Zeichen lang sein")
+		os.Exit(2)
+	}
+
+	if err := run(*listen, *dbPath, *retention, token, metricsToken, log); err != nil {
 		log.Error("server beendet mit fehler", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(listen, dbPath string, retention time.Duration, token string, log *slog.Logger) error {
+func run(listen, dbPath string, retention time.Duration, token, metricsToken string, log *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -87,7 +94,7 @@ func run(listen, dbPath string, retention time.Duration, token string, log *slog
 
 	srv := &http.Server{
 		Addr:              listen,
-		Handler:           api.New(st, auth.New(st), token, web.Static(), log).Handler(),
+		Handler:           api.New(st, auth.New(st), token, web.Static(), log).WithMetricsToken(metricsToken).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		// Anfrage-Kontexte hängen am Signal-Kontext, damit offene WebSockets beim Beenden schließen.
 		BaseContext: func(net.Listener) context.Context { return ctx },
@@ -95,7 +102,8 @@ func run(listen, dbPath string, retention time.Duration, token string, log *slog
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Info("server startet", "version", version, "listen", listen, "db", dbPath, "retention", retention)
+		log.Info("server startet", "version", version, "listen", listen, "db", dbPath, "retention", retention,
+			"metrics", metricsToken != "")
 		errCh <- srv.ListenAndServe()
 	}()
 

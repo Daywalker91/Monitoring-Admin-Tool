@@ -5,7 +5,7 @@ ein zentraler Server mit Web-GUI.
 
 **Stand:** M1 fertig – Metriken erfassen (CPU, RAM/Swap, Netzwerk, Speicher, Top-Prozesse),
 per WebSocket übertragen, in SQLite speichern (7 Tage Historie) und als responsive Host-Liste anzeigen.
-M2 in Arbeit – GUI-Login ✓, Verlaufsdiagramme ✓, Prometheus-Endpunkt, HTTPS.
+M2 in Arbeit – GUI-Login ✓, Verlaufsdiagramme ✓, Prometheus-Endpunkt ✓, HTTPS.
 
 ## Schnellstart (lokal)
 
@@ -60,5 +60,26 @@ Alle `/api/*`-Endpunkte außer Login/Logout erfordern eine Session.
 | `GET /api/hosts/{id}/history`   | Historie, `?hours=1..168`, `?points=0..2000` verdichtet |
 | `DELETE /api/hosts/{id}`        | Host samt Historie entfernen (nur offline) |
 | `GET /healthz`                  | Health-Check                               |
+| `GET /metrics`                  | Prometheus-Format (eigenes Bearer-Token)   |
+
+## Prometheus / Grafana
+
+`/metrics` ist nur aktiv, wenn der Server mit `MAT_METRICS_TOKEN` (mind. 16 Zeichen) gestartet wird.
+Messwerte gibt es nur für verbundene Hosts; `mat_host_up` zeigt 0/1 für alle.
+
+```yaml
+scrape_configs:
+  - job_name: homelab-monitor
+    scrape_interval: 15s
+    authorization:
+      credentials: "<MAT_METRICS_TOKEN>"
+    static_configs:
+      - targets: ["192.168.0.10:8080"]
+```
+
+Metriken (Präfix `mat_`): `host_up`, `host_info`, `host_last_seen_timestamp_seconds`, `host_boot_time_seconds`,
+`cpu_usage_percent`, `cpu_core_usage_percent`, `load1/5/15` (nicht unter Windows), `memory_total/used_bytes`,
+`swap_total/used_bytes`, `network_{receive,transmit}_{bytes,packets}_per_second`, `network_{receive,transmit}_errors_total`,
+`filesystem_size/used_bytes`.
 
 Architektur, Zielplattformen und Sicherheitsregeln: siehe [CLAUDE.md](CLAUDE.md).
