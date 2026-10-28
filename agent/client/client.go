@@ -4,11 +4,15 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
+	"slices"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -26,7 +30,19 @@ const (
 	replacedWait = 5 * time.Minute
 	writeTimeout = 10 * time.Second
 	dialTimeout  = 15 * time.Second
+	// stableAfter: so lange muss eine Verbindung halten, bis sie als stabil gilt
+	// (bestätigt u. a. ein Self-Update).
+	stableAfter = time.Minute
+	jobTimeout  = 5 * time.Minute
 )
+
+// ErrRestart beendet Run, weil ein Job (z. B. agent.update) einen Neustart verlangt.
+var ErrRestart = errors.New("neustart angefordert")
+
+// JobFunc führt eine Aktion aus. params sind bereits auf Form und Größe geprüft,
+// die Aktion prüft ihre Werte selbst. restart verlangt nach erfolgreicher
+// Rückmeldung einen Neustart des Agenten.
+type JobFunc func(ctx context.Context, params map[string]string) (output string, restart bool, err error)
 
 // Client verbindet den Agenten mit dem Server.
 type Client struct {
@@ -35,6 +51,10 @@ type Client struct {
 	col        *collector.Collector
 	log        *slog.Logger
 	httpClient *http.Client // nil = Standard (System-Zertifikate)
+
+	jobs     map[string]JobFunc // erlaubte Aktionen; nur mit gemeldeter Fähigkeit
+	busy     atomic.Bool        // es läuft immer höchstens ein Job
+	onStable func()
 }
 
 // New erzeugt einen Client. Ein Fehler entsteht nur bei ungültiger TLS-Konfiguration.
@@ -50,14 +70,34 @@ func New(cfg config.Config, hello proto.Hello, col *collector.Collector, log *sl
 	return c, nil
 }
 
-// Run verbindet sich und hält die Verbindung, bis ctx beendet wird. Bei
-// Fehlern wird mit exponentiellem Backoff (mit Jitter) neu verbunden.
-func (c *Client) Run(ctx context.Context) {
+// HTTPClient liefert den HTTP-Client mit derselben TLS-Konfiguration wie die
+// WebSocket-Verbindung (nil = Standard).
+func (c *Client) HTTPClient() *http.Client { return c.httpClient }
+
+// HandleJob erlaubt eine Aktion. Der Agent muss die passende Fähigkeit im
+// hello melden, sonst wird die Aktion abgelehnt.
+func (c *Client) HandleJob(action string, fn JobFunc) {
+	if c.jobs == nil {
+		c.jobs = make(map[string]JobFunc)
+	}
+	c.jobs[action] = fn
+}
+
+// OnStable wird einmal aufgerufen, sobald eine Verbindung stableAfter gehalten hat.
+func (c *Client) OnStable(fn func()) { c.onStable = fn }
+
+// Run verbindet sich und hält die Verbindung, bis ctx beendet wird (Rückgabe
+// nil) oder ein Job einen Neustart verlangt (ErrRestart). Bei Fehlern wird mit
+// exponentiellem Backoff (mit Jitter) neu verbunden.
+func (c *Client) Run(ctx context.Context) error {
 	backoff := backoffMin
 	for {
 		connected, err := c.session(ctx)
 		if ctx.Err() != nil {
-			return
+			return nil
+		}
+		if errors.Is(err, ErrRestart) {
+			return ErrRestart
 		}
 		if connected {
 			backoff = backoffMin // nach erfolgreicher Verbindung wieder schnell neu versuchen
@@ -73,7 +113,7 @@ func (c *Client) Run(ctx context.Context) {
 
 		select {
 		case <-ctx.Done():
-			return
+			return nil
 		case <-time.After(wait):
 		}
 		backoff = min(backoff*2, backoffMax)
@@ -102,19 +142,26 @@ func (c *Client) session(ctx context.Context) (connected bool, err error) {
 	conn.SetReadLimit(proto.MaxMessageBytes)
 	c.log.Info("mit server verbunden", "url", c.cfg.ServerURL)
 
-	// Der Server sendet bisher nur Steuerframes. Der Leser verarbeitet Ping/Pong/Close
-	// im Hintergrund, merkt sich den Grund des Endes und beendet sessCtx.
+	// Der Leser verarbeitet Ping/Pong/Close und Jobs im Hintergrund, merkt sich
+	// den Grund des Endes und beendet sessCtx.
 	sessCtx, cancelSess := context.WithCancel(ctx)
 	defer cancelSess()
 	readDone := make(chan struct{})
+	restart := make(chan struct{})
+	var restartOnce sync.Once
+	requestRestart := func() { restartOnce.Do(func() { close(restart) }) }
 	var readErr error
 	go func() {
 		defer close(readDone)
 		defer cancelSess()
 		for {
-			if _, _, err := conn.Read(sessCtx); err != nil {
+			typ, data, err := conn.Read(sessCtx)
+			if err != nil {
 				readErr = err
 				return
+			}
+			if typ == websocket.MessageText {
+				c.handleMessage(sessCtx, conn, data, requestRestart)
 			}
 		}
 	}()
@@ -135,6 +182,8 @@ func (c *Client) session(ctx context.Context) (connected bool, err error) {
 		return fail(err)
 	}
 
+	stable := time.NewTimer(stableAfter)
+	defer stable.Stop()
 	metricsTick := time.NewTicker(time.Duration(c.cfg.IntervalSec) * time.Second)
 	defer metricsTick.Stop()
 	procTick := time.NewTicker(time.Duration(c.cfg.ProcessIntervalSec) * time.Second)
@@ -157,6 +206,14 @@ func (c *Client) session(ctx context.Context) (connected bool, err error) {
 			}
 			<-readDone
 			return true, readErr
+		case <-restart:
+			conn.Close(websocket.StatusGoingAway, "agent startet neu")
+			return true, ErrRestart
+		case <-stable.C:
+			if c.onStable != nil {
+				c.onStable()
+				c.onStable = nil
+			}
 		case <-metricsTick.C:
 			if err := c.sendMetrics(sessCtx, conn); err != nil {
 				return fail(err)
@@ -167,6 +224,67 @@ func (c *Client) session(ctx context.Context) (connected bool, err error) {
 			}
 		}
 	}
+}
+
+// handleMessage verarbeitet eine Nachricht des Servers. Bisher gibt es nur Jobs.
+func (c *Client) handleMessage(ctx context.Context, conn *websocket.Conn, data []byte, requestRestart func()) {
+	var env proto.Envelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		c.log.Warn("unlesbare nachricht vom server", "err", err)
+		return
+	}
+	if env.Type != proto.TypeJobRequest {
+		c.log.Debug("unbekannter nachrichtentyp ignoriert", "type", env.Type)
+		return
+	}
+	var job proto.JobRequest
+	if err := json.Unmarshal(env.Data, &job); err != nil {
+		c.log.Warn("unlesbarer job", "err", err)
+		return
+	}
+	if err := job.Validate(); err != nil {
+		c.log.Warn("job abgelehnt", "job_id", job.JobID, "action", job.Action, "err", err)
+		c.sendResult(ctx, conn, proto.JobResult{JobID: job.JobID, ExitCode: 1, Error: "abgelehnt: " + err.Error()})
+		return
+	}
+	fn, ok := c.jobs[job.Action]
+	if !ok || !slices.Contains(c.hello.Capabilities, proto.ActionCapability[job.Action]) {
+		c.log.Warn("job abgelehnt: aktion nicht unterstützt", "job_id", job.JobID, "action", job.Action)
+		c.sendResult(ctx, conn, proto.JobResult{JobID: job.JobID, ExitCode: 1, Error: "aktion wird von diesem agenten nicht unterstützt"})
+		return
+	}
+	if !c.busy.CompareAndSwap(false, true) {
+		c.sendResult(ctx, conn, proto.JobResult{JobID: job.JobID, ExitCode: 1, Error: "agent führt bereits einen job aus"})
+		return
+	}
+	c.log.Info("job gestartet", "job_id", job.JobID, "action", job.Action)
+	go func() {
+		defer c.busy.Store(false)
+		jctx, cancel := context.WithTimeout(ctx, jobTimeout)
+		defer cancel()
+		out, restart, err := fn(jctx, job.Params)
+		res := proto.JobResult{JobID: job.JobID, OK: err == nil, Output: proto.Truncate(out, proto.MaxJobOutputLen)}
+		if err != nil {
+			res.ExitCode = 1
+			res.Error = proto.Truncate(err.Error(), 1024)
+			c.log.Warn("job fehlgeschlagen", "job_id", job.JobID, "action", job.Action, "err", err)
+		} else {
+			c.log.Info("job erledigt", "job_id", job.JobID, "action", job.Action)
+		}
+		if c.sendResult(ctx, conn, res) && restart && err == nil {
+			requestRestart()
+		}
+	}()
+}
+
+// sendResult meldet ein Job-Ergebnis; Schreiben ist bei coder/websocket
+// nebenläufig erlaubt.
+func (c *Client) sendResult(ctx context.Context, conn *websocket.Conn, res proto.JobResult) bool {
+	if err := c.send(ctx, conn, proto.TypeJobResult, res); err != nil {
+		c.log.Warn("job-ergebnis senden", "job_id", res.JobID, "err", err)
+		return false
+	}
+	return true
 }
 
 func (c *Client) sendMetrics(ctx context.Context, conn *websocket.Conn) error {

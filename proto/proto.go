@@ -58,6 +58,9 @@ type Hello struct {
 	// IntervalSec ist das Messintervall; der Server leitet daraus den Online-Status ab.
 	IntervalSec  int          `json:"interval_sec"`
 	Capabilities []Capability `json:"capabilities"`
+	// UpdateNote meldet den Ausgang des letzten Self-Updates, z. B. eine
+	// automatische Rücknahme. Leer = nichts zu melden.
+	UpdateNote string `json:"update_note,omitempty"`
 }
 
 // Validate prüft die Pflichtfelder einer Hello-Nachricht.
@@ -70,6 +73,9 @@ func (h *Hello) Validate() error {
 	}
 	if h.IntervalSec < 1 || h.IntervalSec > 3600 {
 		return fmt.Errorf("ungültiges interval_sec")
+	}
+	if len(h.AgentVersion) > 64 || len(h.UpdateNote) > maxNameLen {
+		return fmt.Errorf("agent_version oder update_note zu lang")
 	}
 	return nil
 }

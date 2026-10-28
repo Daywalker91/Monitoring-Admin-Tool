@@ -11,6 +11,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -23,7 +24,9 @@ import (
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/client"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/collector"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/config"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/update"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/internal/logfile"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/internal/release"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/internal/winsvc"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/proto"
 )
@@ -109,8 +112,20 @@ func runAsService() int {
 	return 0
 }
 
-// runAgent verbindet sich mit dem Server und sendet Metriken, bis ctx endet.
+// runAgent verbindet sich mit dem Server und sendet Metriken, bis ctx endet
+// oder ein Self-Update einen Neustart verlangt. Danach beendet sich der Prozess;
+// Dienst-Manager bzw. systemd starten ihn neu.
 func runAgent(ctx context.Context, cfg config.Config, log *slog.Logger) error {
+	exe, selfUpdate := selfUpdatePath(log)
+	var note string
+	if selfUpdate {
+		var restart bool
+		if note, restart = update.Startup(exe, version, log); restart {
+			log.Warn("agent beendet sich, damit das alte binary startet")
+			return nil
+		}
+	}
+
 	hello := collector.HostInfo(ctx)
 	hello.AgentVersion = version
 	hello.IntervalSec = cfg.IntervalSec
@@ -118,8 +133,11 @@ func runAgent(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if hello.AgentID == "" {
 		hello.AgentID = config.SanitizeID(hello.Hostname)
 	}
-	// In M1 nur Metriken; weitere Fähigkeiten kommen mit dem Executor.
+	hello.UpdateNote = note
 	hello.Capabilities = []proto.Capability{proto.CapMetrics}
+	if selfUpdate {
+		hello.Capabilities = append(hello.Capabilities, proto.CapUpdate)
+	}
 	if err := hello.Validate(); err != nil {
 		return fmt.Errorf("ungültige agent-angaben: %w", err)
 	}
@@ -135,10 +153,45 @@ func runAgent(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("tls-konfiguration: %w", err)
 	}
+	if selfUpdate {
+		base, err := update.BaseURL(cfg.ServerURL)
+		if err != nil {
+			return err
+		}
+		u := &update.Updater{Exe: exe, Version: version, BaseURL: base, Token: cfg.Token,
+			HTTPClient: cl.HTTPClient(), Log: log}
+		cl.HandleJob(proto.ActionAgentUpdate, func(ctx context.Context, p map[string]string) (string, bool, error) {
+			out, err := u.Apply(ctx, p)
+			return out, err == nil, err
+		})
+		cl.OnStable(func() { update.Confirm(exe, version, log) })
+	}
 	col.Prime(ctx)
-	cl.Run(ctx)
+	if err := cl.Run(ctx); errors.Is(err, client.ErrRestart) {
+		log.Info("agent startet für das update neu")
+		return nil
+	}
 	log.Info("agent beendet")
 	return nil
+}
+
+// selfUpdatePath liefert den Pfad des eigenen Binaries und ob Self-Update
+// möglich ist: nur mit eingebautem Signaturschlüssel und nur, wenn ein
+// Dienst-Manager den Agenten nach dem Austausch neu startet (Windows-Dienst
+// oder systemd, erkennbar an INVOCATION_ID).
+func selfUpdatePath(log *slog.Logger) (string, bool) {
+	if !release.Enabled() || (!winsvc.IsService() && os.Getenv("INVOCATION_ID") == "") {
+		return "", false
+	}
+	exe, err := os.Executable()
+	if err == nil {
+		exe, err = filepath.EvalSymlinks(exe)
+	}
+	if err != nil {
+		log.Warn("self-update aus: eigener pfad unbekannt", "err", err)
+		return "", false
+	}
+	return exe, true
 }
 
 // runCheck lädt die Konfiguration samt CA-Datei und gibt sie ohne Token aus.
