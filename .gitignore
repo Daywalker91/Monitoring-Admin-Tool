@@ -22,3 +22,8 @@ data/
 *.db
 *.db-wal
 *.db-shm
+
+# Zertifikate und Schlüssel (mat-server gen-cert, release keygen)
+tls/
+*.key
+*.pem
