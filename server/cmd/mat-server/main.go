@@ -11,6 +11,7 @@
 //
 // Alle Befehle verstehen -env-file <datei> (MAT_*-Variablen als KEY=VALUE).
 //
+//	mat-server release keygen|sign|verify  signierte Agent-Releases (Self-Update)
 //	mat-server version                     Version ausgeben
 package main
 
@@ -55,6 +56,7 @@ func main() {
 		"user":     runUser,
 		"gen-cert": runGenCert,
 		"service":  runService,
+		"release":  runRelease,
 	}
 	if len(args) > 0 {
 		if cmd, ok := commands[args[0]]; ok {
