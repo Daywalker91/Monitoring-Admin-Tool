@@ -1,5 +1,8 @@
 # Server-Image. Bauen im Repo-Root:
 #   docker build -f deploy/Dockerfile -t mat-server .
+# Multi-Arch (amd64 + arm64), wie im GitHub-Workflow:
+#   docker buildx build --platform linux/amd64,linux/arm64 -f deploy/Dockerfile .
+# Go kompiliert auf der Build-Plattform für die Zielarchitektur (keine Emulation nötig).
 # Starten:
 #   docker run -d -p 8080:8080 -e MAT_AGENT_TOKEN=... -v mat-data:/data mat-server
 
@@ -13,6 +16,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY proto ./proto
+COPY internal ./internal
 COPY server ./server
 COPY web ./web
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
