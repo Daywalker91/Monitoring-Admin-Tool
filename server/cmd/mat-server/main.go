@@ -182,7 +182,11 @@ func run(ctx context.Context, listen, dbPath string, retention time.Duration, to
 		WithTrustedProxies(trusted).
 		WithVersion(version).
 		WithUpdates(updates)
+	if tlsCfg != nil && tlsCfg.Certificates[0].Leaf != nil {
+		apiSrv.WithCertificate(tlsCfg.Certificates[0].Leaf.NotAfter)
+	}
 	go apiSrv.RunAlerts(ctx)
+	go apiSrv.RunCertCheck(ctx)
 	go updates.Run(ctx)
 
 	srv := &http.Server{

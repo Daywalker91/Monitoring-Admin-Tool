@@ -73,8 +73,18 @@ async function loadUpdateStatus() {
   }
 }
 
-// Hinweis über der Host-Liste, wenn Hosts veraltet sind.
+// Hinweise über der Host-Liste: veraltete Agenten, bald ablaufendes Zertifikat.
 function renderUpdateBanner(hosts) {
+  const cert = document.getElementById("cert-banner");
+  const left = updateStatus?.tls_not_after ? updateStatus.tls_not_after - Date.now() / 1000 : Infinity;
+  cert.hidden = left >= 30 * 86400;
+  if (!cert.hidden) {
+    cert.textContent = left <= 0
+      ? "Das Server-Zertifikat ist abgelaufen – Agenten können sich nicht mehr verbinden."
+      : "Das Server-Zertifikat läuft am " + fmtDateTime(updateStatus.tls_not_after) +
+        " ab. Neues Zertifikat erzeugen und server.crt auf allen Agenten hinterlegen.";
+  }
+
   const banner = document.getElementById("update-banner");
   const outdated = hosts.filter(h => h.update_available).length;
   banner.hidden = outdated === 0;
@@ -90,6 +100,10 @@ function renderUpdatePanel(hosts) {
   info.replaceChildren();
   const add = (k, v, cls) => info.append(el("dt", k), el("dd", v || "–", cls));
   add("Server", st?.server_version);
+  if (st?.tls_not_after) {
+    const soon = st.tls_not_after - Date.now() / 1000 < 30 * 86400;
+    add("Zertifikat gültig bis", fmtDateTime(st.tls_not_after) + (soon ? " – bald erneuern!" : ""), soon ? "error" : "");
+  }
   if (!st?.enabled) {
     add("Status", st?.message || "abgeschaltet", "muted");
   } else {

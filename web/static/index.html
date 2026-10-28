@@ -32,6 +32,7 @@
     <p id="error" class="error" hidden></p>
 
     <section id="view-hosts" class="view">
+    <p id="cert-banner" class="banner warn" hidden></p>
     <div id="update-banner" class="banner" hidden>
       <span id="update-banner-text"></span>
       <button type="button" id="update-banner-all" class="secondary">Alle aktualisieren</button>
@@ -102,7 +103,7 @@
         <ul id="test-result" class="plain"></ul>
       </div>
       <div class="panel">
-        <h2>Agent-Updates</h2>
+        <h2>Server und Agent-Updates</h2>
         <p class="muted small">Neue Agent-Versionen kommen als signierte GitHub-Releases. Agenten prüfen die
           Signatur selbst und aktualisieren sich nur auf Knopfdruck.</p>
         <dl id="update-info" class="info"></dl>

@@ -94,7 +94,8 @@ func (s *Server) handleAgentDownload(w http.ResponseWriter, r *http.Request) {
 // updateStatusView ist die Antwort von /api/update.
 type updateStatusView struct {
 	update.Status
-	Server string `json:"server_version"`
+	Server      string `json:"server_version"`
+	TLSNotAfter int64  `json:"tls_not_after,omitempty"` // Ablauf des Server-Zertifikats
 }
 
 func (s *Server) handleUpdateStatus(w http.ResponseWriter, _ *http.Request) {
@@ -103,6 +104,9 @@ func (s *Server) handleUpdateStatus(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) updateStatus() updateStatusView {
 	v := updateStatusView{Server: s.version}
+	if !s.certNotAfter.IsZero() {
+		v.TLSNotAfter = s.certNotAfter.Unix()
+	}
 	if s.upd == nil {
 		v.Message = "nicht eingerichtet"
 		return v
