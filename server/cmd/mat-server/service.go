@@ -97,7 +97,7 @@ func installService(args []string) error {
 	}
 	err = winsvc.Install(winsvc.Spec{
 		Name:        serviceName,
-		DisplayName: "Homelab Monitor Server",
+		DisplayName: "Monitoring-Admin-Tool Server",
 		Description: "Nimmt Metriken der Agenten an und liefert die Web-GUI aus.",
 		ExePath:     exe,
 		Args:        svcArgs,

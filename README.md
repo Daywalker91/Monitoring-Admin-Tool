@@ -189,7 +189,7 @@ $env:MAT_SMTP_PORT = "587"                # Standard: 587 bei starttls, 465 bei 
 $env:MAT_SMTP_TLS  = "starttls"           # starttls (Standard), tls oder none
 $env:MAT_SMTP_USER = "monitor@example.com"
 $env:MAT_SMTP_PASS = "..."
-$env:MAT_SMTP_FROM = "Homelab Monitor <monitor@example.com>"
+$env:MAT_SMTP_FROM = "Monitoring-Admin-Tool <monitor@example.com>"
 $env:MAT_SMTP_TO   = "ich@example.com,du@example.com"
 ```
 
@@ -270,7 +270,7 @@ Messwerte gibt es nur für verbundene Hosts; `mat_host_up` zeigt 0/1 für alle.
 
 ```yaml
 scrape_configs:
-  - job_name: homelab-monitor
+  - job_name: monitoring-admin-tool
     scrape_interval: 15s
     authorization:
       credentials: "<MAT_METRICS_TOKEN>"

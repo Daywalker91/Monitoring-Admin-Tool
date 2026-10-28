@@ -130,7 +130,7 @@ func (s *Server) handleTestAlert(w http.ResponseWriter, r *http.Request) {
 	user := userFrom(r.Context())
 	s.log.Info("testnachricht angefordert", "user", user)
 	results := s.notifier.Test(r.Context(), notify.Message{
-		Title: "Homelab Monitor: Testnachricht",
+		Title: "Monitoring-Admin-Tool: Testnachricht",
 		Body:  "Diese Nachricht wurde von " + user + " in der GUI angefordert. Benachrichtigungen funktionieren.",
 		Tag:   "white_check_mark",
 	})

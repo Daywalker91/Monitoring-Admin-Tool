@@ -1,4 +1,4 @@
-# Homelab Monitor (Server) für k3s.
+# Monitoring-Admin-Tool (Server) für k3s.
 #   kubectl kustomize deploy/k8s          # ansehen
 #   kubectl apply -k deploy/k8s           # anwenden (vorher Secrets anlegen, siehe README.md)
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -7,7 +7,7 @@ namespace: monitoring
 labels:
   - pairs:
       app.kubernetes.io/name: mat-server
-      app.kubernetes.io/part-of: homelab-monitor
+      app.kubernetes.io/part-of: monitoring-admin-tool
 resources:
   - namespace.yaml
   - pvc.yaml

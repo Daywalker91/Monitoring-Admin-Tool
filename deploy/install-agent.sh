@@ -1,5 +1,5 @@
 #!/bin/sh
-# Installiert den Homelab-Monitor-Agenten als systemd-Dienst (Linux, auch Raspberry Pi).
+# Installiert den Agenten des Monitoring-Admin-Tool als systemd-Dienst (Linux, auch Raspberry Pi).
 #
 #   sudo sh install-agent.sh --server wss://monitor.lan:8443/ws/agent [--ca server.crt] [--id name]
 #   sudo sh install-agent.sh                 # nur Programm aktualisieren, Konfiguration bleibt
