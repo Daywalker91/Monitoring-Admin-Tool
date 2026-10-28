@@ -184,23 +184,31 @@ func Stop(name string) error {
 	return stopAndWait(service)
 }
 
-// Status liefert den Zustand als Text, z. B. "läuft".
+// Status liefert den Zustand als Text, z. B. "läuft". Braucht nur Leserechte,
+// funktioniert also auch ohne Administrator.
 func Status(name string) (string, error) {
-	m, err := connect()
+	m, err := windows.OpenSCManager(nil, nil, windows.SC_MANAGER_CONNECT)
+	if err != nil {
+		return "", fmt.Errorf("dienst-manager: %w", err)
+	}
+	defer windows.CloseServiceHandle(m)
+	n, err := windows.UTF16PtrFromString(name)
 	if err != nil {
 		return "", err
 	}
-	defer m.Disconnect()
-	service, err := open(m, name)
+	h, err := windows.OpenService(m, n, windows.SERVICE_QUERY_STATUS)
 	if err != nil {
-		return "", err
+		if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
+			return "", ErrNotInstalled
+		}
+		return "", fmt.Errorf("dienst öffnen: %w", err)
 	}
-	defer service.Close()
-	st, err := service.Query()
-	if err != nil {
+	defer windows.CloseServiceHandle(h)
+	var st windows.SERVICE_STATUS
+	if err := windows.QueryServiceStatus(h, &st); err != nil {
 		return "", fmt.Errorf("dienststatus abfragen: %w", err)
 	}
-	return stateText(st.State), nil
+	return stateText(svc.State(st.CurrentState)), nil
 }
 
 func stateText(s svc.State) string {

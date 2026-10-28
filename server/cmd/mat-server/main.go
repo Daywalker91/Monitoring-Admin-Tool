@@ -7,6 +7,10 @@
 //	mat-server user list                   Benutzer auflisten
 //	mat-server user del <name>             Benutzer löschen
 //	mat-server gen-cert -hosts <ip,name>   selbst signiertes TLS-Zertifikat erzeugen
+//	mat-server service install|uninstall|start|stop|status   Windows-Dienst verwalten
+//
+// Alle Befehle verstehen -env-file <datei> (MAT_*-Variablen als KEY=VALUE).
+//
 //	mat-server version                     Version ausgeben
 package main
 
@@ -16,6 +20,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -25,6 +30,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Daywalker91/Monitoring-Admin-Tool/internal/winsvc"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/alert"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/api"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/auth"
@@ -37,19 +43,22 @@ import (
 var version = "dev"
 
 func main() {
-	if len(os.Args) > 1 {
-		switch os.Args[1] {
-		case "version":
-			fmt.Println(version)
-			return
-		case "user":
-			if err := runUser(os.Args[2:]); err != nil {
-				fmt.Fprintln(os.Stderr, "fehler:", err)
-				os.Exit(1)
-			}
-			return
-		case "gen-cert":
-			if err := runGenCert(os.Args[2:]); err != nil {
+	// -env-file gilt für alle Befehle (auch user) und wird vor den Flags ausgewertet,
+	// weil die Flag-Standardwerte aus der Umgebung kommen.
+	args, err := applyEnvFile(os.Args[1:])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "fehler:", err)
+		os.Exit(2)
+	}
+	commands := map[string]func([]string) error{
+		"version":  func([]string) error { fmt.Println(version); return nil },
+		"user":     runUser,
+		"gen-cert": runGenCert,
+		"service":  runService,
+	}
+	if len(args) > 0 {
+		if cmd, ok := commands[args[0]]; ok {
+			if err := cmd(args[1:]); err != nil {
 				fmt.Fprintln(os.Stderr, "fehler:", err)
 				os.Exit(1)
 			}
@@ -57,44 +66,60 @@ func main() {
 		}
 	}
 
-	listen := flag.String("listen", envOr("MAT_LISTEN", ":8080"), "Adresse für HTTP (GUI, API, Agenten)")
-	dbPath := flag.String("db", envOr("MAT_DB", "data/mat.db"), "Pfad zur SQLite-Datenbank")
-	retention := flag.Duration("retention", 7*24*time.Hour, "Aufbewahrungsdauer der Historie")
-	logLevel := flag.String("log-level", envOr("MAT_LOG_LEVEL", "info"), "Log-Level: debug, info, warn, error")
-	tlsCert := flag.String("tls-cert", os.Getenv("MAT_TLS_CERT"), "TLS-Zertifikat (PEM); mit -tls-key → HTTPS/wss")
-	tlsKey := flag.String("tls-key", os.Getenv("MAT_TLS_KEY"), "TLS-Schlüssel (PEM)")
-	proxies := flag.String("trusted-proxies", os.Getenv("MAT_TRUSTED_PROXIES"),
+	if winsvc.IsService() {
+		os.Exit(runAsService(args))
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	os.Exit(serve(ctx, args, os.Stderr))
+}
+
+// serve liest Flags und Umgebung und betreibt den Server, bis ctx endet.
+// Fehler gehen nach out (Terminal bzw. Logdatei im Dienstbetrieb).
+func serve(ctx context.Context, args []string, out io.Writer) int {
+	fs := flag.NewFlagSet("mat-server", flag.ContinueOnError)
+	fs.SetOutput(out)
+	listen := fs.String("listen", envOr("MAT_LISTEN", ":8080"), "Adresse für HTTP (GUI, API, Agenten)")
+	dbPath := fs.String("db", envOr("MAT_DB", "data/mat.db"), "Pfad zur SQLite-Datenbank")
+	retention := fs.Duration("retention", 7*24*time.Hour, "Aufbewahrungsdauer der Historie")
+	logLevel := fs.String("log-level", envOr("MAT_LOG_LEVEL", "info"), "Log-Level: debug, info, warn, error")
+	tlsCert := fs.String("tls-cert", os.Getenv("MAT_TLS_CERT"), "TLS-Zertifikat (PEM); mit -tls-key → HTTPS/wss")
+	tlsKey := fs.String("tls-key", os.Getenv("MAT_TLS_KEY"), "TLS-Schlüssel (PEM)")
+	proxies := fs.String("trusted-proxies", os.Getenv("MAT_TRUSTED_PROXIES"),
 		"Reverse-Proxies (IPs/Netze, Komma), deren X-Forwarded-For/-Proto gelten, z. B. 10.42.0.0/16")
-	flag.Parse()
+	fs.String("env-file", "", "Datei mit MAT_*-Variablen (KEY=VALUE); gesetzte Umgebungsvariablen haben Vorrang")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	fail := func(msg ...any) int {
+		fmt.Fprintln(out, msg...)
+		return 2
+	}
 
 	if (*tlsCert == "") != (*tlsKey == "") {
-		fmt.Fprintln(os.Stderr, "-tls-cert und -tls-key müssen zusammen angegeben werden")
-		os.Exit(2)
+		return fail("-tls-cert und -tls-key müssen zusammen angegeben werden")
 	}
 
 	var level slog.Level
 	_ = level.UnmarshalText([]byte(*logLevel))
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+	log := slog.New(slog.NewTextHandler(out, &slog.HandlerOptions{Level: level}))
 
 	// Das Token kommt bewusst nur aus der Umgebung, damit es nicht in der Prozessliste steht.
 	token := os.Getenv("MAT_AGENT_TOKEN")
 	if len(token) < 8 {
-		fmt.Fprintln(os.Stderr, "MAT_AGENT_TOKEN muss gesetzt sein (mindestens 8 Zeichen)")
-		os.Exit(2)
+		return fail("MAT_AGENT_TOKEN muss gesetzt sein (mindestens 8 Zeichen)")
 	}
 
 	// Optional: Token für /metrics (Prometheus). Ohne Token ist der Endpunkt aus.
 	metricsToken := os.Getenv("MAT_METRICS_TOKEN")
 	if metricsToken != "" && len(metricsToken) < 16 {
-		fmt.Fprintln(os.Stderr, "MAT_METRICS_TOKEN muss mindestens 16 Zeichen lang sein")
-		os.Exit(2)
+		return fail("MAT_METRICS_TOKEN muss mindestens 16 Zeichen lang sein")
 	}
 
 	// Benachrichtigungskanäle (ntfy, E-Mail) nur aus der Umgebung.
 	chans, warnings, err := notify.FromEnv(os.Getenv)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "benachrichtigungen:", err)
-		os.Exit(2)
+		return fail("benachrichtigungen:", err)
 	}
 	for _, w := range warnings {
 		log.Warn(w)
@@ -102,30 +127,27 @@ func main() {
 
 	trusted, err := api.ParseTrustedProxies(*proxies)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "-trusted-proxies:", err)
-		os.Exit(2)
+		return fail("-trusted-proxies:", err)
 	}
 
 	var tlsCfg *tls.Config
 	if *tlsCert != "" {
 		pair, err := tls.LoadX509KeyPair(*tlsCert, *tlsKey)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "tls-zertifikat laden:", err)
-			os.Exit(2)
+			return fail("tls-zertifikat laden:", err)
 		}
 		tlsCfg = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{pair}}
 	}
 
-	if err := run(*listen, *dbPath, *retention, token, metricsToken, tlsCfg, chans, trusted, log); err != nil {
+	if err := run(ctx, *listen, *dbPath, *retention, token, metricsToken, tlsCfg, chans, trusted, log); err != nil {
 		log.Error("server beendet mit fehler", "err", err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
-func run(listen, dbPath string, retention time.Duration, token, metricsToken string, tlsCfg *tls.Config,
+func run(ctx context.Context, listen, dbPath string, retention time.Duration, token, metricsToken string, tlsCfg *tls.Config,
 	chans []notify.Channel, trusted []netip.Prefix, log *slog.Logger) error {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	st, err := store.Open(dbPath)
 	if err != nil {
@@ -156,7 +178,7 @@ func run(listen, dbPath string, retention time.Duration, token, metricsToken str
 		Handler:           apiSrv.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		TLSConfig:         tlsCfg,
-		// Anfrage-Kontexte hängen am Signal-Kontext, damit offene WebSockets beim Beenden schließen.
+		// Anfrage-Kontexte hängen am Kontext von run, damit offene WebSockets beim Beenden schließen.
 		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
 

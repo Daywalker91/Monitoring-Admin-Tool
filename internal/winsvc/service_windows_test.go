@@ -4,6 +4,7 @@ package winsvc
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -86,5 +87,16 @@ func TestRestrictToAdmins(t *testing.T) {
 			strings.Count(s, "(A;") != 2 {
 			t.Errorf("%s: dacl %s", p, s)
 		}
+	}
+}
+
+func TestStatusWithoutAdmin(t *testing.T) {
+	// Der Dienst-Manager selbst existiert immer; ein unbekannter Dienst meldet ErrNotInstalled.
+	if _, err := Status("mat-test-gibt-es-nicht"); !errors.Is(err, ErrNotInstalled) {
+		t.Fatalf("unbekannter dienst: %v", err)
+	}
+	// Ein Systemdienst lässt sich ohne Administratorrechte abfragen.
+	if st, err := Status("EventLog"); err != nil || st == "" {
+		t.Fatalf("eventlog: %q %v", st, err)
 	}
 }

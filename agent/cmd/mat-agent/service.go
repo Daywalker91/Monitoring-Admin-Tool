@@ -5,11 +5,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/config"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/internal/winsvc"
@@ -93,7 +91,7 @@ func installService(args []string) error {
 		return err
 	}
 	progDir := winsvc.ProgramDir(serviceName)
-	exe, err := installBinary(progDir)
+	exe, err := winsvc.InstallBinary(progDir, serviceName)
 	if err != nil {
 		return err
 	}
@@ -129,8 +127,8 @@ func prepareConfig(cfg *config.Config, dataDir, cfgPath string) error {
 	// wird deshalb ins Datenverzeichnis kopiert.
 	if cfg.CAFile != "" {
 		target := filepath.Join(dataDir, "server.crt")
-		if !samePath(cfg.CAFile, target) {
-			if err := copyFile(cfg.CAFile, target); err != nil {
+		if !winsvc.SamePath(cfg.CAFile, target) {
+			if err := winsvc.CopyFile(cfg.CAFile, target); err != nil {
 				return fmt.Errorf("ca-datei übernehmen: %w", err)
 			}
 		}
@@ -144,24 +142,6 @@ func prepareConfig(cfg *config.Config, dataDir, cfgPath string) error {
 		return fmt.Errorf("konfiguration schreiben: %w", err)
 	}
 	return restrict(cfgPath)
-}
-
-// installBinary kopiert das laufende Programm nach progDir und liefert den Zielpfad.
-func installBinary(progDir string) (string, error) {
-	src, err := os.Executable()
-	if err != nil {
-		return "", fmt.Errorf("eigenen pfad ermitteln: %w", err)
-	}
-	if err := os.MkdirAll(progDir, 0o755); err != nil {
-		return "", fmt.Errorf("programmverzeichnis anlegen: %w", err)
-	}
-	target := filepath.Join(progDir, serviceName+".exe")
-	if !samePath(src, target) {
-		if err := copyFile(src, target); err != nil {
-			return "", fmt.Errorf("programm kopieren: %w", err)
-		}
-	}
-	return target, nil
 }
 
 func uninstallService(args []string) error {
@@ -186,34 +166,4 @@ func uninstallService(args []string) error {
 	}
 	fmt.Printf("dienst und programm entfernt; konfiguration und log liegen weiter in %s (löschen mit -purge)\n", dataDir)
 	return nil
-}
-
-func samePath(a, b string) bool {
-	aa, err1 := filepath.Abs(a)
-	bb, err2 := filepath.Abs(b)
-	return err1 == nil && err2 == nil && strings.EqualFold(filepath.Clean(aa), filepath.Clean(bb))
-}
-
-// copyFile kopiert über eine temporäre Datei, damit kein halbes Ziel entsteht.
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	tmp := dst + ".tmp"
-	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		os.Remove(tmp)
-		return err
-	}
-	if err := out.Close(); err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	return os.Rename(tmp, dst)
 }
