@@ -13,7 +13,9 @@ Es wird in Meilensteinen gearbeitet. Alles, was zu keinem beauftragten Meilenste
 - **M1 (fertig):** Metriken erfassen, übertragen, speichern, anzeigen; responsive GUI
 - **M2 (fertig):** GUI-Login, Verlaufsdiagramme, `/metrics` für Prometheus, HTTPS/wss
 - **M3 (fertig):** Alarme (Schwellwerte, GUI-Anzeige, Benachrichtigung per ntfy und E-Mail)
-- **M4:** noch nicht festgelegt
+- **M4 (fertig):** Installation als Dienst (Windows, systemd), Server in k3s (ghcr.io, kustomize),
+  Alarme je Host, Stummschalten, Erinnerungen
+- **M5:** noch nicht festgelegt
 
 ## Tech-Stack
 
@@ -82,7 +84,7 @@ eine Nachricht beim Auslösen und eine beim Ende. Offene Alarme stehen in SQLite
 
 Vorbereitet für später (nicht umsetzen, solange nicht beauftragt):
 
-- Alarm-Schwellwerte pro Host, Erinnerungen bei lange aktiven Alarmen, weitere Kanäle (Telegram, Gotify)
+- weitere Benachrichtigungskanäle (Telegram, Gotify), Self-Update des Agenten
 
 - **Fähigkeiten** (`capabilities`, z. B. `packages`, `users`, `reboot`): der Agent meldet sie, die GUI zeigt nur passende Aktionen
 - **Jobs**: Admin-Aktionen mit festem Aktionsnamen und validierten Parametern

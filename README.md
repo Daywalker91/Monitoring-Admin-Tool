@@ -7,6 +7,7 @@ ein zentraler Server mit Web-GUI.
 per WebSocket übertragen, in SQLite speichern (7 Tage Historie) und als responsive Host-Liste anzeigen.
 M2 fertig – GUI-Login, Verlaufsdiagramme, Prometheus-Endpunkt, HTTPS/wss.
 M3 fertig – Alarme mit Schwellwerten, Anzeige in der GUI, Benachrichtigung per ntfy und E-Mail.
+M4 fertig – Installation als Dienst (Windows, systemd), Server in k3s, Alarme je Host, Stummschalten, Erinnerungen.
 
 ## Schnellstart (lokal)
 
@@ -116,6 +117,8 @@ Alle `/api/*`-Endpunkte außer Login/Logout erfordern eine Session.
 | `GET /api/alert-rules`          | Regeln und konfigurierte Kanäle            |
 | `POST /api/alert-rules`         | Regeln speichern (`{"rules":[…]}`)         |
 | `POST /api/alerts/test`         | Testnachricht an alle Kanäle               |
+| `GET/POST /api/hosts/{id}/alert-rules` | abweichende Regeln eines Hosts (leer = Standard) |
+| `POST/DELETE /api/hosts/{id}/mute`     | stummschalten (`{"minutes": N}`, 0 = unbefristet) / aufheben |
 | `GET /healthz`                  | Health-Check                               |
 | `GET /metrics`                  | Prometheus-Format (eigenes Bearer-Token)   |
 
@@ -134,6 +137,17 @@ Der Server prüft feste Regeltypen; Schwelle und Mindestdauer lassen sich in der
 Ein Alarm löst aus, wenn der Wert die Mindestdauer lang ununterbrochen über der Schwelle liegt, und endet,
 wenn er 5 Prozentpunkte unter die Schwelle fällt. Pro Alarm gibt es genau zwei Nachrichten: beim Auslösen
 und beim Ende. Aktive Alarme stehen oben in der GUI und unter „Alarme“, zusammen mit dem Verlauf der letzten 7 Tage.
+
+In den Host-Details unter „Alarme für diesen Host“:
+
+- **Eigene Regeln:** pro Regeltyp abweichende Werte (z. B. Disk 95 % fürs NAS, Offline aus für den Laptop);
+  ohne Haken gilt der Standard, der daneben steht.
+- **Stummschalten** für 1 h, 4 h, 24 h oder unbefristet (Wartung): Alarme werden weiter erfasst und angezeigt,
+  aber nicht gemeldet. Ist ein Alarm nach dem Ende der Stummschaltung noch aktiv, wird er nachgemeldet;
+  sein Ende wird nur gemeldet, wenn auch der Beginn gemeldet wurde.
+
+Unter „Regeln“ lässt sich eine **Erinnerung** einstellen: Alarme, die nach N Stunden noch aktiv sind,
+werden erneut gemeldet (0 = aus).
 
 ### Benachrichtigungen
 
