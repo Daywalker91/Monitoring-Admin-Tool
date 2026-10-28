@@ -35,7 +35,8 @@ func runUser(args []string) error {
 		return errors.New("unterbefehl fehlt")
 	}
 	cmd := args[0]
-	if err := fs.Parse(args[1:]); err != nil {
+	names, err := parseInterspersed(fs, args[1:])
+	if err != nil {
 		return err
 	}
 
@@ -61,7 +62,7 @@ func runUser(args []string) error {
 		return nil
 
 	case "add", "passwd":
-		name, err := nameArg(fs)
+		name, err := nameArg(names)
 		if err != nil {
 			return err
 		}
@@ -95,7 +96,7 @@ func runUser(args []string) error {
 		return nil
 
 	case "del":
-		name, err := nameArg(fs)
+		name, err := nameArg(names)
 		if err != nil {
 			return err
 		}
@@ -112,11 +113,27 @@ func runUser(args []string) error {
 	return fmt.Errorf("unbekannter unterbefehl %q", cmd)
 }
 
-func nameArg(fs *flag.FlagSet) (string, error) {
-	if fs.NArg() != 1 {
+// parseInterspersed erlaubt Flags vor und nach dem Benutzernamen
+// (flag.Parse allein hört beim ersten Nicht-Flag auf).
+func parseInterspersed(fs *flag.FlagSet, args []string) ([]string, error) {
+	var positional []string
+	for {
+		if err := fs.Parse(args); err != nil {
+			return nil, err
+		}
+		if fs.NArg() == 0 {
+			return positional, nil
+		}
+		positional = append(positional, fs.Arg(0))
+		args = fs.Args()[1:]
+	}
+}
+
+func nameArg(names []string) (string, error) {
+	if len(names) != 1 {
 		return "", errors.New("genau ein benutzername erwartet")
 	}
-	return fs.Arg(0), nil
+	return names[0], nil
 }
 
 // readPassword fragt das Passwort verdeckt und doppelt ab. Ohne Terminal wird
