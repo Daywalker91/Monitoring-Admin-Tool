@@ -211,11 +211,19 @@ type HistoryPoint struct {
 	DiskMaxPct float64 `json:"disk_max_pct"`
 }
 
-// History liefert die Historie eines Hosts ab since.
-func (s *Store) History(ctx context.Context, hostID string, since time.Time) ([]HistoryPoint, error) {
+// History liefert die Historie eines Hosts ab since. Bei bucket > 1 s werden
+// die Punkte zu Mittelwerten je Zeitfenster verdichtet; ts ist dann der Beginn
+// des Fensters.
+func (s *Store) History(ctx context.Context, hostID string, since time.Time, bucket time.Duration) ([]HistoryPoint, error) {
+	b := int64(bucket / time.Second)
+	if b < 1 {
+		b = 1
+	}
 	rows, err := s.db.QueryContext(ctx, `
-SELECT ts, cpu_pct, load1, mem_pct, swap_pct, net_rx_bps, net_tx_bps, disk_max_pct
-FROM metrics_history WHERE host_id = ? AND ts >= ? ORDER BY ts`, hostID, since.Unix())
+SELECT (ts / ?1) * ?1 AS t, AVG(cpu_pct), AVG(load1), AVG(mem_pct), AVG(swap_pct),
+       AVG(net_rx_bps), AVG(net_tx_bps), MAX(disk_max_pct)
+FROM metrics_history WHERE host_id = ?2 AND ts >= ?3
+GROUP BY t ORDER BY t`, b, hostID, since.Unix())
 	if err != nil {
 		return nil, fmt.Errorf("historie lesen: %w", err)
 	}

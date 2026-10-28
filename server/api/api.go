@@ -278,24 +278,42 @@ func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, out)
 }
 
+// handleHistory liefert die Historie. ?hours=1..168 wählt den Zeitraum,
+// ?points=0..2000 begrenzt die Punktzahl durch Verdichtung (0 = Rohdaten).
 func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
-	hours := 1
-	if v := r.URL.Query().Get("hours"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 || n > 24*7 {
-			http.Error(w, "hours muss zwischen 1 und 168 liegen", http.StatusBadRequest)
-			return
-		}
-		hours = n
+	q := r.URL.Query()
+	hours, ok := intParam(q.Get("hours"), 1, 1, 24*7)
+	if !ok {
+		http.Error(w, "hours muss zwischen 1 und 168 liegen", http.StatusBadRequest)
+		return
 	}
-	since := s.nowFor().Add(-time.Duration(hours) * time.Hour)
-	points, err := s.store.History(r.Context(), r.PathValue("id"), since)
+	maxPoints, ok := intParam(q.Get("points"), 0, 0, 2000)
+	if !ok {
+		http.Error(w, "points muss zwischen 0 und 2000 liegen", http.StatusBadRequest)
+		return
+	}
+	span := time.Duration(hours) * time.Hour
+	var bucket time.Duration
+	if maxPoints > 0 {
+		bucket = (span + time.Duration(maxPoints) - 1) / time.Duration(maxPoints)
+	}
+	since := s.nowFor().Add(-span)
+	points, err := s.store.History(r.Context(), r.PathValue("id"), since, bucket)
 	if err != nil {
 		s.log.Error("historie lesen", "err", err)
 		http.Error(w, "interner fehler", http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, points)
+}
+
+// intParam liest eine ganze Zahl im Bereich [lo, hi]; leer ergibt def.
+func intParam(v string, def, lo, hi int) (int, bool) {
+	if v == "" {
+		return def, true
+	}
+	n, err := strconv.Atoi(v)
+	return n, err == nil && n >= lo && n <= hi
 }
 
 // handleDeleteHost entfernt einen Host aus der Liste. Verbundene Hosts können

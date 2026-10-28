@@ -61,7 +61,7 @@ func TestHostLifecycle(t *testing.T) {
 		t.Fatalf("letzter stand falsch: %s (%v)", hosts[0].Metrics, err)
 	}
 
-	hist, err := s.History(ctx, "pi-1", now.Add(-time.Minute))
+	hist, err := s.History(ctx, "pi-1", now.Add(-time.Minute), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestHostLifecycle(t *testing.T) {
 		t.Fatal("zweites DeleteHost meldet found")
 	}
 	hosts, _ = s.ListHosts(ctx)
-	hist, _ = s.History(ctx, "pi-1", time.Time{})
+	hist, _ = s.History(ctx, "pi-1", time.Time{}, 0)
 	if len(hosts) != 0 || len(hist) != 0 {
 		t.Fatalf("nach dem Löschen: %d hosts, %d historie", len(hosts), len(hist))
 	}
@@ -101,8 +101,32 @@ func TestPrune(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("gelöscht: %d, erwartet 1", n)
 	}
-	hist, _ := s.History(ctx, "a", time.Time{})
+	hist, _ := s.History(ctx, "a", time.Time{}, 0)
 	if len(hist) != 2 {
 		t.Fatalf("verbleibend: %d, erwartet 2", len(hist))
+	}
+}
+
+func TestHistoryBuckets(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	base := time.Unix(1_800_000_000, 0) // durch 60 teilbar → definierte Fenstergrenzen
+	s.UpsertHost(ctx, proto.Hello{AgentID: "a", Hostname: "a", IntervalSec: 10}, "", base)
+	// 12 Punkte im 10-s-Abstand mit CPU 0, 10, …, 110 → zwei 60-s-Fenster.
+	for i := 0; i < 12; i++ {
+		m := proto.Metrics{CPU: proto.CPU{TotalPct: float64(i * 10)}}
+		if err := s.SaveMetrics(ctx, "a", m, []byte("{}"), base.Add(time.Duration(i)*10*time.Second)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hist, err := s.History(ctx, "a", base, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hist) != 2 {
+		t.Fatalf("fenster: %d, erwartet 2", len(hist))
+	}
+	if hist[0].TS != base.Unix() || hist[0].CPUPct != 25 || hist[1].CPUPct != 85 {
+		t.Fatalf("mittelwerte falsch: %+v", hist)
 	}
 }

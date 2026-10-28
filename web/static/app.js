@@ -111,6 +111,138 @@ function hostRow(h) {
   return tr;
 }
 
+// --- Verlauf --------------------------------------------------------------
+// Je Host eine dauerhafte Ansicht: Das Element überlebt das Neuzeichnen der
+// Liste alle 5 s (kein Flackern, Hover bleibt erhalten) und lädt nur alle 30 s nach.
+
+const HISTORY_POINTS = 300;
+const HISTORY_REFRESH_MS = 30000;
+const RANGES = [["1 h", 1], ["24 h", 24], ["7 d", 168]];
+const historyViews = new Map();
+
+// Achse: "0", "100 KB"; Tooltip: "100 KB/s".
+function fmtRateShort(n, axis) {
+  if (axis) return n ? fmtBytes(n) : "0";
+  return fmtRate(n);
+}
+
+function createHistoryView(h) {
+  const v = { id: h.id, hours: 1, data: null, fetchedAt: 0, loading: false, interval: h.interval_sec };
+  const sec = el("section", null, "history");
+
+  const head = el("div", null, "history-head");
+  head.append(el("h3", "Verlauf"));
+  const ranges = el("div", null, "segmented");
+  ranges.setAttribute("role", "group");
+  ranges.setAttribute("aria-label", "Zeitraum");
+  for (const [label, hours] of RANGES) {
+    const b = el("button", label);
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(hours === v.hours));
+    b.addEventListener("click", ev => {
+      ev.stopPropagation();
+      if (v.hours === hours) return;
+      v.hours = hours;
+      ranges.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+      v.fetchedAt = 0;
+      loadHistory(v);
+    });
+    ranges.append(b);
+  }
+  head.append(ranges);
+  sec.append(head);
+
+  const pct = (n, axis) => axis ? n.toFixed(0) + "%" : (n ?? 0).toFixed(1) + " %";
+  v.charts = [
+    Charts.lineChart({ title: "CPU", scale: "pct", area: true, format: pct,
+      series: [{ key: "cpu_pct", name: "CPU", cls: "s1" }] }),
+    Charts.lineChart({ title: "RAM", scale: "pct", area: true, format: pct,
+      series: [{ key: "mem_pct", name: "RAM", cls: "s1" }] }),
+    Charts.lineChart({ title: "Netz", scale: "bytes", format: fmtRateShort,
+      series: [{ key: "net_rx_bps", name: "↓ empfangen", cls: "s1" }, { key: "net_tx_bps", name: "↑ gesendet", cls: "s2" }] }),
+  ];
+  const grid = el("div", null, "chart-grid");
+  for (const c of v.charts) grid.append(c.el);
+  sec.append(grid);
+
+  // Tabellenansicht: alle Werte ohne Hover erreichbar. Wird erst beim Aufklappen gefüllt.
+  const details = el("details", null, "history-table");
+  details.append(el("summary", "Werte als Tabelle"));
+  const table = el("table", null, "mini");
+  const thead = el("thead");
+  const hr = el("tr");
+  for (const [t, c] of [["Zeit"], ["CPU", "num"], ["RAM", "num"], ["↓", "num"], ["↑", "num"]]) hr.append(el("th", t, c));
+  thead.append(hr);
+  table.append(thead, el("tbody"));
+  details.append(table);
+  details.addEventListener("toggle", () => fillHistoryTable(v));
+  sec.append(details);
+  v.details = details;
+  v.table = table;
+
+  v.el = sec;
+  return v;
+}
+
+function fillHistoryTable(v) {
+  if (!v.details.open || !v.data) return;
+  const opts = { hour: "2-digit", minute: "2-digit" };
+  if (v.hours > 24) Object.assign(opts, { day: "numeric", month: "numeric" });
+  const rows = [...v.data].reverse().map(p => [
+    [new Date(p.ts * 1000).toLocaleString("de-DE", opts)],
+    [fmtPct(p.cpu_pct), "num"], [fmtPct(p.mem_pct), "num"],
+    [fmtRate(p.net_rx_bps), "num"], [fmtRate(p.net_tx_bps), "num"],
+  ]);
+  const tbody = v.table.querySelector("tbody");
+  tbody.replaceChildren();
+  fillTable(tbody, rows);
+}
+
+async function loadHistory(v) {
+  if (v.loading || Date.now() - v.fetchedAt < HISTORY_REFRESH_MS) return;
+  v.loading = true;
+  v.el.classList.add("loading"); // altes Bild bleibt gedimmt stehen, bis neue Daten da sind
+  const hours = v.hours;
+  try {
+    const resp = await fetch(`api/hosts/${encodeURIComponent(v.id)}/history?hours=${hours}&points=${HISTORY_POINTS}`,
+      { cache: "no-store" });
+    if (resp.status === 401) return toLogin();
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const data = await resp.json();
+    if (hours !== v.hours) return; // Zeitraum wurde inzwischen gewechselt
+    v.data = data;
+    v.fetchedAt = Date.now();
+    drawHistory(v);
+  } catch (e) {
+    console.warn("Verlauf laden fehlgeschlagen:", e);
+  } finally {
+    v.loading = false;
+    v.el.classList.remove("loading");
+    if (hours !== v.hours) loadHistory(v);
+  }
+}
+
+function drawHistory(v) {
+  const end = Date.now() / 1000;
+  const start = end - v.hours * 3600;
+  const bucket = (v.hours * 3600) / HISTORY_POINTS;
+  // Lücke, wenn mehr als ~3 Messintervalle bzw. 2,5 Fenster fehlen.
+  const gap = Math.max(bucket * 2.5, (v.interval || 10) * 3);
+  for (const c of v.charts) c.update(v.data, start, end, gap);
+  fillHistoryTable(v);
+}
+
+function historySection(h) {
+  let v = historyViews.get(h.id);
+  if (!v) {
+    v = createHistoryView(h);
+    historyViews.set(h.id, v);
+  }
+  v.interval = h.interval_sec;
+  loadHistory(v);
+  return v.el;
+}
+
 function fillTable(tbody, rows) {
   for (const cells of rows) {
     const tr = el("tr");
@@ -130,6 +262,8 @@ function detailRow(h) {
   const tr = tpl.querySelector("tr");
   const m = h.metrics || {};
   const p = h.processes || {};
+
+  tr.querySelector(".history-slot").replaceWith(historySection(h));
 
   const cores = tr.querySelector(".cores");
   (m.cpu?.per_core || []).forEach((v, i) => {
@@ -184,6 +318,7 @@ async function deleteHost(h) {
     if (resp.status === 401) return toLogin();
     if (!resp.ok && resp.status !== 404) throw new Error((await resp.text()).trim() || "HTTP " + resp.status);
     openHosts.delete(h.id);
+    historyViews.delete(h.id);
     saveOpenHosts();
     await refresh();
   } catch (e) {

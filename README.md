@@ -5,7 +5,7 @@ ein zentraler Server mit Web-GUI.
 
 **Stand:** M1 fertig – Metriken erfassen (CPU, RAM/Swap, Netzwerk, Speicher, Top-Prozesse),
 per WebSocket übertragen, in SQLite speichern (7 Tage Historie) und als responsive Host-Liste anzeigen.
-M2 in Arbeit – GUI-Login ✓, Verlaufsdiagramme, Prometheus-Endpunkt, HTTPS.
+M2 in Arbeit – GUI-Login ✓, Verlaufsdiagramme ✓, Prometheus-Endpunkt, HTTPS.
 
 ## Schnellstart (lokal)
 
@@ -57,7 +57,7 @@ Alle `/api/*`-Endpunkte außer Login/Logout erfordern eine Session.
 | `POST /api/logout`              | Abmelden                                   |
 | `GET /api/me`                   | angemeldeter Benutzer                      |
 | `GET /api/hosts`                | alle Hosts mit letztem Stand               |
-| `GET /api/hosts/{id}/history`   | kompakte Historie, `?hours=1..168`         |
+| `GET /api/hosts/{id}/history`   | Historie, `?hours=1..168`, `?points=0..2000` verdichtet |
 | `DELETE /api/hosts/{id}`        | Host samt Historie entfernen (nur offline) |
 | `GET /healthz`                  | Health-Check                               |
 
