@@ -51,31 +51,43 @@ die Konfiguration vom festen Ort (`%ProgramData%\mat-agent\agent.json` bzw. `/et
 
 ## Installation als Dienst
 
+Die Installationsskripte laden das passende Programm aus dem neuesten GitHub-Release und prüfen
+dessen SHA-256-Summe aus `release.json` (nur HTTPS). Mit `--version`/`-Version` eine bestimmte
+Version, mit `--binary`/`-Binary` ein vorhandenes Programm (z. B. aus `.\build.ps1` → `dist\`).
+Spätere Updates laufen über die GUI (siehe Agent-Updates).
+
 ### Agent unter Windows
 
-In einer **Administrator-PowerShell**:
+`install-agent.ps1` aus dem Release laden, `server.crt` daneben legen, dann in einer
+**Administrator-PowerShell**:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install-agent.ps1 -Server wss://192.168.100.50/ws/agent -Ca .\server.crt
+```
+
+Das Token wird verdeckt abgefragt (oder aus `MAT_AGENT_TOKEN` genommen). Das Skript ruft
+`mat-agent service install` auf: Programm nach `C:\Program Files\mat-agent`, Konfiguration nach
+`C:\ProgramData\mat-agent\agent.json` (nur SYSTEM und Administratoren lesbar, CA-Datei daneben), Dienst
+mit Autostart und Neustart nach Fehlern. Log: `C:\ProgramData\mat-agent\agent.log`.
+Ohne `-Server` aktualisiert es nur das Programm. Entfernen: `.\install-agent.ps1 -Uninstall [-Purge]`.
+
+Von Hand geht es auch direkt mit dem Programm:
 
 ```powershell
 $env:MAT_AGENT_TOKEN = "<token>"     # nicht als -token, sonst steht es in der Prozessliste
-.\dist\mat-agent-windows-amd64.exe service install -server wss://192.168.100.50/ws/agent -ca server.crt
+.\mat-agent-windows-amd64.exe service install -server wss://192.168.100.50/ws/agent -ca server.crt
 mat-agent service status              # geht auch ohne Administrator
 ```
 
-Das kopiert das Programm nach `C:\Program Files\mat-agent`, schreibt die Konfiguration nach
-`C:\ProgramData\mat-agent\agent.json` (nur SYSTEM und Administratoren lesbar, CA-Datei daneben) und
-richtet den Dienst mit Autostart und Neustart nach Fehlern ein. Log: `C:\ProgramData\mat-agent\agent.log`.
-Erneutes `service install` aktualisiert Programm und Konfiguration; Flags überschreiben einzelne Werte.
-Entfernen: `service uninstall` (mit `-purge` auch Konfiguration und Log).
-
 ### Agent unter Linux / Raspberry Pi
 
-`.\build.ps1` legt Skript und systemd-Unit mit nach `dist\`. Den Ordner auf das Gerät kopieren, dann:
-
 ```sh
+curl -fsSLO https://github.com/Daywalker91/Monitoring-Admin-Tool/releases/latest/download/install-agent.sh
 sudo sh install-agent.sh --server wss://192.168.100.50/ws/agent --ca server.crt
 ```
 
-Das Skript wählt das Programm passend zur Architektur, fragt das Token verdeckt ab (oder nimmt
+Das Skript erkennt die Architektur (amd64, arm64, armv7), lädt das Programm (liegt es neben dem
+Skript oder in `../dist`, wird dieses genommen), fragt das Token verdeckt ab (oder nimmt
 `MAT_AGENT_TOKEN`), schreibt `/etc/mat-agent/agent.json` mit 0600, prüft sie und startet den Dienst.
 Ohne `--server` aktualisiert es nur das Programm. Log: `journalctl -u mat-agent -f`.
 Entfernen: `sudo sh install-agent.sh --uninstall [--purge]`.

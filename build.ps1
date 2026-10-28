@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Baut den Agenten (und optional den Server) für alle Zielplattformen nach .\dist.
 
@@ -73,9 +73,10 @@ finally {
     foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name], "Process") }
 }
 
-# Installationsdateien für Linux dazulegen: dist\ auf das Zielsystem kopieren genügt.
+# Installationsskripte (Linux, Windows) und systemd-Unit dazulegen: dist\ auf das Zielsystem kopieren genügt.
 # Pfade mit "/", damit das Skript auch mit PowerShell 7 unter Linux läuft (Release-Workflow).
 Copy-Item (Join-Path $PSScriptRoot "deploy/install-agent.sh") $dist
+Copy-Item (Join-Path $PSScriptRoot "deploy/install-agent.ps1") $dist
 Copy-Item (Join-Path $PSScriptRoot "deploy/systemd/mat-agent.service") $dist
 
 Write-Host "Fertig: $dist"

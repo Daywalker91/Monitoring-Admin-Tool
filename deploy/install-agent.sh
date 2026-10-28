@@ -4,10 +4,14 @@
 #   sudo sh install-agent.sh --server wss://monitor.lan:8443/ws/agent [--ca server.crt] [--id name]
 #   sudo sh install-agent.sh                 # nur Programm aktualisieren, Konfiguration bleibt
 #   sudo sh install-agent.sh --uninstall [--purge]
+#   weitere Optionen: --version v0.5.0 | --download | --binary <datei>
 #
 # Das Token wird abgefragt (oder aus MAT_AGENT_TOKEN gelesen), damit es nicht in
 # der Prozessliste oder der Shell-History landet. Das passende Programm
-# (mat-agent-linux-amd64|arm64|armv7) wird neben diesem Skript oder in ../dist gesucht.
+# (mat-agent-linux-amd64|arm64|armv7) wird neben diesem Skript oder in ../dist
+# gesucht; fehlt es (oder mit --download/--version), lädt das Skript es aus dem
+# GitHub-Release (neueste Version bzw. --version) und prüft die SHA-256-Summe aus
+# release.json. Nur über HTTPS (curl oder wget).
 #
 # Zum Testen ohne root: DESTROOT=/tmp/x MAT_NO_SYSTEMCTL=1 sh install-agent.sh …
 set -eu
@@ -31,17 +35,22 @@ systemctl_() {
 }
 
 usage() {
-	sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
 	exit "${1:-0}"
 }
 
-server= ca= id= binary= uninstall= purge=
+# Quelle der Releases; MAT_RELEASE_URL nur für Tests oder Forks.
+RELEASES=${MAT_RELEASE_URL:-https://github.com/Daywalker91/Monitoring-Admin-Tool/releases}
+
+server= ca= id= binary= uninstall= purge= version= download=
 while [ $# -gt 0 ]; do
 	case "$1" in
 	--server) server=${2:?}; shift 2 ;;
 	--ca) ca=${2:?}; shift 2 ;;
 	--id) id=${2:?}; shift 2 ;;
 	--binary) binary=${2:?}; shift 2 ;;
+	--version) version=${2:?}; download=1; shift 2 ;;
+	--download) download=1; shift ;;
 	--uninstall) uninstall=1; shift ;;
 	--purge) purge=1; shift ;;
 	-h | --help) usage ;;
@@ -97,25 +106,67 @@ if [ -n "$ca" ]; then
 	*) die "--ca ist nur mit wss:// sinnvoll" ;;
 	esac
 fi
+if [ -n "$version" ] && ! printf '%s' "$version" | grep -Eq '^v[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}$'; then
+	die "--version im format v1.2.3 angeben"
+fi
+if [ -n "$binary" ] && [ -n "$download" ]; then
+	die "--binary und --download/--version schließen sich aus"
+fi
 if [ -z "$server" ] && [ ! -f "$CONF" ]; then
 	die "noch keine konfiguration vorhanden – --server angeben"
 fi
 
-# --- Programm für diese Architektur finden ----------------------------------
-if [ -z "$binary" ]; then
-	case "$(uname -m)" in
-	x86_64 | amd64) arch=amd64 ;;
-	aarch64 | arm64) arch=arm64 ;;
-	armv7l | armv8l) arch=armv7 ;;
-	*) die "architektur $(uname -m) wird nicht unterstützt (amd64, arm64, armv7)" ;;
-	esac
+# --- Programm für diese Architektur finden oder laden ------------------------
+tmpdir=
+cleanup() { [ -z "$tmpdir" ] || rm -rf "$tmpdir"; }
+trap cleanup EXIT
+
+# fetch lädt eine Release-Datei; ohne MAT_RELEASE_URL nur über HTTPS.
+fetch() {
+	if [ -n "$version" ]; then url="$RELEASES/download/$version/$1"; else url="$RELEASES/latest/download/$1"; fi
+	if command -v curl >/dev/null 2>&1; then
+		if [ -n "${MAT_RELEASE_URL:-}" ]; then
+			curl -fsSL -o "$2" "$url"
+		else
+			curl -fsSL --proto '=https' --tlsv1.2 -o "$2" "$url"
+		fi
+	elif command -v wget >/dev/null 2>&1; then
+		wget -q -O "$2" "$url"
+	else
+		die "weder curl noch wget gefunden – programm von hand laden und --binary angeben"
+	fi || die "laden fehlgeschlagen: $url"
+}
+
+case "$(uname -m)" in
+x86_64 | amd64) arch=amd64 ;;
+aarch64 | arm64) arch=arm64 ;;
+armv7l | armv8l) arch=armv7 ;;
+*) die "architektur $(uname -m) wird nicht unterstützt (amd64, arm64, armv7)" ;;
+esac
+name="mat-agent-linux-$arch"
+
+if [ -z "$binary" ] && [ -z "$download" ]; then
 	for dir in "$SCRIPT_DIR" "$SCRIPT_DIR/../dist"; do
-		if [ -f "$dir/mat-agent-linux-$arch" ]; then
-			binary="$dir/mat-agent-linux-$arch"
+		if [ -f "$dir/$name" ]; then
+			binary="$dir/$name"
 			break
 		fi
 	done
-	[ -n "$binary" ] || die "mat-agent-linux-$arch nicht gefunden (neben dem skript oder in ../dist; sonst --binary)"
+fi
+if [ -z "$binary" ]; then
+	tmpdir=$(mktemp -d)
+	info "lade $name (${version:-neueste version}) von $RELEASES"
+	fetch release.json "$tmpdir/release.json"
+	fetch "$name" "$tmpdir/$name"
+	# Prüfsumme aus release.json (ein Feld je Zeile, "sha256" folgt auf "name").
+	want=$(awk -v n="\"$name\"" '$1 == "\"name\":" && $2 ~ "^" n {f=1} f && $1 == "\"sha256\":" {gsub(/[",]/, "", $2); print $2; exit}' "$tmpdir/release.json")
+	got=$(sha256sum "$tmpdir/$name" | cut -d' ' -f1)
+	[ -n "$want" ] || die "$name steht nicht in release.json"
+	[ "$want" = "$got" ] || die "prüfsumme von $name stimmt nicht – abbruch"
+	rel=$(awk '$1 == "\"version\":" {gsub(/[",]/, "", $2); print $2; exit}' "$tmpdir/release.json")
+	info "prüfsumme ok ($rel)"
+	chmod 0755 "$tmpdir/$name"
+	binary="$tmpdir/$name"
 fi
 [ -f "$binary" ] || die "$binary nicht gefunden"
 
@@ -123,7 +174,11 @@ unit_src=
 for f in "$SCRIPT_DIR/mat-agent.service" "$SCRIPT_DIR/systemd/mat-agent.service"; do
 	if [ -f "$f" ]; then unit_src=$f; break; fi
 done
-[ -n "$unit_src" ] || die "mat-agent.service nicht gefunden (neben dem skript oder in systemd/)"
+if [ -z "$unit_src" ]; then
+	[ -n "$tmpdir" ] || tmpdir=$(mktemp -d)
+	fetch mat-agent.service "$tmpdir/mat-agent.service"
+	unit_src="$tmpdir/mat-agent.service"
+fi
 
 # --- Konfiguration -----------------------------------------------------------
 umask 077
