@@ -47,6 +47,12 @@ Agenten verbinden sich mit `wss://192.168.100.50/ws/agent` und pinnen das Zertif
 sudo sh install-agent.sh --server wss://192.168.100.50/ws/agent --ca server.crt
 ```
 
+## Versionen
+
+Neben `:main` gibt es zu jedem Release-Tag ein festes Image (`v0.5.1` → `:0.5.1`). Mit festem Tag rollt
+ArgoCD ein Update aus, sobald der Tag im Manifest geändert wird; `:main` braucht dagegen
+`kubectl rollout restart`. Der Server braucht ausgehend Zugriff auf GitHub (Agent-Updates).
+
 ## Mit ArgoCD
 
 Statt `kubectl apply -k` eine Application auf dieses Repo zeigen lassen (das Repo ist privat,

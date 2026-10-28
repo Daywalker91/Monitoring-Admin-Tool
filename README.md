@@ -8,6 +8,7 @@ per WebSocket übertragen, in SQLite speichern (7 Tage Historie) und als respons
 M2 fertig – GUI-Login, Verlaufsdiagramme, Prometheus-Endpunkt, HTTPS/wss.
 M3 fertig – Alarme mit Schwellwerten, Anzeige in der GUI, Benachrichtigung per ntfy und E-Mail.
 M4 fertig – Installation als Dienst (Windows, systemd), Server in k3s, Alarme je Host, Stummschalten, Erinnerungen.
+M5 fertig – Self-Update der Agenten aus signierten GitHub-Releases, Warnung vor Ablauf des Server-Zertifikats.
 
 ## Schnellstart (lokal)
 
@@ -119,6 +120,11 @@ Alle `/api/*`-Endpunkte außer Login/Logout erfordern eine Session.
 | `POST /api/alerts/test`         | Testnachricht an alle Kanäle               |
 | `GET/POST /api/hosts/{id}/alert-rules` | abweichende Regeln eines Hosts (leer = Standard) |
 | `POST/DELETE /api/hosts/{id}/mute`     | stummschalten (`{"minutes": N}`, 0 = unbefristet) / aufheben |
+| `GET /api/update`               | Release-Status, Server-Version, Zertifikatsablauf |
+| `POST /api/update/check`        | sofort auf ein neues Release prüfen (höchstens 1×/min) |
+| `POST /api/hosts/{id}/update`   | Agent-Update eines Hosts starten           |
+| `POST /api/update/all`          | alle veralteten Agenten aktualisieren      |
+| `GET /agent/update/{version}/{datei}` | Release-Dateien für Agenten (Agent-Token) |
 | `GET /healthz`                  | Health-Check                               |
 | `GET /metrics`                  | Prometheus-Format (eigenes Bearer-Token)   |
 
@@ -193,6 +199,57 @@ mat-agent -server wss://192.168.100.10:8443/ws/agent -ca server.crt
 Das Zertifikat ist selbst signiert: Der Agent vertraut mit `-ca` genau diesem Zertifikat (keine
 Prüfung wird abgeschaltet). Im Browser erscheint beim ersten Aufruf eine Warnung, bis das Zertifikat
 dort als vertrauenswürdig importiert wird. Bei TLS bekommt das Session-Cookie automatisch `Secure`.
+
+Läuft das Zertifikat in weniger als 30 Tagen ab, zeigt die GUI einen Hinweis; bei 30, 14, 7 und 1 Tag(en)
+Rest und nach dem Ablauf geht je eine Nachricht an die Benachrichtigungskanäle. Ein neues Zertifikat
+muss auf allen Agenten als `ca_file` hinterlegt werden (Self-Update verteilt es nicht).
+
+## Agent-Updates (Self-Update)
+
+Neue Agent-Versionen kommen als **signierte GitHub-Releases**. Der Server fragt alle 6 Stunden
+`releases/latest` ab (oder sofort mit „Jetzt prüfen“ unter *Einstellungen*), prüft die Signatur und zeigt
+veraltete Hosts an. Aktualisiert wird nur auf Knopfdruck – pro Host oder „Alle aktualisieren“.
+
+Ablauf: Der Server lädt das passende Binary von GitHub und reicht es weiter; der Agent lädt es vom
+Server (eigenes Token, gepinntes Zertifikat), **prüft die Signatur selbst** gegen den eingebauten
+öffentlichen Schlüssel, außerdem Plattform, Größe, SHA-256 und dass die Version neuer ist (kein
+Downgrade), ruft das neue Binary probehalber mit `version` auf, tauscht es aus (das alte bleibt als
+`mat-agent.old` bzw. `mat-agent.old.exe` liegen) und beendet sich. Dienst-Manager bzw. systemd starten ihn neu.
+Startet die neue Version dreimal, ohne eine Minute stabil verbunden zu sein, legt der Agent das alte
+Binary zurück und meldet das in der GUI.
+
+- Nur Agenten, die als Windows-Dienst oder unter systemd laufen, melden die Fähigkeit `update`;
+  im Vordergrund gestartete Agenten bieten kein Update an.
+- Agenten vor v0.5.0 können sich noch nicht selbst aktualisieren: einmal von Hand neu installieren
+  (`service install` bzw. `install-agent.sh` mit dem neuen Binary).
+- Der Server braucht ausgehend Zugriff auf `api.github.com` und `objects.githubusercontent.com`.
+  `MAT_UPDATE_REPO=off` schaltet die Prüfung ab, `MAT_UPDATE_REPO=<owner>/<repo>` nimmt ein anderes Repo.
+  Binaries werden neben der Datenbank zwischengespeichert (`<db-ordner>/updates/`).
+
+### Release erstellen
+
+```powershell
+git tag v0.5.1
+git push origin v0.5.1
+```
+
+Der Workflow [release.yml](.github/workflows/release.yml) testet, wartet auf die Freigabe in der
+Environment `release`, baut alle Agenten, signiert `release.json` mit dem Secret `RELEASE_SIGNING_KEY`,
+prüft die Signatur gegen den eingebauten Schlüssel und veröffentlicht den Release. Parallel baut
+[server-image.yml](.github/workflows/server-image.yml) das Server-Image `:0.5.1`.
+
+Einmalige Einrichtung des Schlüssels:
+
+```powershell
+go run ./server/cmd/mat-server release keygen -out $env:TEMPelease.key
+# Ausgabe "öffentlicher schlüssel: …" in internal/release/key.go eintragen und committen
+gh secret set RELEASE_SIGNING_KEY --env release --body (Get-Content $env:TEMPelease.key)
+Remove-Item $env:TEMPelease.key
+```
+
+In den Repo-Einstellungen: Environment `release` mit *Required reviewers* (nur du) und eine Tag-Regel
+für `v*`, damit nur du Release-Tags anlegen kannst. Wer den privaten Schlüssel hat, kann allen Agenten
+Code unterschieben – er liegt deshalb nur in dieser Environment.
 
 ## Prometheus / Grafana
 

@@ -15,7 +15,9 @@ Es wird in Meilensteinen gearbeitet. Alles, was zu keinem beauftragten Meilenste
 - **M3 (fertig):** Alarme (Schwellwerte, GUI-Anzeige, Benachrichtigung per ntfy und E-Mail)
 - **M4 (fertig):** Installation als Dienst (Windows, systemd), Server in k3s (ghcr.io, kustomize),
   Alarme je Host, Stummschalten, Erinnerungen
-- **M5:** noch nicht festgelegt
+- **M5 (fertig):** Self-Update der Agenten (Job `agent.update`, signierte GitHub-Releases),
+  Release-Workflow, Warnung vor Ablauf des Server-Zertifikats
+- **M6:** noch nicht festgelegt (naheliegend: Admin-Jobs)
 
 ## Tech-Stack
 
@@ -59,7 +61,8 @@ oder direkt als Binary. Agenten laufen immer direkt auf den Hosts (Windows-Diens
           server/alert wertet Alarmregeln aus, server/notify verschickt Nachrichten (ntfy, SMTP)
 /web      Frontend-Dateien (werden per go:embed eingebettet)
 /proto    gemeinsame Nachrichtentypen (JSON) zwischen Agent und Server
-/internal kleine gemeinsame Hilfspakete ohne schwere Abhängigkeiten (winsvc: Windows-Dienst, logfile)
+/internal kleine gemeinsame Hilfspakete ohne schwere Abhängigkeiten (winsvc: Windows-Dienst, logfile,
+          release: signierte Release-Manifeste)
 /deploy   Dockerfile, k8s-Manifeste (k3s), systemd-Unit, install-agent.sh, env-Vorlage
 .github   Workflow: Multi-Arch-Server-Image nach ghcr.io
 build.ps1 baut den Agenten für alle Zielplattformen nach /dist
@@ -84,7 +87,7 @@ eine Nachricht beim Auslösen und eine beim Ende. Offene Alarme stehen in SQLite
 
 Vorbereitet für später (nicht umsetzen, solange nicht beauftragt):
 
-- weitere Benachrichtigungskanäle (Telegram, Gotify), Self-Update des Agenten
+- weitere Benachrichtigungskanäle (Telegram, Gotify)
 
 - **Fähigkeiten** (`capabilities`, z. B. `packages`, `users`, `reboot`): der Agent meldet sie, die GUI zeigt nur passende Aktionen
 - **Jobs**: Admin-Aktionen mit festem Aktionsnamen und validierten Parametern
@@ -112,6 +115,10 @@ Der Agent läuft als root bzw. SYSTEM, deshalb gilt:
 - Benachrichtigungskanäle (`MAT_NTFY_*`, `MAT_SMTP_*`) nur über Umgebungsvariablen, nie über GUI oder DB.
   SMTP nur mit STARTTLS/TLS (Klartext nur zu localhost). Texte in Nachrichten stammen teils von Agenten
   (Hostname, Mountpoint): Steuerzeichen werden entfernt, Betreff RFC-2047-kodiert (keine Header-Injection).
+- **Self-Update:** Releases sind mit ed25519 signiert (`release.json` + `.sig`); der öffentliche Schlüssel
+  ist in `internal/release/key.go` eingebaut, der private liegt nur als Secret der GitHub-Environment
+  `release` (Freigabe Pflicht). Agent **und** Server prüfen die Signatur; der Agent prüft zusätzlich
+  Plattform, Größe, SHA-256 und verweigert Downgrades. Der Server liefert nur Dateien der geprüften Version aus.
 - `/metrics` hat ein eigenes Token (`MAT_METRICS_TOKEN`, Bearer) und ist ohne Token abgeschaltet (404) — nie offen.
 - Zugangsdaten, Tokens und Passwörter niemals committen und niemals loggen — Konfiguration über `.env` /
   lokale Config-Dateien (in `.gitignore`).
