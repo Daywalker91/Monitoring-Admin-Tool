@@ -73,7 +73,7 @@ func Open(path string) (*Store, error) {
 	}
 	// SQLite verträgt nur einen Schreiber; eine Verbindung vermeidet SQLITE_BUSY.
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(schema + usersSchema); err != nil {
+	if _, err := db.Exec(schema + usersSchema + alertsSchema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("schema anlegen: %w", err)
 	}
@@ -241,7 +241,7 @@ GROUP BY t ORDER BY t`, b, hostID, since.Unix())
 	return points, rows.Err()
 }
 
-// DeleteHost entfernt einen Host samt Historie. found meldet, ob es ihn gab.
+// DeleteHost entfernt einen Host samt Historie und Alarmen. found meldet, ob es ihn gab.
 func (s *Store) DeleteHost(ctx context.Context, hostID string) (found bool, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -251,6 +251,9 @@ func (s *Store) DeleteHost(ctx context.Context, hostID string) (found bool, err 
 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM metrics_history WHERE host_id = ?`, hostID); err != nil {
 		return false, fmt.Errorf("historie löschen: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM alerts WHERE host_id = ?`, hostID); err != nil {
+		return false, fmt.Errorf("alarme löschen: %w", err)
 	}
 	res, err := tx.ExecContext(ctx, `DELETE FROM hosts WHERE id = ?`, hostID)
 	if err != nil {
@@ -263,11 +266,15 @@ func (s *Store) DeleteHost(ctx context.Context, hostID string) (found bool, err 
 	return n > 0, tx.Commit()
 }
 
-// Prune löscht Historienpunkte, die älter als before sind, und liefert die Anzahl.
+// Prune löscht Historienpunkte und beendete Alarme, die älter als before sind,
+// und liefert die Anzahl der gelöschten Historienpunkte.
 func (s *Store) Prune(ctx context.Context, before time.Time) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM metrics_history WHERE ts < ?`, before.Unix())
 	if err != nil {
 		return 0, fmt.Errorf("historie bereinigen: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM alerts WHERE resolved_at < ?`, before.Unix()); err != nil {
+		return 0, fmt.Errorf("alarme bereinigen: %w", err)
 	}
 	return res.RowsAffected()
 }
