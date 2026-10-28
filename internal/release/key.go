@@ -10,4 +10,4 @@ package release
 // Schlüsselwechsel: neuen Schlüssel hier eintragen und ein Release bauen. Agenten
 // mit dem alten Schlüssel nehmen es nicht an und müssen einmal von Hand
 // aktualisiert werden.
-var publicKey = ""
+var publicKey = "evfJAffftJjfPumFViqOnH4S7HMsUdBta6CLSmMIwo0="

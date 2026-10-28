@@ -163,7 +163,10 @@ func TestApplyRejects(t *testing.T) {
 		{"probe meldet andere version", map[string]string{"version": "v0.5.1"}, func(f *fixture) {
 			f.u.probe = func(context.Context, string) (string, error) { return "v0.4.0", nil }
 		}, "meldet version"},
-		{"ohne eingebauten schlüssel", map[string]string{"version": "v0.5.1"}, func(f *fixture) { f.u.verify = nil }, "signaturschlüssel"},
+		{"ohne eingebauten schlüssel", map[string]string{"version": "v0.5.1"}, func(f *fixture) {
+			f.u.verify = func([]byte, []byte) (release.Manifest, error) { return release.Manifest{}, release.ErrNoKey }
+		}, "signaturschlüssel"},
+		{"eingebauter schlüssel passt nicht", map[string]string{"version": "v0.5.1"}, func(f *fixture) { f.u.verify = nil }, "signatur"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -151,6 +151,7 @@ func TestDisabled(t *testing.T) {
 		t.Fatal("abgeschalteter checker prüft")
 	}
 	c = New("", "", t.TempDir(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	c.keyed = false
 	if st := c.Status(); c.Enabled() || !strings.Contains(st.Message, "signaturschlüssel") {
 		t.Fatalf("ohne schlüssel: %+v", st)
 	}

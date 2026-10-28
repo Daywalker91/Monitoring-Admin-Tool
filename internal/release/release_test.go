@@ -67,11 +67,13 @@ func TestSignVerify(t *testing.T) {
 	}
 
 	// Ohne eingebauten Schlüssel ist Self-Update aus.
+	saved := publicKey
+	defer func() { publicKey = saved }()
+	publicKey = ""
 	if _, err := Verify(manifest, sig); err != ErrNoKey {
 		t.Fatalf("Verify ohne schlüssel: %v", err)
 	}
 	publicKey = pubText
-	defer func() { publicKey = "" }()
 	if _, err := Verify(manifest, sig); err != nil {
 		t.Fatalf("Verify mit eingebautem schlüssel: %v", err)
 	}
