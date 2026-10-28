@@ -35,6 +35,10 @@ Ressourcenziele für den Agenten (Geräte mit max. 1 GB RAM):
 - 10–25 MB RAM im Betrieb; `GOMEMLIMIT` wird im Agenten gesetzt (Standard ca. 20 MiB, per Umgebungsvariable überschreibbar)
 - kleines Binary: Build mit `-trimpath -ldflags="-s -w"`
 - keine großen Abhängigkeiten im Agenten — insbesondere keine Server-Pakete (SQLite usw.) importieren
+- Speicher messen über **Working Set / RSS**, nicht über „Private Bytes“: Sobald `crypto/*` gelinkt ist (WebSocket braucht es),
+  enthält jedes Go-Binary einen 32-MiB-BSS-Puffer (`crypto/internal/fips140/drbg.memory`). Er wird nur im FIPS-Modus benutzt
+  und belegt keinen physischen Speicher, erscheint unter Windows aber in der Commit-Größe. Gemessen (M1, Windows 11):
+  ca. 25–27 MB Working Set, ca. 58 MB Private Bytes.
 
 Server: läuft als Docker-Container (linux/amd64 bzw. arm64) oder direkt als Binary.
 
