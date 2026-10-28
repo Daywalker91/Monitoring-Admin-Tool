@@ -63,7 +63,7 @@ oder direkt als Binary. Agenten laufen immer direkt auf den Hosts (Windows-Diens
 /proto    gemeinsame Nachrichtentypen (JSON) zwischen Agent und Server
 /internal kleine gemeinsame Hilfspakete ohne schwere Abhängigkeiten (winsvc: Windows-Dienst, logfile,
           release: signierte Release-Manifeste)
-/deploy   Dockerfile, k8s-Manifeste (k3s), systemd-Unit, install-agent.sh, env-Vorlage
+/deploy   Dockerfile, k8s-Manifeste (k3s), systemd-Unit, install-agent.sh/.ps1, env-Vorlage
 .github   Workflow: Multi-Arch-Server-Image nach ghcr.io
 build.ps1 baut den Agenten für alle Zielplattformen nach /dist
 ```
