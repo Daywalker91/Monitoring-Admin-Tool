@@ -8,8 +8,10 @@ Selbst gebautes Monitoring- und Administrationstool für das eigene Homelab.
 Ein schlanker **Agent** läuft auf den überwachten Maschinen, ein zentraler **Server** mit Web-GUI
 sammelt die Daten und steuert (später) Admin-Aktionen.
 
-Es wird in Meilensteinen gearbeitet. **Aktuell: Meilenstein M1** (Metriken erfassen, übertragen,
-speichern, anzeigen). Alles darüber hinaus wird nur vorbereitet, nicht umgesetzt.
+Es wird in Meilensteinen gearbeitet. Alles, was zu keinem beauftragten Meilenstein gehört, wird nur vorbereitet, nicht umgesetzt.
+
+- **M1 (fertig):** Metriken erfassen, übertragen, speichern, anzeigen; responsive GUI
+- **M2 (aktuell):** GUI-Login, Verlaufsdiagramme, `/metrics` für Prometheus, HTTPS/wss
 
 ## Tech-Stack
 
@@ -37,8 +39,10 @@ Ressourcenziele für den Agenten (Geräte mit max. 1 GB RAM):
 - keine großen Abhängigkeiten im Agenten — insbesondere keine Server-Pakete (SQLite usw.) importieren
 - Speicher messen über **Working Set / RSS**, nicht über „Private Bytes“: Sobald `crypto/*` gelinkt ist (WebSocket braucht es),
   enthält jedes Go-Binary einen 32-MiB-BSS-Puffer (`crypto/internal/fips140/drbg.memory`). Er wird nur im FIPS-Modus benutzt
-  und belegt keinen physischen Speicher, erscheint unter Windows aber in der Commit-Größe. Gemessen (M1, Windows 11):
-  ca. 25–27 MB Working Set, ca. 58 MB Private Bytes.
+  und belegt keinen physischen Speicher, erscheint unter Windows aber in der Commit-Größe. Gemessen (M1):
+  - Linux amd64 (WSL2, Ubuntu 24.04): ca. 13 MB RSS (6 MB anonym + 7 MB Binary), < 1 s CPU-Zeit pro Minute
+  - Windows 11: ca. 25–27 MB Working Set, ca. 58 MB Private Bytes
+  - Raspberry Pi (arm): noch offen
 
 Server: läuft als Docker-Container (linux/amd64 bzw. arm64) oder direkt als Binary.
 
