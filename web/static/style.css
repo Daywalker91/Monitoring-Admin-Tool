@@ -521,3 +521,7 @@ button.secondary { padding: 6px 14px; }
 .host-update { margin-top: 10px; }
 .host-update p { margin: 0 0 6px; }
 #update-info { margin-bottom: 12px; font-size: 13px; }
+
+/* Name in der Kopfzeile: nur die Anfangsbuchstaben fett */
+h1.logo { font-weight: 400; }
+h1.logo b { font-weight: 700; }
