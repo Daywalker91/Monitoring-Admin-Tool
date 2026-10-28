@@ -1,5 +1,6 @@
 # systemd-Unit für den Agenten.
-# Installation (auf dem Zielsystem, als root):
+# Einfachste Installation: sudo sh install-agent.sh --server wss://… (siehe deploy/install-agent.sh)
+# Von Hand (auf dem Zielsystem, als root):
 #   install -m 0755 mat-agent-linux-<arch> /usr/local/bin/mat-agent
 #   install -d -m 0700 /etc/mat-agent
 #   install -m 0600 agent.example.json /etc/mat-agent/agent.json   # anpassen!

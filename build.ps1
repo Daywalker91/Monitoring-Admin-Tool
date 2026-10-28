@@ -70,4 +70,8 @@ finally {
     foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name], "Process") }
 }
 
+# Installationsdateien für Linux dazulegen: dist\ auf das Zielsystem kopieren genügt.
+Copy-Item (Join-Path $PSScriptRoot "deploy\install-agent.sh") $dist
+Copy-Item (Join-Path $PSScriptRoot "deploy\systemd\mat-agent.service") $dist
+
 Write-Host "Fertig: $dist"

@@ -5,6 +5,7 @@
 //	mat-agent [flags]                      im Vordergrund laufen
 //	mat-agent service install [flags]      als Windows-Dienst einrichten
 //	mat-agent service uninstall|start|stop|status
+//	mat-agent check [flags]                Konfiguration prüfen, ohne zu verbinden
 //	mat-agent version                      Version ausgeben
 package main
 
@@ -41,6 +42,12 @@ func main() {
 		switch os.Args[1] {
 		case "version":
 			fmt.Println(version)
+			return
+		case "check":
+			if err := runCheck(os.Args[2:]); err != nil {
+				fmt.Fprintln(os.Stderr, "konfiguration:", err)
+				os.Exit(2)
+			}
 			return
 		case "service":
 			if err := runService(os.Args[2:]); err != nil {
@@ -131,6 +138,26 @@ func runAgent(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	col.Prime(ctx)
 	cl.Run(ctx)
 	log.Info("agent beendet")
+	return nil
+}
+
+// runCheck lädt die Konfiguration samt CA-Datei und gibt sie ohne Token aus.
+func runCheck(args []string) error {
+	cfg, err := config.Load(args)
+	if err != nil {
+		return err
+	}
+	if _, err := cfg.TLSConfig(); err != nil {
+		return err
+	}
+	id := cfg.AgentID
+	if id == "" {
+		id = "(hostname)"
+	}
+	fmt.Printf("ok: server=%s agent_id=%s interval=%ds ca_file=%q\n", cfg.ServerURL, id, cfg.IntervalSec, cfg.CAFile)
+	if cfg.Insecure() {
+		fmt.Println("warnung: unverschlüsselte verbindung (ws://) zu entferntem server")
+	}
 	return nil
 }
 
