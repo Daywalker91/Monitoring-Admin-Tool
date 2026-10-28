@@ -1,0 +1,17 @@
+# Feste IP aus MetalLB; Agenten und Browser verbinden sich direkt (wss/https).
+# externalTrafficPolicy Local erhält die echte Client-IP (Fehlversuchssperre, Logs).
+apiVersion: v1
+kind: Service
+metadata:
+  name: mat-server
+  annotations:
+    metallb.universe.tf/loadBalancerIPs: 192.168.4.56 # anpassen: freie IP aus dem Pool
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app: mat-server
+  ports:
+    - name: https
+      port: 443
+      targetPort: https

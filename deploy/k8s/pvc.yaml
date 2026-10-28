@@ -1,0 +1,12 @@
+# SQLite-Datenbank. Longhorn (Block-Storage), damit der Pod den Node wechseln
+# kann. Kein NFS: SQLite im WAL-Modus ist auf Netzwerk-Dateisystemen unzuverlässig.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mat-server-data
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 2Gi

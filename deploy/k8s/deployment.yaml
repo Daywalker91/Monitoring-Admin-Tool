@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mat-server
+spec:
+  # Genau eine Instanz: SQLite verträgt keine zwei Schreiber, und Agenten-
+  # Verbindungen sind an den Pod gebunden. Recreate statt RollingUpdate, damit
+  # nie zwei Pods gleichzeitig auf die Datenbank zugreifen.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mat-server
+  template:
+    metadata:
+      labels:
+        app: mat-server
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mat-server
+          image: ghcr.io/daywalker91/mat-server
+          imagePullPolicy: Always
+          ports:
+            - name: https
+              containerPort: 8443
+          env:
+            - name: MAT_LISTEN
+              value: ":8443"
+            - name: MAT_DB
+              value: /data/mat.db
+            - name: MAT_TLS_CERT
+              value: /tls/tls.crt
+            - name: MAT_TLS_KEY
+              value: /tls/tls.key
+            # Pod-Netz von k3s: nur wenn ein Proxy im Cluster (Caddy-Gateway, Traefik)
+            # davor sitzt, gelten dessen X-Forwarded-For/-Proto.
+            - name: MAT_TRUSTED_PROXIES
+              value: 10.42.0.0/16
+            - name: TZ
+              value: Europe/Berlin
+          # Tokens, ntfy und SMTP (siehe secret.example.yaml)
+          envFrom:
+            - secretRef:
+                name: mat-server-env
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tls
+              mountPath: /tls
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: HTTPS
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 20m
+              memory: 48Mi
+            limits:
+              memory: 256Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: mat-server-data
+        - name: tls
+          secret:
+            secretName: mat-server-tls
