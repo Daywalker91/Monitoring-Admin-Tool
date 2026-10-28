@@ -2,6 +2,9 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"time"
@@ -16,9 +19,13 @@ var certStages = []int{30, 14, 7, 1}
 // certCheckInterval: so oft wird die Restlaufzeit geprüft.
 const certCheckInterval = time.Hour
 
-// WithCertificate setzt das Ablaufdatum des eigenen TLS-Zertifikats.
-func (s *Server) WithCertificate(notAfter time.Time) *Server {
-	s.certNotAfter = notAfter
+// WithCertificate übernimmt Ablaufdatum und SHA-256-Fingerabdruck des eigenen
+// TLS-Zertifikats. Der Fingerabdruck steht in der GUI im Installationsbefehl;
+// die Skripte pinnen damit das Zertifikat, ohne dass server.crt kopiert werden muss.
+func (s *Server) WithCertificate(cert *x509.Certificate) *Server {
+	s.certNotAfter = cert.NotAfter
+	sum := sha256.Sum256(cert.Raw)
+	s.certFingerprint = hex.EncodeToString(sum[:])
 	return s
 }
 

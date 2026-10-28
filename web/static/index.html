@@ -9,6 +9,7 @@
   <script src="charts.js" defer></script>
   <script src="alerts.js" defer></script>
   <script src="updates.js" defer></script>
+  <script src="install.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -112,6 +113,13 @@
           <button type="button" id="update-all" class="secondary" hidden>Alle aktualisieren</button>
           <span id="update-result" class="small" role="status"></span>
         </div>
+      </div>
+      <div class="panel">
+        <h2>Agent installieren</h2>
+        <p class="muted small">Befehl auf dem Host ausführen, das Token wird abgefragt. Das Skript lädt den
+          neuesten Agenten, prüft die Prüfsumme und übernimmt das Server-Zertifikat nur, wenn der
+          Fingerabdruck stimmt. Der Host muss den Server unter dieser Adresse erreichen.</p>
+        <div id="install-cmds"></div>
       </div>
     </section>
   </main>

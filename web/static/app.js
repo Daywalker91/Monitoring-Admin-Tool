@@ -384,7 +384,10 @@ async function refresh() {
     if (withPast) renderAlerts(alerts);
     render(hosts);
     renderUpdateBanner(hosts);
-    if (currentView === "rules") renderUpdatePanel(hosts);
+    if (currentView === "rules") {
+      renderUpdatePanel(hosts);
+      renderInstallPanel();
+    }
     errBox.hidden = true;
     document.getElementById("updated").textContent = "aktualisiert " + new Date().toLocaleTimeString("de-DE");
   } catch (e) {

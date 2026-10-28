@@ -183,7 +183,7 @@ func run(ctx context.Context, listen, dbPath string, retention time.Duration, to
 		WithVersion(version).
 		WithUpdates(updates)
 	if tlsCfg != nil && tlsCfg.Certificates[0].Leaf != nil {
-		apiSrv.WithCertificate(tlsCfg.Certificates[0].Leaf.NotAfter)
+		apiSrv.WithCertificate(tlsCfg.Certificates[0].Leaf)
 	}
 	go apiSrv.RunAlerts(ctx)
 	go apiSrv.RunCertCheck(ctx)

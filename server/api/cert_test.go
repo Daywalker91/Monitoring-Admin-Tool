@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/x509"
 	"io"
 	"log/slog"
 	"strings"
@@ -10,6 +11,17 @@ import (
 
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/notify"
 )
+
+func TestCertFingerprint(t *testing.T) {
+	s := &Server{}
+	s.WithCertificate(&x509.Certificate{Raw: []byte("abc")})
+	if want := "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"; s.certFingerprint != want {
+		t.Fatalf("fingerprint = %s", s.certFingerprint)
+	}
+	if v := s.updateStatus(); v.TLSFingerprint != "" {
+		t.Fatal("fingerprint ohne ablaufdatum gemeldet")
+	}
+}
 
 func TestCertStage(t *testing.T) {
 	day := 24 * time.Hour
@@ -36,7 +48,7 @@ func TestCheckCertNotifiesOncePerStage(t *testing.T) {
 
 	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 	s := &Server{log: log, notifier: d, nowFor: func() time.Time { return now }}
-	s.WithCertificate(now.Add(20 * 24 * time.Hour))
+	s.WithCertificate(&x509.Certificate{NotAfter: now.Add(20 * 24 * time.Hour)})
 
 	notified := s.checkCert(-1)
 	notified = s.checkCert(notified) // gleiche Stufe: keine zweite Nachricht

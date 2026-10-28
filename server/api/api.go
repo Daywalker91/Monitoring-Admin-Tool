@@ -49,7 +49,8 @@ type Server struct {
 	upd      *updates           // nil = kein Self-Update
 	version  string             // Server-Version (Anzeige)
 
-	certNotAfter time.Time // Ablauf des TLS-Zertifikats, null = kein TLS
+	certNotAfter    time.Time // Ablauf des TLS-Zertifikats, null = kein TLS
+	certFingerprint string    // SHA-256 des TLS-Zertifikats (hex)
 
 	mu     sync.Mutex
 	conns  map[string]agentConn // aktuell verbundene Agenten je ID
