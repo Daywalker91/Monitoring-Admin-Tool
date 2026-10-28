@@ -58,7 +58,9 @@ func (e Event) Body() string {
 	case a.Kind == KindOffline && e.Firing():
 		fmt.Fprintf(&b, "Keine Verbindung zum Agenten seit %s.\n", duration(time.Duration(a.Value*float64(time.Minute))))
 	case a.Kind == KindOffline:
-		fmt.Fprintf(&b, "Agent wieder verbunden, Alarm dauerte %s.\n", duration(e.At.Sub(started)))
+		// Value ist die Zeit ohne Verbindung beim Auslösen; dazu kommt die Dauer des Alarms.
+		offline := time.Duration(a.Value*float64(time.Minute)) + e.At.Sub(started)
+		fmt.Fprintf(&b, "Agent wieder verbunden, war %s ohne Verbindung.\n", duration(offline))
 	case e.Firing():
 		fmt.Fprintf(&b, "%s über %s", e.subject(), pct(a.Threshold))
 		if e.Rule.ForSec > 0 {

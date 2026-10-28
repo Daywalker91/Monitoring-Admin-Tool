@@ -162,6 +162,10 @@ func TestOffline(t *testing.T) {
 	if len(ev) != 1 || ev[0].Type != Resolved || ev[0].Title() != "host-1 ist wieder online" {
 		t.Fatalf("wieder online: %+v", ev)
 	}
+	// 62 min beim Auslösen + 9 min Alarmdauer
+	if !strings.Contains(ev[0].Body(), "war 1 h 11 min ohne Verbindung") {
+		t.Errorf("text: %q", ev[0].Body())
+	}
 }
 
 func TestSetRules(t *testing.T) {
