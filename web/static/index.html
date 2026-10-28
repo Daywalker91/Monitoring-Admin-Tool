@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Homelab Monitor</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header>
+    <h1>Homelab Monitor</h1>
+    <span id="summary" class="muted"></span>
+    <span id="updated" class="muted"></span>
+  </header>
+
+  <main>
+    <p id="error" class="error" hidden></p>
+    <div class="table-wrap">
+      <table id="hosts">
+        <thead>
+          <tr>
+            <th>Status</th>
+            <th>Host</th>
+            <th>System</th>
+            <th class="num">CPU</th>
+            <th class="num">Load</th>
+            <th class="num">RAM</th>
+            <th class="num">Swap</th>
+            <th class="num">Netz ↓ / ↑</th>
+            <th class="num">Disk max</th>
+            <th>Zuletzt</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p id="empty" class="muted" hidden>Noch keine Agenten verbunden.</p>
+  </main>
+
+  <template id="detail-tpl">
+    <tr class="detail">
+      <td colspan="10">
+        <div class="detail-grid">
+          <section>
+            <h3>CPU pro Kern</h3>
+            <div class="cores"></div>
+          </section>
+          <section>
+            <h3>Speicher</h3>
+            <table class="mini disks"><thead><tr><th>Mount</th><th>FS</th><th class="num">Belegt</th><th class="num">Größe</th></tr></thead><tbody></tbody></table>
+          </section>
+          <section>
+            <h3>Netzwerk</h3>
+            <table class="mini ifaces"><thead><tr><th>Interface</th><th class="num">↓ B/s</th><th class="num">↑ B/s</th><th class="num">Pkt/s ↓/↑</th></tr></thead><tbody></tbody></table>
+          </section>
+          <section>
+            <h3>Top-Prozesse CPU</h3>
+            <table class="mini procs-cpu"><thead><tr><th>PID</th><th>Name</th><th class="num">CPU</th><th class="num">RAM</th></tr></thead><tbody></tbody></table>
+          </section>
+          <section>
+            <h3>Top-Prozesse RAM</h3>
+            <table class="mini procs-mem"><thead><tr><th>PID</th><th>Name</th><th class="num">CPU</th><th class="num">RAM</th></tr></thead><tbody></tbody></table>
+          </section>
+          <section>
+            <h3>Agent</h3>
+            <dl class="info"></dl>
+          </section>
+        </div>
+      </td>
+    </tr>
+  </template>
+</body>
+</html>
