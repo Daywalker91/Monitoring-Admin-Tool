@@ -108,6 +108,43 @@ func TestAgentFlow(t *testing.T) {
 	if len(hist) != 1 {
 		t.Fatalf("historie: %+v", hist)
 	}
+
+	// Löschen: online → 409, fremde Herkunft → 403, offline → 204.
+	if code := deleteHost(t, ts, "test-1", ""); code != http.StatusConflict {
+		t.Fatalf("löschen online: %d, erwartet 409", code)
+	}
+	if code := deleteHost(t, ts, "test-1", "http://evil.example"); code != http.StatusForbidden {
+		t.Fatalf("löschen fremde herkunft: %d, erwartet 403", code)
+	}
+	conn.Close(websocket.StatusNormalClosure, "")
+	deadline = time.Now().Add(5 * time.Second)
+	var code int
+	for time.Now().Before(deadline) {
+		if code = deleteHost(t, ts, "test-1", ts.URL); code != http.StatusConflict {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if code != http.StatusNoContent {
+		t.Fatalf("löschen offline: %d, erwartet 204", code)
+	}
+	if code := deleteHost(t, ts, "test-1", ""); code != http.StatusNotFound {
+		t.Fatalf("erneut löschen: %d, erwartet 404", code)
+	}
+}
+
+func deleteHost(t *testing.T, ts *httptest.Server, id, origin string) int {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/hosts/"+id, nil)
+	if origin != "" {
+		req.Header.Set("Origin", origin)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	return resp.StatusCode
 }
 
 func TestHelloRequiredFirst(t *testing.T) {

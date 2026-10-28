@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <title>Homelab Monitor</title>
   <link rel="stylesheet" href="style.css">
   <script src="app.js" defer></script>
@@ -16,6 +17,7 @@
 
   <main>
     <p id="error" class="error" hidden></p>
+    <!-- Desktop: Tabelle. Schmale Bildschirme: dieselben Zeilen werden per CSS zu Karten. -->
     <div class="table-wrap">
       <table id="hosts">
         <thead>
@@ -48,23 +50,36 @@
           </section>
           <section>
             <h3>Speicher</h3>
-            <table class="mini disks"><thead><tr><th>Mount</th><th>FS</th><th class="num">Belegt</th><th class="num">Größe</th></tr></thead><tbody></tbody></table>
+            <table class="mini disks">
+              <thead><tr><th>Mount</th><th class="hide-sm">FS</th><th class="num">Belegt</th><th class="num">Größe</th></tr></thead>
+              <tbody></tbody>
+            </table>
           </section>
           <section>
             <h3>Netzwerk</h3>
-            <table class="mini ifaces"><thead><tr><th>Interface</th><th class="num">↓ B/s</th><th class="num">↑ B/s</th><th class="num">Pkt/s ↓/↑</th></tr></thead><tbody></tbody></table>
+            <table class="mini ifaces">
+              <thead><tr><th>Interface</th><th class="num">↓</th><th class="num">↑</th><th class="num hide-sm">Pkt/s ↓/↑</th></tr></thead>
+              <tbody></tbody>
+            </table>
           </section>
           <section>
             <h3>Top-Prozesse CPU</h3>
-            <table class="mini procs-cpu"><thead><tr><th>PID</th><th>Name</th><th class="num">CPU</th><th class="num">RAM</th></tr></thead><tbody></tbody></table>
+            <table class="mini procs procs-cpu">
+              <thead><tr><th class="hide-sm">PID</th><th>Name</th><th class="num">CPU</th><th class="num">RAM</th></tr></thead>
+              <tbody></tbody>
+            </table>
           </section>
           <section>
             <h3>Top-Prozesse RAM</h3>
-            <table class="mini procs-mem"><thead><tr><th>PID</th><th>Name</th><th class="num">CPU</th><th class="num">RAM</th></tr></thead><tbody></tbody></table>
+            <table class="mini procs procs-mem">
+              <thead><tr><th class="hide-sm">PID</th><th>Name</th><th class="num">CPU</th><th class="num">RAM</th></tr></thead>
+              <tbody></tbody>
+            </table>
           </section>
           <section>
             <h3>Agent</h3>
             <dl class="info"></dl>
+            <button type="button" class="danger delete" hidden>Host aus Liste entfernen</button>
           </section>
         </div>
       </td>

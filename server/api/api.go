@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -52,6 +53,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /ws/agent", s.handleAgent)
 	mux.HandleFunc("GET /api/hosts", s.handleHosts)
 	mux.HandleFunc("GET /api/hosts/{id}/history", s.handleHistory)
+	mux.HandleFunc("DELETE /api/hosts/{id}", s.handleDeleteHost)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
 	mux.Handle("GET /", http.FileServerFS(s.gui))
 	return securityHeaders(mux)
@@ -277,6 +279,43 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, points)
+}
+
+// handleDeleteHost entfernt einen Host aus der Liste. Verbundene Hosts können
+// nicht gelöscht werden, sie würden sich sofort neu anlegen.
+func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
+	if !sameOrigin(r) {
+		http.Error(w, "fremde herkunft", http.StatusForbidden)
+		return
+	}
+	id := r.PathValue("id")
+	if s.online(id) {
+		http.Error(w, "host ist online", http.StatusConflict)
+		return
+	}
+	found, err := s.store.DeleteHost(r.Context(), id)
+	if err != nil {
+		s.log.Error("host löschen", "err", err)
+		http.Error(w, "interner fehler", http.StatusInternalServerError)
+		return
+	}
+	if !found {
+		http.Error(w, "host nicht gefunden", http.StatusNotFound)
+		return
+	}
+	s.log.Info("host gelöscht", "agent_id", id, "remote", r.RemoteAddr)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// sameOrigin lehnt ändernde Browser-Anfragen von fremden Seiten ab. Anfragen
+// ohne Origin-Header (z. B. curl) sind erlaubt.
+func sameOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	return err == nil && u.Host == r.Host
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

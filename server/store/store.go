@@ -233,6 +233,28 @@ FROM metrics_history WHERE host_id = ? AND ts >= ? ORDER BY ts`, hostID, since.U
 	return points, rows.Err()
 }
 
+// DeleteHost entfernt einen Host samt Historie. found meldet, ob es ihn gab.
+func (s *Store) DeleteHost(ctx context.Context, hostID string) (found bool, err error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM metrics_history WHERE host_id = ?`, hostID); err != nil {
+		return false, fmt.Errorf("historie löschen: %w", err)
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM hosts WHERE id = ?`, hostID)
+	if err != nil {
+		return false, fmt.Errorf("host löschen: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, tx.Commit()
+}
+
 // Prune löscht Historienpunkte, die älter als before sind, und liefert die Anzahl.
 func (s *Store) Prune(ctx context.Context, before time.Time) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM metrics_history WHERE ts < ?`, before.Unix())

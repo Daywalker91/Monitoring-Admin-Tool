@@ -39,6 +39,7 @@ Linux: systemd-Unit unter [deploy/systemd/mat-agent.service](deploy/systemd/mat-
 | `GET /ws/agent`                 | WebSocket für Agenten (Bearer-Token)       |
 | `GET /api/hosts`                | alle Hosts mit letztem Stand               |
 | `GET /api/hosts/{id}/history`   | kompakte Historie, `?hours=1..168`         |
+| `DELETE /api/hosts/{id}`        | Host samt Historie entfernen (nur offline) |
 | `GET /healthz`                  | Health-Check                               |
 
 Architektur, Zielplattformen und Sicherheitsregeln: siehe [CLAUDE.md](CLAUDE.md).

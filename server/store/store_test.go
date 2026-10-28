@@ -68,6 +68,18 @@ func TestHostLifecycle(t *testing.T) {
 	if len(hist) != 1 || hist[0].NetRxBps != 150 || hist[0].DiskMaxPct != 80 {
 		t.Fatalf("historie falsch: %+v", hist)
 	}
+
+	if found, err := s.DeleteHost(ctx, "pi-1"); err != nil || !found {
+		t.Fatalf("DeleteHost: found=%v err=%v", found, err)
+	}
+	if found, _ := s.DeleteHost(ctx, "pi-1"); found {
+		t.Fatal("zweites DeleteHost meldet found")
+	}
+	hosts, _ = s.ListHosts(ctx)
+	hist, _ = s.History(ctx, "pi-1", time.Time{})
+	if len(hosts) != 0 || len(hist) != 0 {
+		t.Fatalf("nach dem Löschen: %d hosts, %d historie", len(hosts), len(hist))
+	}
 }
 
 func TestPrune(t *testing.T) {
