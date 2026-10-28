@@ -56,11 +56,13 @@ Server: läuft als Docker-Container (linux/amd64 bzw. arm64) oder direkt als Bin
           server/alert wertet Alarmregeln aus, server/notify verschickt Nachrichten (ntfy, SMTP)
 /web      Frontend-Dateien (werden per go:embed eingebettet)
 /proto    gemeinsame Nachrichtentypen (JSON) zwischen Agent und Server
+/internal kleine gemeinsame Hilfspakete ohne schwere Abhängigkeiten (winsvc: Windows-Dienst, logfile)
 /deploy   Dockerfile für den Server, systemd-Unit, später Windows-Service
 build.ps1 baut den Agenten für alle Zielplattformen nach /dist
 ```
 
-Ein einziges Go-Modul im Repo-Root. `/proto` ist die einzige gemeinsame Abhängigkeit von Agent und Server.
+Ein einziges Go-Modul im Repo-Root. Agent und Server teilen sich nur `/proto` und `/internal`; `/internal`
+darf außer `golang.org/x/sys` nichts importieren (der Agent soll klein bleiben).
 
 Datenfluss M1:
 

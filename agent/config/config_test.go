@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -61,5 +62,26 @@ func TestSanitizeID(t *testing.T) {
 	}
 	if got := SanitizeID(""); got != "unknown" {
 		t.Errorf("SanitizeID leer = %q", got)
+	}
+}
+
+func TestDefaultPath(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("DefaultPath ist unter Linux fest /etc/mat-agent")
+	}
+	t.Setenv("ProgramData", t.TempDir())
+	t.Setenv("MAT_AGENT_TOKEN", "")
+	if _, err := Load(nil); err == nil {
+		t.Fatal("ohne datei und flags akzeptiert")
+	}
+	os.MkdirAll(filepath.Dir(DefaultPath()), 0o700)
+	os.WriteFile(DefaultPath(), []byte(`{"server_url":"ws://127.0.0.1:1/ws/agent","token":"t"}`), 0o600)
+	cfg, err := Load([]string{"-interval", "15"})
+	if err != nil || cfg.Token != "t" || cfg.IntervalSec != 15 {
+		t.Fatalf("standarddatei: %+v %v", cfg, err)
+	}
+	// Mit -server wird die Standarddatei nicht gelesen.
+	if _, err := Load([]string{"-server", "ws://127.0.0.1:1/ws/agent"}); err == nil {
+		t.Fatal("token aus standarddatei trotz -server übernommen")
 	}
 }

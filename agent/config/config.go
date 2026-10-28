@@ -13,6 +13,8 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -34,7 +36,21 @@ func Defaults() Config {
 	return Config{IntervalSec: 10, ProcessIntervalSec: 30, LogLevel: "info"}
 }
 
-// Load liest Datei, Umgebung (MAT_AGENT_TOKEN) und Flags ein.
+// DefaultPath ist der feste Ort der Konfigurationsdatei, den Dienst-Installation
+// und Install-Skript verwenden.
+func DefaultPath() string {
+	if runtime.GOOS == "windows" {
+		base := os.Getenv("ProgramData")
+		if base == "" {
+			base = `C:\ProgramData`
+		}
+		return filepath.Join(base, "mat-agent", "agent.json")
+	}
+	return "/etc/mat-agent/agent.json"
+}
+
+// Load liest Datei, Umgebung (MAT_AGENT_TOKEN) und Flags ein. Ohne -config und
+// -server wird DefaultPath gelesen, falls die Datei existiert.
 func Load(args []string) (Config, error) {
 	cfg := Defaults()
 
@@ -51,6 +67,11 @@ func Load(args []string) (Config, error) {
 		return cfg, err
 	}
 
+	if *path == "" && *server == "" {
+		if _, err := os.Stat(DefaultPath()); err == nil {
+			*path = DefaultPath()
+		}
+	}
 	if *path != "" {
 		raw, err := os.ReadFile(*path)
 		if err != nil {

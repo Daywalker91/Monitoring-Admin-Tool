@@ -1,18 +1,29 @@
 // mat-agent sammelt Systemmetriken und sendet sie per WebSocket an den Server.
+//
+// Aufruf:
+//
+//	mat-agent [flags]                      im Vordergrund laufen
+//	mat-agent service install [flags]      als Windows-Dienst einrichten
+//	mat-agent service uninstall|start|stop|status
+//	mat-agent version                      Version ausgeben
 package main
 
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime/debug"
 	"syscall"
 
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/client"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/collector"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/config"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/internal/logfile"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/internal/winsvc"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/proto"
 )
 
@@ -22,10 +33,31 @@ var version = "dev"
 // defaultMemLimit ist das weiche Speicherlimit, falls GOMEMLIMIT nicht gesetzt ist.
 const defaultMemLimit = 20 << 20 // 20 MiB
 
+// logMaxBytes begrenzt die Logdatei im Dienstbetrieb (eine ältere Kopie bleibt).
+const logMaxBytes = 5 << 20
+
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "version" {
-		fmt.Println(version)
-		return
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "version":
+			fmt.Println(version)
+			return
+		case "service":
+			if err := runService(os.Args[2:]); err != nil {
+				fmt.Fprintln(os.Stderr, "fehler:", err)
+				os.Exit(1)
+			}
+			return
+		}
+	}
+
+	// Weiches Speicherlimit: der GC arbeitet aggressiver, je näher der Heap daran kommt.
+	if os.Getenv("GOMEMLIMIT") == "" {
+		debug.SetMemoryLimit(defaultMemLimit)
+	}
+
+	if winsvc.IsService() {
+		os.Exit(runAsService())
 	}
 
 	cfg, err := config.Load(os.Args[1:])
@@ -33,17 +65,45 @@ func main() {
 		fmt.Fprintln(os.Stderr, "konfiguration:", err)
 		os.Exit(2)
 	}
-
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: parseLevel(cfg.LogLevel)}))
-
-	// Weiches Speicherlimit: der GC arbeitet aggressiver, je näher der Heap daran kommt.
-	if os.Getenv("GOMEMLIMIT") == "" {
-		debug.SetMemoryLimit(defaultMemLimit)
-	}
-
+	log := newLogger(os.Stderr, cfg.LogLevel)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if err := runAgent(ctx, cfg, log); err != nil {
+		log.Error("agent kann nicht starten", "err", err)
+		os.Exit(2)
+	}
+}
 
+// runAsService läuft unter dem Windows-Dienst-Manager. Es gibt kein Terminal,
+// deshalb geht das Log in eine Datei neben der Konfiguration.
+func runAsService() int {
+	logPath := filepath.Join(winsvc.DataDir(serviceName), "agent.log")
+	lf, err := logfile.Open(logPath, logMaxBytes)
+	if err != nil {
+		return 3
+	}
+	defer lf.Close()
+
+	cfg, err := config.Load(os.Args[1:])
+	if err != nil {
+		newLogger(lf, "info").Error("konfiguration", "err", err)
+		return 2
+	}
+	log := newLogger(lf, cfg.LogLevel)
+	var runErr error
+	if err := winsvc.Run(serviceName, func(ctx context.Context) { runErr = runAgent(ctx, cfg, log) }); err != nil {
+		log.Error("dienst", "err", err)
+		return 1
+	}
+	if runErr != nil {
+		log.Error("agent kann nicht starten", "err", runErr)
+		return 2
+	}
+	return 0
+}
+
+// runAgent verbindet sich mit dem Server und sendet Metriken, bis ctx endet.
+func runAgent(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	hello := collector.HostInfo(ctx)
 	hello.AgentVersion = version
 	hello.IntervalSec = cfg.IntervalSec
@@ -54,25 +114,28 @@ func main() {
 	// In M1 nur Metriken; weitere Fähigkeiten kommen mit dem Executor.
 	hello.Capabilities = []proto.Capability{proto.CapMetrics}
 	if err := hello.Validate(); err != nil {
-		log.Error("ungültige agent-angaben", "err", err)
-		os.Exit(2)
+		return fmt.Errorf("ungültige agent-angaben: %w", err)
 	}
 
 	if cfg.Insecure() {
 		log.Warn("unverschlüsselte verbindung (ws://) zu entferntem server – für produktiven einsatz wss:// verwenden")
 	}
 	log.Info("agent startet", "version", version, "agent_id", hello.AgentID,
-		"interval_sec", cfg.IntervalSec, "process_interval_sec", cfg.ProcessIntervalSec)
+		"interval_sec", cfg.IntervalSec, "process_interval_sec", cfg.ProcessIntervalSec, "service", winsvc.IsService())
 
 	col := collector.New()
 	cl, err := client.New(cfg, hello, col, log)
 	if err != nil {
-		log.Error("tls-konfiguration", "err", err)
-		os.Exit(2)
+		return fmt.Errorf("tls-konfiguration: %w", err)
 	}
 	col.Prime(ctx)
 	cl.Run(ctx)
 	log.Info("agent beendet")
+	return nil
+}
+
+func newLogger(w io.Writer, level string) *slog.Logger {
+	return slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: parseLevel(level)}))
 }
 
 func parseLevel(s string) slog.Level {
