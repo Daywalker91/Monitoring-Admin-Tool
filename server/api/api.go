@@ -76,6 +76,10 @@ func (s *Server) Handler() http.Handler {
 	private.HandleFunc("POST /api/alerts/test", s.handleTestAlert)
 	private.HandleFunc("GET /api/alert-rules", s.handleGetAlertRules)
 	private.HandleFunc("POST /api/alert-rules", s.handleSetAlertRules)
+	private.HandleFunc("GET /api/hosts/{id}/alert-rules", s.handleGetHostRules)
+	private.HandleFunc("POST /api/hosts/{id}/alert-rules", s.handleSetHostRules)
+	private.HandleFunc("POST /api/hosts/{id}/mute", s.handleMute)
+	private.HandleFunc("DELETE /api/hosts/{id}/mute", s.handleMute)
 	private.Handle("GET /", static)
 
 	public := http.NewServeMux()
@@ -302,7 +306,8 @@ func (s *Server) online(id string) bool {
 // hostView ergänzt den gespeicherten Host um den Live-Status.
 type hostView struct {
 	store.Host
-	Online bool `json:"online"`
+	Online     bool   `json:"online"`
+	MutedUntil *int64 `json:"muted_until"` // nil = nicht stumm
 }
 
 func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
@@ -315,6 +320,12 @@ func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 	out := make([]hostView, len(hosts))
 	for i, h := range hosts {
 		out[i] = hostView{Host: h, Online: s.online(h.ID)}
+		if s.alerts != nil {
+			if until, muted := s.alerts.MutedUntil(h.ID, s.nowFor()); muted {
+				ts := until.Unix()
+				out[i].MutedUntil = &ts
+			}
+		}
 	}
 	writeJSON(w, out)
 }

@@ -60,9 +60,15 @@ func (s *Server) handleAlerts(w http.ResponseWriter, r *http.Request) {
 }
 
 type alertRulesView struct {
-	Rules      []store.AlertRule `json:"rules"`
-	Channels   []string          `json:"channels"`
-	Hysteresis float64           `json:"hysteresis"`
+	Rules         []store.AlertRule `json:"rules"`
+	Channels      []string          `json:"channels"`
+	Hysteresis    float64           `json:"hysteresis"`
+	ReminderHours int               `json:"reminder_hours"` // 0 = aus
+}
+
+func (s *Server) rulesView() alertRulesView {
+	return alertRulesView{Rules: s.alerts.Rules(), Channels: s.channels(), Hysteresis: alert.Hysteresis,
+		ReminderHours: int(s.alerts.Reminder() / time.Hour)}
 }
 
 func (s *Server) handleGetAlertRules(w http.ResponseWriter, _ *http.Request) {
@@ -70,7 +76,7 @@ func (s *Server) handleGetAlertRules(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "alarme deaktiviert", http.StatusNotFound)
 		return
 	}
-	writeJSON(w, alertRulesView{Rules: s.alerts.Rules(), Channels: s.channels(), Hysteresis: alert.Hysteresis})
+	writeJSON(w, s.rulesView())
 }
 
 func (s *Server) channels() []string {
@@ -90,20 +96,25 @@ func (s *Server) handleSetAlertRules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Rules []store.AlertRule `json:"rules"`
+		Rules         []store.AlertRule `json:"rules"`
+		ReminderHours *int              `json:"reminder_hours"`
 	}
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&req); err != nil || len(req.Rules) == 0 || len(req.Rules) > len(alert.DefaultRules) {
+	if !decodeJSON(w, r, &req) || len(req.Rules) == 0 || len(req.Rules) > len(alert.DefaultRules) {
 		http.Error(w, "ungültige anfrage", http.StatusBadRequest)
 		return
+	}
+	if req.ReminderHours != nil {
+		if err := s.alerts.SetReminder(r.Context(), *req.ReminderHours); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 	}
 	if err := s.alerts.SetRules(r.Context(), req.Rules, s.nowFor()); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	s.log.Info("alarmregeln geändert", "user", userFrom(r.Context()))
-	writeJSON(w, alertRulesView{Rules: s.alerts.Rules(), Channels: s.channels(), Hysteresis: alert.Hysteresis})
+	writeJSON(w, s.rulesView())
 }
 
 // handleTestAlert schickt eine Testnachricht über alle Kanäle und meldet das Ergebnis je Kanal.
@@ -138,4 +149,99 @@ func NotifyEvent(d *notify.Dispatcher) func(alert.Event) {
 		}
 		d.Enqueue(notify.Message{Title: e.Title(), Body: e.Body(), High: high, Tag: tag})
 	}
+}
+
+// decodeJSON liest einen kleinen JSON-Body mit unbekannten Feldern als Fehler.
+func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
+	dec.DisallowUnknownFields()
+	return dec.Decode(v) == nil
+}
+
+// knownHost antwortet mit 404 bzw. 500 und liefert false, wenn der Host fehlt.
+func (s *Server) knownHost(w http.ResponseWriter, r *http.Request) bool {
+	if s.alerts == nil {
+		http.Error(w, "alarme deaktiviert", http.StatusNotFound)
+		return false
+	}
+	ok, err := s.store.HostExists(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.log.Error("host prüfen", "err", err)
+		http.Error(w, "interner fehler", http.StatusInternalServerError)
+		return false
+	}
+	if !ok {
+		http.Error(w, "host nicht gefunden", http.StatusNotFound)
+	}
+	return ok
+}
+
+type hostRulesView struct {
+	Rules    []store.AlertRule `json:"rules"`    // abweichende Regeln des Hosts
+	Defaults []store.AlertRule `json:"defaults"` // globale Regeln
+}
+
+func (s *Server) handleGetHostRules(w http.ResponseWriter, r *http.Request) {
+	if !s.knownHost(w, r) {
+		return
+	}
+	writeJSON(w, hostRulesView{Rules: s.alerts.HostRules(r.PathValue("id")), Defaults: s.alerts.Rules()})
+}
+
+func (s *Server) handleSetHostRules(w http.ResponseWriter, r *http.Request) {
+	if !sameOrigin(r) {
+		http.Error(w, "fremde herkunft", http.StatusForbidden)
+		return
+	}
+	if !s.knownHost(w, r) {
+		return
+	}
+	var req struct {
+		Rules []store.AlertRule `json:"rules"`
+	}
+	if !decodeJSON(w, r, &req) || len(req.Rules) > len(alert.DefaultRules) {
+		http.Error(w, "ungültige anfrage", http.StatusBadRequest)
+		return
+	}
+	id := r.PathValue("id")
+	if err := s.alerts.SetHostRules(r.Context(), id, req.Rules, s.nowFor()); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.log.Info("host-alarmregeln geändert", "agent_id", id, "rules", len(req.Rules), "user", userFrom(r.Context()))
+	writeJSON(w, hostRulesView{Rules: s.alerts.HostRules(id), Defaults: s.alerts.Rules()})
+}
+
+// handleMute schaltet einen Host stumm (POST {"minutes": N}, 0 = unbefristet)
+// oder hebt die Stummschaltung auf (DELETE).
+func (s *Server) handleMute(w http.ResponseWriter, r *http.Request) {
+	if !sameOrigin(r) {
+		http.Error(w, "fremde herkunft", http.StatusForbidden)
+		return
+	}
+	if !s.knownHost(w, r) {
+		return
+	}
+	var until time.Time
+	if r.Method == http.MethodPost {
+		var req struct {
+			Minutes int `json:"minutes"`
+		}
+		if !decodeJSON(w, r, &req) || req.Minutes < 0 || req.Minutes > 30*24*60 {
+			http.Error(w, "minutes muss zwischen 0 (unbefristet) und 43200 liegen", http.StatusBadRequest)
+			return
+		}
+		until = alert.MuteForever
+		if req.Minutes > 0 {
+			until = s.nowFor().Add(time.Duration(req.Minutes) * time.Minute)
+		}
+	}
+	id := r.PathValue("id")
+	if err := s.alerts.Mute(r.Context(), id, until); err != nil {
+		s.log.Error("stummschalten", "err", err)
+		http.Error(w, "interner fehler", http.StatusInternalServerError)
+		return
+	}
+	s.log.Info("stummschaltung geändert", "agent_id", id, "until", until, "user", userFrom(r.Context()))
+	w.WriteHeader(http.StatusNoContent)
 }

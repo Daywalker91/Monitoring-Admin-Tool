@@ -38,7 +38,7 @@ func (r *recordChannel) Send(_ context.Context, m notify.Message) error {
 	return nil
 }
 
-func newAlertTestServer(t *testing.T, chans ...notify.Channel) *httptest.Server {
+func newAlertTestServer(t *testing.T, chans ...notify.Channel) (*httptest.Server, *store.Store) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -61,7 +61,7 @@ func newAlertTestServer(t *testing.T, chans ...notify.Channel) *httptest.Server 
 	srv := New(st, auth.New(st), "secret", fstest.MapFS{}, log).WithMetricsToken("metrics-token-1234").WithAlerts(ev, d)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
-	return ts
+	return ts, st
 }
 
 func postJSON(t *testing.T, c *http.Client, url, origin string, body any) *http.Response {
@@ -80,7 +80,7 @@ func postJSON(t *testing.T, c *http.Client, url, origin string, body any) *http.
 }
 
 func TestAlertRulesAPI(t *testing.T) {
-	ts := newAlertTestServer(t)
+	ts, _ := newAlertTestServer(t)
 	c := login(t, ts)
 
 	resp, err := c.Get(ts.URL + "/api/alert-rules")
@@ -117,7 +117,7 @@ func TestAlertRulesAPI(t *testing.T) {
 
 func TestAlertFlow(t *testing.T) {
 	rec := &recordChannel{got: make(chan notify.Message, 10)}
-	ts := newAlertTestServer(t, rec, &recordChannel{fail: true})
+	ts, _ := newAlertTestServer(t, rec, &recordChannel{fail: true})
 	c := login(t, ts)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -172,5 +172,64 @@ func TestAlertFlow(t *testing.T) {
 	resp.Body.Close()
 	if !strings.Contains(string(body), `mat_alerts_firing{host="a1",rule="cpu"} 1`) {
 		t.Fatalf("metrics ohne alarm:\n%s", body)
+	}
+}
+
+func TestHostRulesAndMuteAPI(t *testing.T) {
+	ts, st := newAlertTestServer(t)
+	c := login(t, ts)
+	st.UpsertHost(context.Background(), proto.Hello{AgentID: "nas", Hostname: "NAS", IntervalSec: 10}, "x", time.Now())
+
+	rules := map[string]any{"rules": []store.AlertRule{{Kind: "disk", Enabled: true, Threshold: 95, ForSec: 60}}}
+	if r := postJSON(t, c, ts.URL+"/api/hosts/fehlt/alert-rules", ts.URL, rules); r.StatusCode != http.StatusNotFound {
+		t.Errorf("unbekannter host: %d", r.StatusCode)
+	}
+	if r := postJSON(t, c, ts.URL+"/api/hosts/nas/alert-rules", "http://evil.example", rules); r.StatusCode != http.StatusForbidden {
+		t.Errorf("fremde herkunft: %d", r.StatusCode)
+	}
+	if r := postJSON(t, c, ts.URL+"/api/hosts/nas/alert-rules", ts.URL, rules); r.StatusCode != http.StatusOK {
+		t.Fatalf("host-regeln: %d", r.StatusCode)
+	}
+	resp, _ := c.Get(ts.URL + "/api/hosts/nas/alert-rules")
+	var view hostRulesView
+	json.NewDecoder(resp.Body).Decode(&view)
+	resp.Body.Close()
+	if len(view.Rules) != 1 || view.Rules[0].Threshold != 95 || len(view.Defaults) != len(alert.DefaultRules) {
+		t.Fatalf("host-regeln lesen: %+v", view)
+	}
+
+	if r := postJSON(t, c, ts.URL+"/api/hosts/nas/mute", ts.URL, map[string]int{"minutes": -1}); r.StatusCode != http.StatusBadRequest {
+		t.Errorf("negative dauer: %d", r.StatusCode)
+	}
+	if r := postJSON(t, c, ts.URL+"/api/hosts/nas/mute", ts.URL, map[string]int{"minutes": 60}); r.StatusCode != http.StatusNoContent {
+		t.Fatalf("stummschalten: %d", r.StatusCode)
+	}
+	hosts := func() []hostView {
+		resp, err := c.Get(ts.URL + "/api/hosts")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var hs []hostView
+		json.NewDecoder(resp.Body).Decode(&hs)
+		return hs
+	}
+	if hs := hosts(); len(hs) != 1 || hs[0].MutedUntil == nil || *hs[0].MutedUntil < time.Now().Add(59*time.Minute).Unix() {
+		t.Fatalf("muted_until: %+v", hs)
+	}
+	if code := status(t, c, http.MethodDelete, ts.URL+"/api/hosts/nas/mute", ts.URL); code != http.StatusNoContent {
+		t.Fatalf("aufheben: %d", code)
+	}
+	if hs := hosts(); hs[0].MutedUntil != nil {
+		t.Fatalf("nach aufheben: %+v", hs[0].MutedUntil)
+	}
+
+	// Erinnerung über die globalen Regeln.
+	body := map[string]any{"rules": []store.AlertRule{{Kind: "cpu", Enabled: true, Threshold: 90, ForSec: 300}}, "reminder_hours": 6}
+	r := postJSON(t, c, ts.URL+"/api/alert-rules", ts.URL, body)
+	var rv alertRulesView
+	json.NewDecoder(r.Body).Decode(&rv)
+	if r.StatusCode != http.StatusOK || rv.ReminderHours != 6 {
+		t.Fatalf("erinnerung: %d %+v", r.StatusCode, rv)
 	}
 }
