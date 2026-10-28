@@ -97,6 +97,7 @@ function hostRow(h) {
   if (h.id !== h.hostname.toLowerCase()) host.append(el("span", h.id, "agent-id"));
   const nAlerts = alertCountFor(h.id);
   if (nAlerts) host.append(el("span", alertBadgeText(nAlerts), "pill crit host-alerts"));
+  if (h.muted_until) host.append(el("span", "🔕 stumm", "pill host-alerts"));
   tr.append(host);
 
   tr.append(cell("system", null, [h.platform || h.os, h.platform_version, h.arch].filter(Boolean).join(" · ")));
@@ -279,6 +280,7 @@ function detailRow(h) {
   const p = h.processes || {};
 
   tr.querySelector(".history-slot").replaceWith(historySection(h));
+  tr.querySelector(".host-alerts-slot").replaceWith(hostAlertSection(h));
 
   const cores = tr.querySelector(".cores");
   (m.cpu?.per_core || []).forEach((v, i) => {
@@ -334,6 +336,7 @@ async function deleteHost(h) {
     if (!resp.ok && resp.status !== 404) throw new Error((await resp.text()).trim() || "HTTP " + resp.status);
     openHosts.delete(h.id);
     historyViews.delete(h.id);
+    hostAlertViews.delete(h.id);
     saveOpenHosts();
     await refresh();
   } catch (e) {

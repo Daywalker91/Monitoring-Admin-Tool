@@ -81,6 +81,10 @@
           <thead><tr><th>Aktiv</th><th>Regel</th><th class="num">Schwelle</th><th class="num">Mindestdauer</th></tr></thead>
           <tbody></tbody>
         </table>
+        <label class="reminder">Erinnerung an aktive Alarme alle
+          <input type="number" id="reminder-hours" min="0" max="168" step="1" required inputmode="numeric"> h
+          <span class="muted small">(0 = aus)</span>
+        </label>
         <div class="form-actions">
           <button type="submit" class="primary">Speichern</button>
           <span id="rules-status" role="status"></span>
@@ -137,6 +141,7 @@
             <dl class="info"></dl>
             <button type="button" class="danger delete" hidden>Host aus Liste entfernen</button>
           </section>
+          <section class="host-alerts-slot"></section>
         </div>
       </td>
     </tr>

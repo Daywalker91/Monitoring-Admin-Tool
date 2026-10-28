@@ -400,6 +400,32 @@ button.secondary[disabled] { opacity: 0.6; cursor: wait; }
 .ok-text { color: var(--ok); }
 ul.plain { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 4px; }
 
+.reminder { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 14px; }
+.reminder input, .host-rules input[type="number"] {
+  width: 5.5em;
+  padding: 6px;
+  font: inherit;
+  font-size: 16px; /* verhindert Auto-Zoom auf iOS */
+  text-align: right;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+/* Alarme je Host (Host-Details) */
+.detail-grid section.host-alert-settings { grid-column: 1 / -1; }
+.mute-status { margin: 0 0 8px; }
+.mute-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 12px; }
+.host-rules td { vertical-align: middle; border-top: 1px solid var(--border); }
+.host-rules .rule-help { display: block; font-weight: 400; }
+.host-rules input[type="number"] { width: 4.8em; padding: 4px 6px; font-size: 14px; }
+.host-rules input[type="checkbox"] { width: 16px; height: 16px; }
+.host-rules tr.inherited input[type="number"] { opacity: 0.5; }
+.host-rules .unit { color: var(--muted); }
+.host-rules .form-actions { margin-top: 8px; }
+button.secondary { padding: 6px 14px; }
+
 @media (max-width: 760px) {
   header nav { order: 5; width: 100%; }
   #tabs button { flex: 1; }
@@ -448,4 +474,30 @@ ul.plain { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 4
   table.alerts .c-dur { grid-area: dur; }
   table.alerts .c-start { grid-area: start; }
   table.alerts td.hide-sm { display: none; }
+
+  /* Host-Regeln als Karten: Name oben, Schalter und Eingaben darunter */
+  .host-rules thead { display: none; }
+  .host-rules table, .host-rules tbody { display: block; }
+  .host-rules tr {
+    display: grid;
+    grid-template-columns: repeat(4, auto);
+    grid-template-areas: "name name name name" "own on thr dur";
+    justify-content: start;
+    gap: 6px 14px;
+    padding: 8px 0;
+    border-top: 1px solid var(--border);
+  }
+  .host-rules td { display: block; padding: 0; border: 0; text-align: left; }
+  .host-rules td:nth-child(1) { grid-area: name; }
+  .host-rules td:nth-child(2) { grid-area: own; }
+  .host-rules td:nth-child(3) { grid-area: on; }
+  .host-rules td:nth-child(4) { grid-area: thr; }
+  .host-rules td:nth-child(5) { grid-area: dur; }
+  .host-rules td:nth-child(2)::before { content: "Eigene"; }
+  .host-rules td:nth-child(3)::before { content: "Aktiv"; }
+  .host-rules td:nth-child(4)::before { content: "Schwelle"; }
+  .host-rules td:nth-child(5)::before { content: "Dauer"; }
+  .host-rules td:nth-child(n+2)::before {
+    display: block; font-size: 11px; color: var(--muted);
+  }
 }

@@ -152,6 +152,7 @@ function renderRules() {
     return tr;
   });
   document.querySelector("#rules tbody").replaceChildren(...rows);
+  document.getElementById("reminder-hours").value = rulesState.reminder_hours;
   document.getElementById("rules-hint").textContent =
     "Ein Alarm löst aus, wenn der Wert die Mindestdauer lang ununterbrochen über der Schwelle liegt, " +
     "und endet, wenn er " + rulesState.hysteresis + " Prozentpunkte unter die Schwelle fällt.";
@@ -182,7 +183,7 @@ async function saveRules(ev) {
     const resp = await fetch("api/alert-rules", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rules }),
+      body: JSON.stringify({ rules, reminder_hours: Number(document.getElementById("reminder-hours").value) }),
     });
     if (resp.status === 401) return toLogin();
     if (!resp.ok) throw new Error((await resp.text()).trim() || "HTTP " + resp.status);
@@ -218,3 +219,185 @@ async function sendTestAlert() {
 
 document.getElementById("rules-form").addEventListener("submit", saveRules);
 document.getElementById("test-alert").addEventListener("click", sendTestAlert);
+
+// --- Alarme je Host (in den Host-Details) -------------------------------------
+// Wie der Verlauf eine dauerhafte Ansicht je Host: Das Element überlebt das
+// Neuzeichnen der Liste, damit Eingaben nicht verloren gehen.
+
+const hostAlertViews = new Map();
+const MUTE_OPTIONS = [["1 h", 60], ["4 h", 240], ["24 h", 1440], ["unbefristet", 0]];
+const MUTE_FOREVER_AFTER = Date.UTC(9000, 0, 1) / 1000;
+
+function hostAlertSection(h) {
+  let v = hostAlertViews.get(h.id);
+  if (!v) {
+    v = createHostAlertView(h);
+    hostAlertViews.set(h.id, v);
+    loadHostRules(v);
+  }
+  updateMuteStatus(v, h.muted_until);
+  return v.el;
+}
+
+function ruleSummary(r) {
+  if (!r.enabled) return "aus";
+  const dur = Math.round(r.for_sec / 60 * 100) / 100 + " min";
+  return r.kind === "offline" ? "nach " + dur : r.threshold + " % · " + dur;
+}
+
+function createHostAlertView(h) {
+  const v = { id: h.id, state: null, el: el("section", null, "host-alert-settings") };
+  v.el.append(el("h3", "Alarme für diesen Host"));
+
+  v.muteText = el("p", "", "mute-status small");
+  const row = el("div", null, "mute-row");
+  const group = el("div", null, "segmented");
+  group.setAttribute("role", "group");
+  group.setAttribute("aria-label", "Stumm schalten für");
+  for (const [label, minutes] of MUTE_OPTIONS) {
+    const b = el("button", label);
+    b.type = "button";
+    b.addEventListener("click", () => setMute(v, minutes));
+    group.append(b);
+  }
+  v.unmute = el("button", "Aufheben", "link");
+  v.unmute.type = "button";
+  v.unmute.addEventListener("click", () => setMute(v, null));
+  row.append(el("span", "Stumm:", "muted small"), group, v.unmute);
+  v.el.append(v.muteText, row);
+
+  v.form = el("form", null, "host-rules");
+  const table = el("table", null, "mini");
+  const head = el("tr");
+  for (const [t, cls] of [["Regel"], ["Eigene", "num"], ["Aktiv", "num"], ["Schwelle", "num"], ["Dauer", "num"]]) {
+    head.append(el("th", t, cls));
+  }
+  const thead = el("thead");
+  thead.append(head);
+  v.tbody = el("tbody");
+  table.append(thead, v.tbody);
+  const actions = el("div", null, "form-actions");
+  const save = el("button", "Speichern", "secondary");
+  save.type = "submit";
+  v.status = el("span", "", "small");
+  v.status.setAttribute("role", "status");
+  actions.append(save, v.status);
+  v.form.append(table, actions);
+  v.form.addEventListener("submit", ev => { ev.preventDefault(); saveHostRules(v); });
+  v.el.append(v.form);
+  return v;
+}
+
+function updateMuteStatus(v, until) {
+  v.unmute.hidden = !until;
+  if (!until) v.muteText.textContent = "Benachrichtigungen aktiv.";
+  else if (until > MUTE_FOREVER_AFTER) v.muteText.textContent = "🔕 Stumm (unbefristet) – Alarme werden erfasst, aber nicht gemeldet.";
+  else v.muteText.textContent = "🔕 Stumm bis " + fmtDateTime(until) + " – Alarme werden erfasst, aber nicht gemeldet.";
+}
+
+async function setMute(v, minutes) {
+  try {
+    const opts = minutes === null
+      ? { method: "DELETE" }
+      : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ minutes }) };
+    const resp = await fetch("api/hosts/" + encodeURIComponent(v.id) + "/mute", opts);
+    if (resp.status === 401) return toLogin();
+    if (!resp.ok) throw new Error((await resp.text()).trim() || "HTTP " + resp.status);
+    await refresh();
+  } catch (e) {
+    v.muteText.textContent = "Stummschalten fehlgeschlagen: " + e.message;
+  }
+}
+
+async function loadHostRules(v) {
+  try {
+    const resp = await fetch("api/hosts/" + encodeURIComponent(v.id) + "/alert-rules", { cache: "no-store" });
+    if (resp.status === 401) return toLogin();
+    if (!resp.ok) throw new Error((await resp.text()).trim() || "HTTP " + resp.status);
+    v.state = await resp.json();
+    renderHostRules(v);
+  } catch (e) {
+    v.status.className = "small error";
+    v.status.textContent = "Laden fehlgeschlagen: " + e.message;
+  }
+}
+
+function renderHostRules(v) {
+  const rows = v.state.defaults.map(d => {
+    const own = v.state.rules.find(r => r.kind === d.kind);
+    const r = own || d;
+    const label = ALERT_LABELS[d.kind] || d.kind;
+    const tr = el("tr");
+    tr.dataset.kind = d.kind;
+
+    const name = el("td", null, "name");
+    name.append(el("strong", label), el("span", "Standard: " + ruleSummary(d), "muted small rule-help"));
+
+    const check = (cls, checked, aria) => {
+      const c = el("input");
+      c.type = "checkbox";
+      c.className = cls;
+      c.checked = checked;
+      c.setAttribute("aria-label", label + " " + aria);
+      const td = el("td", null, "num");
+      td.append(c);
+      return td;
+    };
+    const tdOwn = check("own", !!own, "eigene Regel");
+    const tdOn = check("rule-enabled", r.enabled, "aktiv");
+
+    const tdThr = el("td", null, "num");
+    if (d.kind === "offline") tdThr.append(el("span", "–", "muted"));
+    else {
+      const i = numberInput(r.threshold, 10, 100, 1, label + " Schwelle in Prozent");
+      i.className = "rule-threshold";
+      tdThr.append(i, el("span", " %", "unit"));
+    }
+    const tdDur = el("td", null, "num");
+    const di = numberInput(Math.round(r.for_sec / 60 * 100) / 100, d.kind === "offline" ? 0.5 : 0, 1440, "any",
+      label + " Mindestdauer in Minuten");
+    di.className = "rule-duration";
+    tdDur.append(di, el("span", " min", "unit"));
+
+    tr.append(name, tdOwn, tdOn, tdThr, tdDur);
+    const sync = () => {
+      const on = tdOwn.querySelector("input").checked;
+      for (const i of tr.querySelectorAll("input:not(.own)")) i.disabled = !on;
+      tr.classList.toggle("inherited", !on);
+    };
+    tdOwn.querySelector("input").addEventListener("change", sync);
+    sync();
+    return tr;
+  });
+  v.tbody.replaceChildren(...rows);
+}
+
+async function saveHostRules(v) {
+  const rules = [...v.tbody.querySelectorAll("tr")].filter(tr => tr.querySelector(".own").checked).map(tr => {
+    const thr = tr.querySelector(".rule-threshold");
+    return {
+      kind: tr.dataset.kind,
+      enabled: tr.querySelector(".rule-enabled").checked,
+      threshold: thr ? Number(thr.value) : 0,
+      for_sec: Math.round(Number(tr.querySelector(".rule-duration").value) * 60),
+    };
+  });
+  v.status.className = "small muted";
+  v.status.textContent = "Speichere …";
+  try {
+    const resp = await fetch("api/hosts/" + encodeURIComponent(v.id) + "/alert-rules", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rules }),
+    });
+    if (resp.status === 401) return toLogin();
+    if (!resp.ok) throw new Error((await resp.text()).trim() || "HTTP " + resp.status);
+    v.state = await resp.json();
+    renderHostRules(v);
+    v.status.className = "small ok-text";
+    v.status.textContent = rules.length ? "✓ Gespeichert" : "✓ Gespeichert – alle Regeln wie Standard";
+  } catch (e) {
+    v.status.className = "small error";
+    v.status.textContent = "Speichern fehlgeschlagen: " + e.message;
+  }
+}
