@@ -203,3 +203,112 @@ func TestSetRules(t *testing.T) {
 		t.Fatalf("regeln nach neustart: %+v", r)
 	}
 }
+
+func TestHostOverride(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	nas := []store.AlertRule{{Kind: KindCPU, Enabled: true, Threshold: 99, ForSec: 0}}
+	if err := f.ev.SetHostRules(ctx, "h1", nas, f.now); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.ev.SetHostRules(ctx, "h1", append(nas, nas[0]), f.now); err == nil {
+		t.Error("doppelter regeltyp akzeptiert")
+	}
+	for i := 0; i <= 31; i++ { // global würde nach 300 s auslösen
+		f.observe(cpu(95), 10*time.Second)
+	}
+	if ev := f.take(); len(ev) != 0 {
+		t.Fatalf("host-regel ignoriert: %+v", ev)
+	}
+	f.observe(cpu(99.5), 10*time.Second)
+	if ev := f.take(); len(ev) != 1 || ev[0].Alert.Threshold != 99 {
+		t.Fatalf("host-regel: %+v", ev)
+	}
+
+	// Host-Regel deaktivieren beendet den Alarm; Neustart lädt die Regel wieder.
+	off := []store.AlertRule{{Kind: KindCPU, Enabled: false, Threshold: 99, ForSec: 0}}
+	f.ev.SetHostRules(ctx, "h1", off, f.now)
+	if ev := f.take(); len(ev) != 1 || ev[0].Type != Resolved {
+		t.Fatalf("deaktiviert: %+v", ev)
+	}
+	if r := f.open().HostRules("h1"); len(r) != 1 || r[0].Enabled {
+		t.Fatalf("nach neustart: %+v", r)
+	}
+	// Leere Liste: wieder globale Regel.
+	f.ev.SetHostRules(ctx, "h1", nil, f.now)
+	if r := f.ev.HostRules("h1"); len(r) != 0 {
+		t.Fatalf("zurückgesetzt: %+v", r)
+	}
+}
+
+func TestMute(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	rules := []store.AlertRule{{Kind: KindCPU, Enabled: true, Threshold: 90, ForSec: 0}}
+	f.ev.SetRules(ctx, rules, f.now)
+
+	f.ev.Mute(ctx, "h1", f.now.Add(time.Hour))
+	f.observe(cpu(95), 10*time.Second)
+	if ev := f.take(); len(ev) != 0 {
+		t.Fatalf("stumm, trotzdem gemeldet: %+v", ev)
+	}
+	active, _ := f.st.Alerts(ctx, true, time.Time{}, 10)
+	if len(active) != 1 || active[0].NotifiedAt != nil {
+		t.Fatalf("alarm wird erfasst, aber nicht gemeldet: %+v", active)
+	}
+	f.ev.Tick(ctx, f.now)
+	if ev := f.take(); len(ev) != 0 {
+		t.Fatalf("tick während stummschaltung: %+v", ev)
+	}
+
+	// Nach Ende der Stummschaltung wird der noch aktive Alarm nachgemeldet.
+	f.now = f.now.Add(time.Hour)
+	f.ev.Tick(ctx, f.now)
+	if ev := f.take(); len(ev) != 1 || ev[0].Type != Firing {
+		t.Fatalf("nachmeldung: %+v", ev)
+	}
+
+	// Ein während der Stummschaltung ausgelöster und beendeter Alarm bleibt ganz still.
+	f.ev.Mute(ctx, "h1", MuteForever)
+	f.observe(cpu(50), 10*time.Second) // beendet den gemeldeten Alarm – stumm, also keine Meldung
+	f.observe(cpu(95), 10*time.Second)
+	f.observe(cpu(50), 10*time.Second)
+	f.ev.Mute(ctx, "h1", time.Time{})
+	f.ev.Tick(ctx, f.now)
+	if ev := f.take(); len(ev) != 0 {
+		t.Fatalf("stumme alarme gemeldet: %+v", ev)
+	}
+	if _, muted := f.ev.MutedUntil("h1", f.now); muted {
+		t.Fatal("stummschaltung nicht aufgehoben")
+	}
+}
+
+func TestReminder(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	f.ev.SetRules(ctx, []store.AlertRule{{Kind: KindCPU, Enabled: true, Threshold: 90, ForSec: 0}}, f.now)
+	if err := f.ev.SetReminder(ctx, 200); err == nil {
+		t.Error("200 h akzeptiert")
+	}
+	f.ev.SetReminder(ctx, 2)
+	f.observe(cpu(95), 10*time.Second)
+	f.take()
+
+	f.ev.Tick(ctx, f.now.Add(time.Hour))
+	if ev := f.take(); len(ev) != 0 {
+		t.Fatalf("zu frühe erinnerung: %+v", ev)
+	}
+	f.ev.Tick(ctx, f.now.Add(2*time.Hour))
+	ev := f.take()
+	if len(ev) != 1 || ev[0].Type != Reminder || !strings.HasPrefix(ev[0].Title(), "Erinnerung: host-1: CPU") ||
+		!strings.Contains(ev[0].Body(), "Alarm besteht seit 2 h") {
+		t.Fatalf("erinnerung: %+v %q", ev, ev[0].Body())
+	}
+	f.ev.Tick(ctx, f.now.Add(3*time.Hour))
+	if ev := f.take(); len(ev) != 0 {
+		t.Fatalf("erinnerung zu oft: %+v", ev)
+	}
+	if f.open().Reminder() != 2*time.Hour {
+		t.Fatal("erinnerung nach neustart verloren")
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"sync"
 	"time"
 
@@ -32,6 +33,9 @@ const (
 	// pendingGap: Liegen zwischen zwei Messungen mehr als pendingGap, beginnt die
 	// Mindestdauer neu (z. B. nach einem Verbindungsabbruch).
 	pendingGap = 2 * time.Minute
+
+	settingReminder  = "reminder_hours"
+	maxReminderHours = 168
 )
 
 // DefaultRules sind die Standardwerte, solange nichts anderes gespeichert ist.
@@ -80,6 +84,12 @@ const (
 	Resolved EventType = "resolved"
 )
 
+// Reminder erinnert an einen weiterhin aktiven Alarm.
+const Reminder EventType = "reminder"
+
+// MuteForever ist das Ende einer unbefristeten Stummschaltung.
+var MuteForever = time.Date(9999, 12, 31, 0, 0, 0, 0, time.UTC)
+
 // Event meldet eine Zustandsänderung eines Alarms.
 type Event struct {
 	Type  EventType
@@ -110,17 +120,21 @@ type Evaluator struct {
 	log     *slog.Logger
 	started time.Time // Offline-Dauer zählt frühestens ab Serverstart
 
-	mu      sync.Mutex
-	rules   map[string]store.AlertRule
-	pending map[key]*pending
-	firing  map[key]*store.Alert
+	mu        sync.Mutex
+	rules     map[string]store.AlertRule            // globale Regeln je Typ
+	overrides map[string]map[string]store.AlertRule // Host → Typ → abweichende Regel
+	muted     map[string]time.Time                  // Host → Ende der Stummschaltung
+	reminder  time.Duration                         // 0 = keine Erinnerungen
+	pending   map[key]*pending
+	firing    map[key]*store.Alert
 }
 
 // New lädt Regeln und offene Alarme aus der Datenbank. notify wird für jedes
 // Ereignis aufgerufen und darf nicht blockieren.
 func New(ctx context.Context, st *store.Store, notify func(Event), log *slog.Logger, now time.Time) (*Evaluator, error) {
 	e := &Evaluator{st: st, notify: notify, log: log, started: now,
-		rules: map[string]store.AlertRule{}, pending: map[key]*pending{}, firing: map[key]*store.Alert{}}
+		rules: map[string]store.AlertRule{}, overrides: map[string]map[string]store.AlertRule{},
+		pending: map[key]*pending{}, firing: map[key]*store.Alert{}}
 	for _, r := range DefaultRules {
 		e.rules[r.Kind] = r
 	}
@@ -131,6 +145,27 @@ func New(ctx context.Context, st *store.Store, notify func(Event), log *slog.Log
 	for _, r := range saved {
 		if ValidateRule(r) == nil {
 			e.rules[r.Kind] = r
+		}
+	}
+	overrides, err := st.AlertOverrides(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for host, rules := range overrides {
+		for _, r := range rules {
+			if ValidateRule(r) == nil {
+				e.setOverride(host, r)
+			}
+		}
+	}
+	if e.muted, err = st.HostMutes(ctx); err != nil {
+		return nil, err
+	}
+	if v, ok, err := st.AlertSetting(ctx, settingReminder); err != nil {
+		return nil, err
+	} else if ok {
+		if h, err := strconv.Atoi(v); err == nil && h > 0 && h <= maxReminderHours {
+			e.reminder = time.Duration(h) * time.Hour
 		}
 	}
 	open, err := st.Alerts(ctx, true, time.Time{}, 10000)
@@ -169,20 +204,132 @@ func (e *Evaluator) SetRules(ctx context.Context, rules []store.AlertRule, now t
 	defer e.mu.Unlock()
 	for _, r := range rules {
 		e.rules[r.Kind] = r
-		if r.Enabled {
-			continue
-		}
-		for k := range e.pending {
-			if k.kind == r.Kind {
-				delete(e.pending, k)
-			}
-		}
-		for k := range e.firing {
-			if k.kind == r.Kind {
-				e.resolve(ctx, k, now)
-			}
+	}
+	e.applyRules(ctx, now)
+	return nil
+}
+
+// HostRules liefert die abweichenden Regeln eines Hosts in fester Reihenfolge.
+func (e *Evaluator) HostRules(hostID string) []store.AlertRule {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	out := []store.AlertRule{}
+	for _, d := range DefaultRules {
+		if r, ok := e.overrides[hostID][d.Kind]; ok {
+			out = append(out, r)
 		}
 	}
+	return out
+}
+
+// SetHostRules ersetzt die abweichenden Regeln eines Hosts; nicht genannte
+// Typen folgen wieder der globalen Regel.
+func (e *Evaluator) SetHostRules(ctx context.Context, hostID string, rules []store.AlertRule, now time.Time) error {
+	seen := map[string]bool{}
+	for _, r := range rules {
+		if err := ValidateRule(r); err != nil {
+			return err
+		}
+		if seen[r.Kind] {
+			return fmt.Errorf("regeltyp %q doppelt", r.Kind)
+		}
+		seen[r.Kind] = true
+	}
+	if err := e.st.SetAlertOverrides(ctx, hostID, rules); err != nil {
+		return err
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	delete(e.overrides, hostID)
+	for _, r := range rules {
+		e.setOverride(hostID, r)
+	}
+	// Schwellen können sich geändert haben: wartende Bedingungen neu beginnen.
+	for k := range e.pending {
+		if k.host == hostID {
+			delete(e.pending, k)
+		}
+	}
+	e.applyRules(ctx, now)
+	return nil
+}
+
+func (e *Evaluator) setOverride(hostID string, r store.AlertRule) {
+	if e.overrides[hostID] == nil {
+		e.overrides[hostID] = map[string]store.AlertRule{}
+	}
+	e.overrides[hostID][r.Kind] = r
+}
+
+// ruleFor liefert die für einen Host geltende Regel. e.mu ist gesperrt.
+func (e *Evaluator) ruleFor(hostID, kind string) store.AlertRule {
+	if r, ok := e.overrides[hostID][kind]; ok {
+		return r
+	}
+	return e.rules[kind]
+}
+
+// applyRules beendet Alarme und wartende Bedingungen, deren Regel jetzt
+// deaktiviert ist. e.mu ist gesperrt.
+func (e *Evaluator) applyRules(ctx context.Context, now time.Time) {
+	for k := range e.pending {
+		if !e.ruleFor(k.host, k.kind).Enabled {
+			delete(e.pending, k)
+		}
+	}
+	for k := range e.firing {
+		if !e.ruleFor(k.host, k.kind).Enabled {
+			e.resolve(ctx, k, now)
+		}
+	}
+}
+
+// Mute schaltet die Benachrichtigungen eines Hosts bis until ab (MuteForever =
+// unbefristet, Nullwert = aufheben). Alarme werden weiter erfasst.
+func (e *Evaluator) Mute(ctx context.Context, hostID string, until time.Time) error {
+	if err := e.st.SetHostMute(ctx, hostID, until); err != nil {
+		return err
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if until.IsZero() {
+		delete(e.muted, hostID)
+	} else {
+		e.muted[hostID] = until
+	}
+	return nil
+}
+
+// MutedUntil liefert das Ende der Stummschaltung, falls der Host zu now stumm ist.
+func (e *Evaluator) MutedUntil(hostID string, now time.Time) (time.Time, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.mutedUntil(hostID, now)
+}
+
+func (e *Evaluator) mutedUntil(hostID string, now time.Time) (time.Time, bool) {
+	until, ok := e.muted[hostID]
+	return until, ok && until.After(now)
+}
+
+// Reminder liefert den Erinnerungsabstand (0 = aus).
+func (e *Evaluator) Reminder() time.Duration {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.reminder
+}
+
+// SetReminder speichert den Erinnerungsabstand in ganzen Stunden (0 = aus).
+func (e *Evaluator) SetReminder(ctx context.Context, hours int) error {
+	if hours < 0 || hours > maxReminderHours {
+		return fmt.Errorf("erinnerung muss zwischen 0 und %d stunden liegen", maxReminderHours)
+	}
+	if err := e.st.SetAlertSetting(ctx, settingReminder, strconv.Itoa(hours)); err != nil {
+		return err
+	}
+	e.mu.Lock()
+	e.reminder = time.Duration(hours) * time.Hour
+	e.mu.Unlock()
 	return nil
 }
 
@@ -202,7 +349,7 @@ func (e *Evaluator) Observe(ctx context.Context, hostID, hostname string, m prot
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for k, v := range values {
-		rule := e.rules[k.kind]
+		rule := e.ruleFor(hostID, k.kind)
 		if !rule.Enabled {
 			continue
 		}
@@ -256,8 +403,8 @@ func (e *Evaluator) check(ctx context.Context, k key, hostname string, rule stor
 func (e *Evaluator) CheckOffline(ctx context.Context, hosts []HostState, now time.Time) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	rule := e.rules[KindOffline]
 	for _, h := range hosts {
+		rule := e.ruleFor(h.ID, KindOffline)
 		k := key{h.ID, KindOffline, ""}
 		if h.Online {
 			if a := e.firing[k]; a != nil {
@@ -296,6 +443,8 @@ func (e *Evaluator) Forget(hostID string) {
 			delete(e.firing, k)
 		}
 	}
+	delete(e.overrides, hostID)
+	delete(e.muted, hostID)
 }
 
 // ActiveCount liefert die Zahl aktiver Alarme je Host und Regeltyp.
@@ -316,13 +465,20 @@ func (e *Evaluator) ActiveCount() map[string]map[string]int {
 func (e *Evaluator) fire(ctx context.Context, k key, hostname string, rule store.AlertRule, v, peak float64, now time.Time) {
 	a := &store.Alert{HostID: k.host, Hostname: hostname, Kind: k.kind, Target: k.target,
 		Threshold: rule.Threshold, Value: v, Peak: peak, StartedAt: now.Unix()}
+	_, muted := e.mutedUntil(k.host, now)
+	if !muted {
+		ts := now.Unix()
+		a.NotifiedAt = &ts
+	}
 	if err := e.st.OpenAlert(ctx, a); err != nil {
 		e.log.Error("alarm speichern", "err", err)
 		return // ohne Datensatz kein Alarm; nächste Messung versucht es erneut
 	}
 	e.firing[k] = a
-	e.log.Info("alarm ausgelöst", "host", k.host, "kind", k.kind, "target", k.target, "value", v)
-	e.notify(Event{Type: Firing, Alert: *a, Rule: rule, At: now})
+	e.log.Info("alarm ausgelöst", "host", k.host, "kind", k.kind, "target", k.target, "value", v, "muted", muted)
+	if !muted {
+		e.notify(Event{Type: Firing, Alert: *a, Rule: rule, At: now})
+	}
 }
 
 // resolve beendet einen aktiven Alarm und meldet das. e.mu ist gesperrt.
@@ -339,10 +495,40 @@ func (e *Evaluator) resolve(ctx context.Context, k key, now time.Time) {
 	ts := now.Unix()
 	a.ResolvedAt = &ts
 	e.log.Info("alarm beendet", "host", k.host, "kind", k.kind, "target", k.target)
-	e.notify(Event{Type: Resolved, Alert: *a, Rule: e.rules[k.kind], At: now})
+	// Ende nur melden, wenn der Beginn gemeldet wurde und der Host nicht stumm ist.
+	if _, muted := e.mutedUntil(k.host, now); a.NotifiedAt != nil && !muted {
+		e.notify(Event{Type: Resolved, Alert: *a, Rule: e.ruleFor(k.host, k.kind), At: now})
+	}
 }
 
-// Run prüft alle interval den Verbindungsstand der Hosts.
+// Tick meldet Alarme nach, die während einer Stummschaltung ausgelöst haben
+// und noch aktiv sind, und verschickt fällige Erinnerungen.
+func (e *Evaluator) Tick(ctx context.Context, now time.Time) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for k, a := range e.firing {
+		if _, muted := e.mutedUntil(k.host, now); muted {
+			continue
+		}
+		typ := Firing
+		if a.NotifiedAt != nil {
+			if e.reminder == 0 || now.Sub(time.Unix(*a.NotifiedAt, 0)) < e.reminder {
+				continue
+			}
+			typ = Reminder
+		}
+		if err := e.st.SetAlertNotified(ctx, a.ID, now); err != nil {
+			e.log.Error("benachrichtigung speichern", "err", err)
+			continue
+		}
+		ts := now.Unix()
+		a.NotifiedAt = &ts
+		e.notify(Event{Type: typ, Alert: *a, Rule: e.ruleFor(k.host, k.kind), At: now})
+	}
+}
+
+// Run prüft alle interval den Verbindungsstand der Hosts, meldet Alarme nach
+// dem Ende einer Stummschaltung nach und verschickt Erinnerungen.
 func (e *Evaluator) Run(ctx context.Context, interval time.Duration, hosts func(context.Context) ([]HostState, error)) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
@@ -357,6 +543,7 @@ func (e *Evaluator) Run(ctx context.Context, interval time.Duration, hosts func(
 				continue
 			}
 			e.CheckOffline(ctx, hs, now)
+			e.Tick(ctx, now)
 		}
 	}
 }

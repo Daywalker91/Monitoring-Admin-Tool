@@ -56,9 +56,10 @@ CREATE TABLE IF NOT EXISTS alert_settings (
 `
 
 // alertsMigrations ergänzt Spalten, die nach M3 hinzugekommen sind.
-var alertsMigrations = []struct{ table, column, def string }{
+var alertsMigrations = []struct{ table, column, def, fill string }{
 	// Zeitpunkt der letzten Benachrichtigung; NULL = nie gemeldet (z. B. stummgeschaltet).
-	{"alerts", "notified_at", "INTEGER"},
+	// Bestehende Alarme gelten als gemeldet, damit sie nach dem Update nicht nachgemeldet werden.
+	{"alerts", "notified_at", "INTEGER", "UPDATE alerts SET notified_at = started_at"},
 }
 
 // AlertRule ist der Schwellwert eines Regeltyps.
@@ -310,6 +311,11 @@ func migrate(db *sql.DB) error {
 		// Tabellen- und Spaltennamen stammen aus der festen Liste oben, nicht aus Eingaben.
 		if _, err := db.Exec(`ALTER TABLE ` + m.table + ` ADD COLUMN ` + m.column + ` ` + m.def); err != nil {
 			return fmt.Errorf("spalte %s.%s ergänzen: %w", m.table, m.column, err)
+		}
+		if m.fill != "" {
+			if _, err := db.Exec(m.fill); err != nil {
+				return fmt.Errorf("spalte %s.%s füllen: %w", m.table, m.column, err)
+			}
 		}
 	}
 	return nil

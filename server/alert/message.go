@@ -36,6 +36,9 @@ func (e Event) Firing() bool { return e.Type == Firing }
 
 // Title ist die Kurzfassung für Push-Nachricht und Betreff.
 func (e Event) Title() string {
+	if e.Type == Reminder {
+		return "Erinnerung: " + Event{Type: Firing, Alert: e.Alert, Rule: e.Rule, At: e.At}.Title()
+	}
 	host := e.Alert.Hostname
 	if e.Alert.Kind == KindOffline {
 		if e.Firing() {
@@ -54,14 +57,17 @@ func (e Event) Body() string {
 	a := e.Alert
 	var b strings.Builder
 	started := time.Unix(a.StartedAt, 0)
+	if e.Type == Reminder {
+		fmt.Fprintf(&b, "Alarm besteht seit %s.\n", duration(e.At.Sub(started)))
+	}
 	switch {
-	case a.Kind == KindOffline && e.Firing():
+	case a.Kind == KindOffline && e.Type != Resolved:
 		fmt.Fprintf(&b, "Keine Verbindung zum Agenten seit %s.\n", duration(time.Duration(a.Value*float64(time.Minute))))
 	case a.Kind == KindOffline:
 		// Value ist die Zeit ohne Verbindung beim Auslösen; dazu kommt die Dauer des Alarms.
 		offline := time.Duration(a.Value*float64(time.Minute)) + e.At.Sub(started)
 		fmt.Fprintf(&b, "Agent wieder verbunden, war %s ohne Verbindung.\n", duration(offline))
-	case e.Firing():
+	case e.Type != Resolved:
 		fmt.Fprintf(&b, "%s über %s", e.subject(), pct(a.Threshold))
 		if e.Rule.ForSec > 0 {
 			fmt.Fprintf(&b, " seit mindestens %s", duration(time.Duration(e.Rule.ForSec)*time.Second))

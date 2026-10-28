@@ -129,10 +129,13 @@ func (s *Server) handleTestAlert(w http.ResponseWriter, r *http.Request) {
 // NotifyEvent wandelt ein Alarmereignis in eine Meldung für die Kanäle.
 func NotifyEvent(d *notify.Dispatcher) func(alert.Event) {
 	return func(e alert.Event) {
-		tag := "white_check_mark"
-		if e.Firing() {
-			tag = "rotating_light"
+		tag, high := "white_check_mark", false
+		switch e.Type {
+		case alert.Firing:
+			tag, high = "rotating_light", true
+		case alert.Reminder:
+			tag, high = "bell", true
 		}
-		d.Enqueue(notify.Message{Title: e.Title(), Body: e.Body(), High: e.Firing(), Tag: tag})
+		d.Enqueue(notify.Message{Title: e.Title(), Body: e.Body(), High: high, Tag: tag})
 	}
 }

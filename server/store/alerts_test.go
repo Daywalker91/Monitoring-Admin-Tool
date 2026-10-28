@@ -153,7 +153,7 @@ func TestMigrateNotifiedAt(t *testing.T) {
 	defer s.Close()
 	ctx := context.Background()
 	alerts, err := s.Alerts(ctx, true, time.Time{}, 10)
-	if err != nil || len(alerts) != 1 || alerts[0].NotifiedAt != nil {
+	if err != nil || len(alerts) != 1 || alerts[0].NotifiedAt == nil || *alerts[0].NotifiedAt != 1 {
 		t.Fatalf("nach migration: %+v %v", alerts, err)
 	}
 	if err := s.SetAlertNotified(ctx, alerts[0].ID, time.Unix(100, 0)); err != nil {
