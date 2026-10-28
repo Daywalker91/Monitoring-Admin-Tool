@@ -28,6 +28,7 @@ import (
 	"net/netip"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -37,6 +38,7 @@ import (
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/auth"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/notify"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/store"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/server/update"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/web"
 )
 
@@ -141,7 +143,12 @@ func serve(ctx context.Context, args []string, out io.Writer) int {
 		tlsCfg = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{pair}}
 	}
 
-	if err := run(ctx, *listen, *dbPath, *retention, token, metricsToken, tlsCfg, chans, trusted, log); err != nil {
+	// Self-Update der Agenten: Releases von GitHub (MAT_UPDATE_REPO=off schaltet ab).
+	// Zwischenspeicher neben der Datenbank, im Container also auf dem Volume.
+	updates := update.New(os.Getenv("MAT_UPDATE_REPO"), os.Getenv("MAT_UPDATE_API"),
+		filepath.Join(filepath.Dir(*dbPath), "updates"), log)
+
+	if err := run(ctx, *listen, *dbPath, *retention, token, metricsToken, tlsCfg, chans, trusted, updates, log); err != nil {
 		log.Error("server beendet mit fehler", "err", err)
 		return 1
 	}
@@ -149,7 +156,7 @@ func serve(ctx context.Context, args []string, out io.Writer) int {
 }
 
 func run(ctx context.Context, listen, dbPath string, retention time.Duration, token, metricsToken string, tlsCfg *tls.Config,
-	chans []notify.Channel, trusted []netip.Prefix, log *slog.Logger) error {
+	chans []notify.Channel, trusted []netip.Prefix, updates *update.Checker, log *slog.Logger) error {
 
 	st, err := store.Open(dbPath)
 	if err != nil {
@@ -172,8 +179,11 @@ func run(ctx context.Context, listen, dbPath string, retention time.Duration, to
 	apiSrv := api.New(st, auth.New(st), token, web.Static(), log).
 		WithMetricsToken(metricsToken).
 		WithAlerts(evaluator, dispatcher).
-		WithTrustedProxies(trusted)
+		WithTrustedProxies(trusted).
+		WithVersion(version).
+		WithUpdates(updates)
 	go apiSrv.RunAlerts(ctx)
+	go updates.Run(ctx)
 
 	srv := &http.Server{
 		Addr:              listen,
@@ -187,7 +197,8 @@ func run(ctx context.Context, listen, dbPath string, retention time.Duration, to
 	errCh := make(chan error, 1)
 	go func() {
 		log.Info("server startet", "version", version, "listen", listen, "db", dbPath, "retention", retention,
-			"metrics", metricsToken != "", "tls", tlsCfg != nil, "notify", dispatcher.Channels(), "trusted_proxies", len(trusted))
+			"metrics", metricsToken != "", "tls", tlsCfg != nil, "notify", dispatcher.Channels(), "trusted_proxies", len(trusted),
+			"self_update", updates.Status().Repo)
 		if tlsCfg != nil {
 			errCh <- srv.ListenAndServeTLS("", "") // Zertifikat steckt bereits in TLSConfig
 		} else {

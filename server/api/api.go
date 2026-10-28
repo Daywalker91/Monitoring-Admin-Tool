@@ -46,6 +46,8 @@ type Server struct {
 
 	alerts   *alert.Evaluator   // nil = keine Alarmauswertung
 	notifier *notify.Dispatcher // nil = keine externen Kanäle
+	upd      *updates           // nil = kein Self-Update
+	version  string             // Server-Version (Anzeige)
 
 	mu     sync.Mutex
 	conns  map[string]agentConn // aktuell verbundene Agenten je ID
@@ -57,6 +59,12 @@ type Server struct {
 func New(st *store.Store, am *auth.Manager, token string, gui fs.FS, log *slog.Logger) *Server {
 	return &Server{store: st, auth: am, token: []byte(token), gui: gui, log: log,
 		conns: make(map[string]agentConn), nowFor: time.Now}
+}
+
+// WithVersion setzt die angezeigte Server-Version.
+func (s *Server) WithVersion(v string) *Server {
+	s.version = v
+	return s
 }
 
 // Dateien, die ohne Anmeldung erreichbar sein müssen (Login-Seite).
@@ -80,10 +88,15 @@ func (s *Server) Handler() http.Handler {
 	private.HandleFunc("POST /api/hosts/{id}/alert-rules", s.handleSetHostRules)
 	private.HandleFunc("POST /api/hosts/{id}/mute", s.handleMute)
 	private.HandleFunc("DELETE /api/hosts/{id}/mute", s.handleMute)
+	private.HandleFunc("GET /api/update", s.handleUpdateStatus)
+	private.HandleFunc("POST /api/update/check", s.handleUpdateCheck)
+	private.HandleFunc("POST /api/update/all", s.handleUpdateAll)
+	private.HandleFunc("POST /api/hosts/{id}/update", s.handleHostUpdate)
 	private.Handle("GET /", static)
 
 	public := http.NewServeMux()
 	public.HandleFunc("GET /ws/agent", s.handleAgent)
+	public.HandleFunc("GET /agent/update/{version}/{file}", s.handleAgentDownload) // Agent-Token
 	public.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
 	public.HandleFunc("GET /metrics", s.handleMetrics) // eigenes Token statt Session
 	public.HandleFunc("POST /api/login", s.handleLogin)
@@ -146,6 +159,7 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 	defer s.unregister(hello.AgentID, conn)
 	log.Info("agent verbunden", "hostname", hello.Hostname, "version", hello.AgentVersion,
 		"os", hello.OS, "arch", hello.Arch)
+	s.agentHello(hello)
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -214,6 +228,17 @@ func (s *Server) readLoop(ctx context.Context, conn *websocket.Conn, hello proto
 			if err := s.store.SaveProcesses(ctx, id, env.Data, now); err != nil {
 				log.Error("processes speichern", "err", err)
 			}
+		case proto.TypeJobResult:
+			var res proto.JobResult
+			if err := json.Unmarshal(env.Data, &res); err != nil {
+				log.Warn("ungültiges job-ergebnis", "err", err)
+				continue
+			}
+			if err := res.Validate(); err != nil {
+				log.Warn("job-ergebnis abgelehnt", "err", err)
+				continue
+			}
+			s.jobResult(id, res)
 		default:
 			log.Debug("unbekannter nachrichtentyp ignoriert", "type", env.Type)
 		}
@@ -277,7 +302,8 @@ func (s *Server) register(id string, ac agentConn, log *slog.Logger) {
 		log.Warn("agent-id von zwei adressen verwendet – ältere verbindung getrennt",
 			"old_remote", old.remote)
 	}
-	old.conn.Close(proto.CloseReplaced, "agent-id wird bereits verwendet")
+	// Close wartet auf den Handshake der Gegenseite; das soll die neue Anmeldung nicht aufhalten.
+	go old.conn.Close(proto.CloseReplaced, "agent-id wird bereits verwendet")
 }
 
 // hostOf liefert die IP ohne Port.
@@ -308,6 +334,10 @@ type hostView struct {
 	store.Host
 	Online     bool   `json:"online"`
 	MutedUntil *int64 `json:"muted_until"` // nil = nicht stumm
+	// Self-Update: verfügbare neuere Version, laufendes/letztes Update, Hinweis des Agenten.
+	UpdateAvailable string      `json:"update_available,omitempty"`
+	Update          *hostUpdate `json:"update,omitempty"`
+	UpdateNote      string      `json:"update_note,omitempty"`
 }
 
 func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
@@ -319,7 +349,8 @@ func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]hostView, len(hosts))
 	for i, h := range hosts {
-		out[i] = hostView{Host: h, Online: s.online(h.ID)}
+		out[i] = hostView{Host: h, Online: s.online(h.ID), UpdateAvailable: s.updateAvailable(h),
+			Update: s.hostUpdateState(h.ID), UpdateNote: s.updateNote(h.ID)}
 		if s.alerts != nil {
 			if until, muted := s.alerts.MutedUntil(h.ID, s.nowFor()); muted {
 				ts := until.Unix()
@@ -393,6 +424,7 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 	if s.alerts != nil {
 		s.alerts.Forget(id)
 	}
+	s.forgetUpdate(id)
 	s.log.Info("host gelöscht", "agent_id", id, "remote", r.RemoteAddr)
 	w.WriteHeader(http.StatusNoContent)
 }
