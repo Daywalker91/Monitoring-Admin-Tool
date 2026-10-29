@@ -31,8 +31,9 @@ const (
 
 // Nachrichtentypen für Jobs.
 const (
-	TypeJobRequest = "job_request" // Server → Agent
-	TypeJobResult  = "job_result"  // Agent → Server
+	TypeJobRequest  = "job_request"  // Server → Agent
+	TypeJobResult   = "job_result"   // Agent → Server
+	TypeJobProgress = "job_progress" // Agent → Server: Zwischenstand der Ausgabe (seit v1.3.0)
 )
 
 // Aktionen (Whitelist). Jede Aktion gehört zu genau einer Fähigkeit.
@@ -142,6 +143,32 @@ func (r *JobResult) Validate() error {
 	}
 	if len(r.Output) > MaxJobOutputLen || len(r.Error) > maxJobErrorLen {
 		return fmt.Errorf("job-ergebnis zu lang")
+	}
+	return nil
+}
+
+// MaxJobProgressLen begrenzt ein Stück Zwischenausgabe.
+const MaxJobProgressLen = 16 << 10
+
+// JobProgress ist ein Stück Ausgabe eines laufenden Jobs. Seq zählt ab 1 je
+// Job; der Server hängt nur an, wenn Seq größer als das zuletzt gesehene ist.
+// Zwischenstände sind reine Anzeige, maßgeblich bleibt das JobResult.
+type JobProgress struct {
+	JobID string `json:"job_id"`
+	Seq   int    `json:"seq"`
+	Data  string `json:"data"`
+}
+
+// Validate prüft Form und Größe.
+func (p *JobProgress) Validate() error {
+	if !validID(p.JobID) {
+		return fmt.Errorf("ungültige job_id")
+	}
+	if p.Seq < 1 {
+		return fmt.Errorf("ungültige seq")
+	}
+	if len(p.Data) > MaxJobProgressLen {
+		return fmt.Errorf("zwischenstand zu lang")
 	}
 	return nil
 }

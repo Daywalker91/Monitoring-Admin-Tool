@@ -19,6 +19,7 @@ import (
 
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/collector"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/config"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/progress"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/proto"
 )
 
@@ -348,7 +349,10 @@ func (c *Client) handleMessage(runCtx, ctx context.Context, conn *websocket.Conn
 		defer busy.Store(false)
 		jctx, cancel := context.WithTimeout(runCtx, proto.JobTimeout(job.Action))
 		defer cancel()
-		out, restart, err := fn(jctx, job.Params)
+		buf := progress.NewBuffer(proto.MaxJobOutputLen)
+		stopProgress := c.streamProgress(job.JobID, buf)
+		out, restart, err := fn(progress.With(jctx, buf), job.Params)
+		stopProgress()
 		res := proto.JobResult{JobID: job.JobID, OK: err == nil, Output: proto.CleanOutput(out, proto.MaxJobOutputLen)}
 		if err != nil {
 			res.ExitCode = 1
@@ -371,6 +375,52 @@ func (c *Client) handleMessage(runCtx, ctx context.Context, conn *websocket.Conn
 		}
 	}()
 }
+
+// streamProgress schickt alle progressInterval neue Ausgabe des Jobs als
+// Zwischenstand, solange eine Verbindung besteht. Ohne Verbindung wartet die
+// Ausgabe im Buffer; das Endergebnis geht unabhängig davon über deliver.
+// Die zurückgegebene Funktion beendet das Senden.
+func (c *Client) streamProgress(jobID string, buf *progress.Buffer) (stop func()) {
+	done := make(chan struct{})
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		t := time.NewTicker(progressInterval)
+		defer t.Stop()
+		seq := 0
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.C:
+			}
+			c.mu.Lock()
+			conn := c.conn
+			c.mu.Unlock()
+			for conn != nil {
+				data, end := buf.Peek(proto.MaxJobProgressLen)
+				if len(data) == 0 {
+					break
+				}
+				p := proto.JobProgress{JobID: jobID, Seq: seq + 1, Data: proto.CleanOutput(string(data), proto.MaxJobProgressLen)}
+				if err := c.send(context.Background(), conn, proto.TypeJobProgress, p); err != nil {
+					c.log.Debug("zwischenstand senden", "job_id", jobID, "err", err)
+					break
+				}
+				seq++
+				buf.Drop(end)
+			}
+		}
+	}()
+	return func() {
+		close(done)
+		<-finished
+	}
+}
+
+// progressInterval: so oft geht neue Ausgabe laufender Jobs als Zwischenstand
+// raus (Variable für Tests).
+var progressInterval = 2 * time.Second
 
 // trigger stößt eine sofortige Prüfung an, ohne zu blockieren.
 func trigger(ch chan struct{}) {

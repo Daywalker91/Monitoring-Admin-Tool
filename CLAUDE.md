@@ -98,7 +98,8 @@ werden erfasst und, falls danach noch aktiv, nachgemeldet. Quittierte Alarme bek
 
 Jobs (M5/M7): Aktionen und ihre Parameter stehen fest in `proto` (`ActionCapability`, `actionParams`,
 `actionTimeout`, `readOnly`). Jeder Job steht mit Benutzer und Ergebnis in der Tabelle `jobs` (Audit, 90 Tage).
-Agent-Jobs laufen unabhängig von der Verbindung; Ergebnisse gehen nach dem nächsten hello raus.
+Agent-Jobs laufen unabhängig von der Verbindung; Ergebnisse gehen nach dem nächsten hello raus. Paket-Jobs schicken
+ihre Ausgabe zusätzlich alle 2 s als `job_progress` (nur im Server-Speicher, für die Live-Anzeige).
 
 Vorbereitet für später (nicht umsetzen, solange nicht beauftragt):
 

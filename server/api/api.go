@@ -62,6 +62,9 @@ type Server struct {
 	names map[string]string    // Anzeigenamen verbundener Agenten (für Alarme)
 	svcs  map[string]svcState  // letzte Dienstliste je Host
 
+	liveMu sync.Mutex
+	live   map[string]*liveJob // Zwischenausgabe laufender Jobs (nur im Speicher)
+
 	maintMu sync.Mutex          // eigene Sperre: quiet läuft unter der Sperre der Alarm-Engine
 	maint   []store.Maintenance // Wartungsfenster
 	loc     *time.Location      // Zeitzone für wöchentliche Wartungsfenster
@@ -321,6 +324,17 @@ func (s *Server) readLoop(ctx context.Context, conn *websocket.Conn, hello proto
 				continue
 			}
 			s.jobResult(id, res)
+		case proto.TypeJobProgress:
+			var p proto.JobProgress
+			if err := json.Unmarshal(env.Data, &p); err != nil {
+				log.Warn("ungültiger zwischenstand", "err", err)
+				continue
+			}
+			if err := p.Validate(); err != nil {
+				log.Warn("zwischenstand abgelehnt", "err", err)
+				continue
+			}
+			s.jobProgress(id, p)
 		default:
 			log.Debug("unbekannter nachrichtentyp ignoriert", "type", env.Type)
 		}

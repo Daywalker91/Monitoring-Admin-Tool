@@ -87,9 +87,28 @@ func TestJobsAPI(t *testing.T) {
 		t.Fatalf("laufender job: %+v", list)
 	}
 
+	// Zwischenstände: in Reihenfolge angehängt, Wiederholungen und fremde Jobs ignoriert.
+	for _, p := range []proto.JobProgress{
+		{JobID: job.JobID, Seq: 1, Data: "po"},
+		{JobID: job.JobID, Seq: 1, Data: "XX"},
+		{JobID: "job-fremd", Seq: 2, Data: "YY"},
+		{JobID: job.JobID, Seq: 2, Data: "ng…"},
+	} {
+		msg, _ := proto.Encode(proto.TypeJobProgress, p)
+		conn.Write(ctx, websocket.MessageText, msg)
+	}
+	var got store.Job
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(30 * time.Millisecond) {
+		if getJSON(t, c, ts.URL+"/api/jobs/"+job.JobID, &got); got.Output == "pong…" {
+			break
+		}
+	}
+	if got.FinishedAt != nil || got.Output != "pong…" {
+		t.Fatalf("zwischenstand: %+v", got)
+	}
+
 	res, _ := proto.Encode(proto.TypeJobResult, proto.JobResult{JobID: job.JobID, OK: true, Output: "pong"})
 	conn.Write(ctx, websocket.MessageText, res)
-	var got store.Job
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(30 * time.Millisecond) {
 		if getJSON(t, c, ts.URL+"/api/jobs/"+job.JobID, &got); got.FinishedAt != nil {
 			break

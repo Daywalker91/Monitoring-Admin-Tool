@@ -19,6 +19,7 @@ import (
 
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/collector"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/config"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/progress"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/proto"
 )
 
@@ -338,5 +339,75 @@ func TestReadOnlyJobWhileBusy(t *testing.T) {
 	close(release)
 	if res := <-results; res.JobID != "upgrade" || !res.OK {
 		t.Fatalf("upgrade: %+v", res)
+	}
+}
+
+func TestJobProgress(t *testing.T) {
+	old := progressInterval
+	progressInterval = 50 * time.Millisecond
+	t.Cleanup(func() { progressInterval = old })
+
+	got := make(chan proto.Envelope, 50)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		conn.Read(r.Context()) // hello
+		data, _ := proto.Encode(proto.TypeJobRequest, proto.JobRequest{JobID: "p1", Action: proto.ActionPackagesUpgrade})
+		conn.Write(r.Context(), websocket.MessageText, data)
+		for {
+			_, data, err := conn.Read(r.Context())
+			if err != nil {
+				return
+			}
+			var env proto.Envelope
+			if json.Unmarshal(data, &env) == nil && (env.Type == proto.TypeJobProgress || env.Type == proto.TypeJobResult) {
+				got <- env
+			}
+		}
+	}))
+	defer ts.Close()
+	cfg := config.Config{ServerURL: "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/agent",
+		Token: "tok", IntervalSec: 10, ProcessIntervalSec: 30}
+	c, err := New(cfg, proto.Hello{AgentID: "t", Capabilities: []proto.Capability{proto.CapMetrics, proto.CapPackages}},
+		collector.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.HandleJob(proto.ActionPackagesUpgrade, func(ctx context.Context, _ map[string]string) (string, bool, error) {
+		w := progress.Writer(ctx)
+		io.WriteString(w, "eins\n")
+		time.Sleep(300 * time.Millisecond)
+		io.WriteString(w, "zwei\n")
+		time.Sleep(300 * time.Millisecond)
+		return "eins\nzwei\n", false, nil
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	go c.Run(ctx)
+
+	var text strings.Builder
+	seq := 0
+	for {
+		select {
+		case env := <-got:
+			if env.Type == proto.TypeJobResult {
+				if text.String() != "eins\nzwei\n" || seq < 2 {
+					t.Fatalf("zwischenstände vor dem ergebnis: %q in %d teilen", text.String(), seq)
+				}
+				return
+			}
+			var p proto.JobProgress
+			json.Unmarshal(env.Data, &p)
+			if p.JobID != "p1" || p.Seq != seq+1 {
+				t.Fatalf("zwischenstand %+v nach seq %d", p, seq)
+			}
+			seq = p.Seq
+			text.WriteString(p.Data)
+		case <-ctx.Done():
+			t.Fatal("kein ergebnis")
+		}
 	}
 }

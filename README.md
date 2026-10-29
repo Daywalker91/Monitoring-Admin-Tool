@@ -80,7 +80,8 @@ Unter Windows ändert `-Jobs`/`-LogSources` auch eine vorhandene Konfiguration (
 | `packages` | Paketlisten holen und Updates installieren (`apt-get update` / `apt-get -y upgrade`) |
 | `reboot`   | Neustart (`systemctl reboot` bzw. `shutdown.exe /r`) |
 
-Jede Aktion landet mit Benutzer, Zeit und Ausgabe im Verlauf („Aktionen“ in den Host-Details, 90 Tage).
+Jede Aktion landet mit Benutzer, Zeit und Ausgabe im Verlauf („Aktionen“ in den Host-Details, 90 Tage). Ein Klick
+auf einen Eintrag öffnet die Ausgabe; bei Paket-Jobs läuft sie ab Agent v1.3.0 live mit.
 Der Agent prüft die Parameter selbst noch einmal, steuert nur Dienste aus seiner eigenen Liste und
 nie sich selbst. Lesend arbeitet er immer: Dienstliste, offene Updates (`apt-get -s upgrade`,
 höchstens alle 30 min) und ob ein Neustart nötig ist (`/var/run/reboot-required` bzw. Registry).

@@ -98,6 +98,7 @@ func (s *Server) recordJob(ctx context.Context, hostID string, job proto.JobRequ
 		s.log.Error("job speichern", "err", err)
 		return j, errors.New("interner fehler")
 	}
+	s.liveStart(hostID, job.JobID, time.Unix(j.Deadline, 0))
 	s.log.Info("job gestartet", "agent_id", hostID, "job_id", job.JobID, "action", job.Action,
 		"params", job.Params, "user", user, "remote", remote)
 	return j, nil
@@ -118,6 +119,7 @@ func (s *Server) startJob(ctx context.Context, hostID string, job proto.JobReque
 
 // failJob beendet einen Job, der den Agenten nicht erreicht hat.
 func (s *Server) failJob(hostID, jobID string, cause error) {
+	s.liveEnd(jobID)
 	if _, err := s.store.FinishJob(context.Background(), jobID, hostID, s.nowFor(), false, 1, "", cause.Error()); err != nil {
 		s.log.Error("job beenden", "err", err)
 	}
@@ -125,6 +127,7 @@ func (s *Server) failJob(hostID, jobID string, cause error) {
 
 // jobResult verarbeitet die Rückmeldung eines Agenten.
 func (s *Server) jobResult(id string, res proto.JobResult) {
+	s.liveEnd(res.JobID)
 	found, err := s.store.FinishJob(context.Background(), res.JobID, id, s.nowFor(), res.OK, res.ExitCode, res.Output, res.Error)
 	if err != nil {
 		s.log.Error("job-ergebnis speichern", "err", err)
@@ -167,6 +170,9 @@ func (s *Server) handleJob(w http.ResponseWriter, r *http.Request) {
 		s.log.Error("job lesen", "err", err)
 		http.Error(w, "interner fehler", http.StatusInternalServerError)
 		return
+	}
+	if j.FinishedAt == nil {
+		j.Output = s.liveOutput(j.ID) // Zwischenstand, bis das Ergebnis da ist
 	}
 	writeJSON(w, j)
 }

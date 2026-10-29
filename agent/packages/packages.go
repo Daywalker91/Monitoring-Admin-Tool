@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"slices"
@@ -20,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/progress"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/proto"
 )
 
@@ -86,7 +88,9 @@ func (c *Checker) run(ctx context.Context, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, c.apt, args...)
 	cmd.Env = append(os.Environ(), aptEnv...)
 	var buf bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &buf, &buf
+	// Bei Jobs geht die Ausgabe zusätzlich laufend als Zwischenstand raus.
+	w := io.MultiWriter(&buf, progress.Writer(ctx))
+	cmd.Stdout, cmd.Stderr = w, w
 	err := cmd.Run()
 	return buf.Bytes(), err
 }
@@ -115,6 +119,7 @@ func (c *Checker) job(ctx context.Context, args ...string) (string, bool, error)
 		// Signaturprüfung der Paketquellen bleibt davon unberührt.
 		args = append([]string{"-o", "APT::Sandbox::User=root"}, args...)
 		note = "Hinweis: Dem Agenten fehlt CAP_SETUID, apt lädt ohne _apt-Sandbox als root.\n"
+		io.WriteString(progress.Writer(ctx), note)
 	}
 	out, err := c.run(ctx, args...)
 	c.Invalidate()

@@ -166,6 +166,7 @@ function getJobDialog() {
   // Klick auf den abgedunkelten Hintergrund schließt ebenfalls (Esc macht der Browser).
   d.el.addEventListener("click", ev => { if (ev.target === d.el) d.el.close(); });
   d.el.addEventListener("close", () => {
+    clearTimeout(d.timer);
     for (const v of jobViews.values()) {
       if (v.openJob === d.jobID) {
         v.openJob = null;
@@ -182,6 +183,7 @@ function getJobDialog() {
 function openJobDialog(v, j) {
   const d = getJobDialog();
   d.jobID = j.id;
+  d.running = false;
   v.openJob = j.id;
   const h = lastHosts.find(x => x.id === v.id);
   d.title.textContent = jobLabel(j) + " · " + (h ? hostName(h) : v.id);
@@ -198,14 +200,21 @@ function fillJobMeta(d, j) {
   d.meta.textContent = fmtDateTime(j.created_at) + " · " + (j.user || "–") + " · " + text;
 }
 
-// loadJobOutput holt die Ausgabe des Jobs im Fenster. Wer ans Ende gescrollt
-// ist, bleibt dort; wer hochgescrollt hat, wird nicht weggerissen.
+const JOB_LIVE_MS = 2000; // Ausgabe laufender Jobs im Fenster nachladen
+
+// loadJobOutput holt die Ausgabe des Jobs im Fenster; läuft er noch, alle
+// JOB_LIVE_MS erneut (Zwischenstand vom Agenten, seit v1.3.0). Wer ans Ende
+// gescrollt ist, bleibt dort; wer hochgescrollt hat, wird nicht weggerissen.
 async function loadJobOutput(v, id) {
   const d = jobDialog;
   if (!d || d.jobID !== id) return;
+  clearTimeout(d.timer);
   try {
     const j = await fetchJSON("api/jobs/" + encodeURIComponent(id));
     if (d.jobID !== id) return;
+    if (j.finished_at === null) d.timer = setTimeout(() => loadJobOutput(v, id), JOB_LIVE_MS);
+    else if (d.running) loadJobs(v); // gerade fertig geworden: Status im Verlauf nachziehen
+    d.running = j.finished_at === null;
     const o = d.output;
     const atEnd = o.scrollHeight - o.scrollTop - o.clientHeight < 40;
     const parts = [];
