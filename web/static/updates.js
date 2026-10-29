@@ -51,7 +51,7 @@ function hostUpdateSection(h) {
 }
 
 async function startHostUpdate(h, btn) {
-  if (!confirm("Agent auf „" + h.hostname + "“ auf " + h.update_available + " aktualisieren?\n" +
+  if (!confirm("Agent auf „" + hostName(h) + "“ auf " + h.update_available + " aktualisieren?\n" +
       "Der Agent lädt das signierte Release, prüft es und startet neu.")) return;
   btn.disabled = true;
   try {

@@ -11,6 +11,20 @@ const hashParams = new URLSearchParams(location.hash.slice(1));
 const openHosts = new Set(hashParams.get("open")?.split(",").filter(Boolean) ?? []);
 let currentView = VIEWS.includes(hashParams.get("view")) ? hashParams.get("view") : "hosts";
 let lastHosts = [];
+// Zugeklappte Gruppen der Host-Liste; reine Bequemlichkeit, daher nur im Browser.
+const GROUPS_KEY = "mat.collapsedGroups";
+const collapsedGroups = new Set(loadCollapsed());
+
+function loadCollapsed() {
+  try { return JSON.parse(localStorage.getItem(GROUPS_KEY)) || []; } catch { return []; }
+}
+
+function saveCollapsed() {
+  try { localStorage.setItem(GROUPS_KEY, JSON.stringify([...collapsedGroups])); } catch { /* egal */ }
+}
+
+// Anzeigename eines Hosts, ersatzweise der gemeldete Hostname.
+function hostName(h) { return h.display_name || h.hostname; }
 
 function saveOpenHosts() {
   const parts = [];
@@ -103,9 +117,11 @@ function hostRow(h) {
   tr.append(status);
 
   const host = cell("host", null, null);
-  host.append(el("span", h.hostname, "hostname"));
-  // Agent-ID nur zeigen, wenn sie vom Hostnamen abweicht (sonst sehen mehrere Einträge gleich aus).
-  if (h.id !== h.hostname.toLowerCase()) host.append(el("span", h.id, "agent-id"));
+  host.append(el("span", hostName(h), "hostname"));
+  // Bei eigenem Namen den echten Hostnamen zeigen, sonst die Agent-ID, wenn sie
+  // vom Hostnamen abweicht (sonst sehen mehrere Einträge gleich aus).
+  if (h.display_name) host.append(el("span", h.hostname, "agent-id"));
+  else if (h.id !== h.hostname.toLowerCase()) host.append(el("span", h.id, "agent-id"));
   const nAlerts = alertCountFor(h.id);
   if (nAlerts) host.append(el("span", alertBadgeText(nAlerts), "pill crit host-alerts"));
   if (h.muted_until) host.append(el("span", "🔕 stumm", "pill host-alerts"));
@@ -303,6 +319,7 @@ function detailRow(h) {
 
   tr.querySelector(".history-slot").replaceWith(historySection(h));
   tr.querySelector(".host-alerts-slot").replaceWith(hostAlertSection(h));
+  tr.querySelector(".host-meta-slot").replaceWith(hostMetaSection(h));
   tr.querySelector(".host-update-slot").replaceWith(hostUpdateSection(h));
 
   const cores = tr.querySelector(".cores");
@@ -353,7 +370,7 @@ function detailRow(h) {
 }
 
 async function deleteHost(h) {
-  if (!confirm("Host „" + h.hostname + "“ (" + h.id + ") samt Historie aus der Liste entfernen?")) return;
+  if (!confirm("Host „" + hostName(h) + "“ (" + h.id + ") samt Historie aus der Liste entfernen?")) return;
   try {
     const resp = await fetch("api/hosts/" + encodeURIComponent(h.id), { method: "DELETE" });
     if (resp.status === 401) return toLogin();
@@ -361,6 +378,7 @@ async function deleteHost(h) {
     openHosts.delete(h.id);
     historyViews.delete(h.id);
     hostAlertViews.delete(h.id);
+    metaViews.delete(h.id);
     saveOpenHosts();
     await refresh();
   } catch (e) {
@@ -368,15 +386,141 @@ async function deleteHost(h) {
   }
 }
 
+// --- Name und Gruppe --------------------------------------------------------
+// Wie beim Verlauf überlebt das Formular das Neuzeichnen, damit Eingaben bleiben.
+
+const metaViews = new Map();
+
+function hostMetaSection(h) {
+  let v = metaViews.get(h.id);
+  if (!v) {
+    v = createMetaView(h);
+    metaViews.set(h.id, v);
+  }
+  // Nur übernehmen, solange nichts ungespeichert eingetippt ist.
+  if (!v.dirty) {
+    v.name.value = h.display_name || "";
+    v.group.value = h.group || "";
+  }
+  v.name.placeholder = h.hostname;
+  return v.el;
+}
+
+function createMetaView(h) {
+  const v = { id: h.id, dirty: false };
+  const form = el("form", null, "host-meta");
+  form.autocomplete = "off";
+  form.append(el("h3", "Name und Gruppe"));
+  const grid = el("div", null, "form-grid");
+  const field = (label, input) => {
+    const l = el("label", label);
+    l.append(input);
+    grid.append(l);
+    return input;
+  };
+  v.name = field("Anzeigename", el("input"));
+  v.group = field("Gruppe", el("input"));
+  v.group.setAttribute("list", "host-groups");
+  v.group.placeholder = "ohne Gruppe";
+  for (const i of [v.name, v.group]) {
+    i.maxLength = 64;
+    i.addEventListener("input", () => { v.dirty = true; });
+  }
+  form.append(grid);
+  const actions = el("div", null, "form-actions");
+  const save = el("button", "Speichern", "secondary");
+  save.type = "submit";
+  v.status = el("span", "", "small");
+  v.status.setAttribute("role", "status");
+  actions.append(save, v.status);
+  form.append(actions, el("p", "Leer lassen = Hostname bzw. ohne Gruppe. Der Name erscheint auch in Alarmen und Benachrichtigungen.", "muted small"));
+  form.addEventListener("click", ev => ev.stopPropagation());
+  form.addEventListener("submit", ev => { ev.preventDefault(); saveMeta(v, save); });
+  v.el = el("section");
+  v.el.append(form);
+  return v;
+}
+
+async function saveMeta(v, btn) {
+  btn.disabled = true;
+  v.status.className = "small";
+  v.status.textContent = "speichere …";
+  try {
+    const resp = await fetch("api/hosts/" + encodeURIComponent(v.id) + "/meta", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ display_name: v.name.value, group: v.group.value }),
+    });
+    if (resp.status === 401) return toLogin();
+    if (!resp.ok) throw new Error((await resp.text()).trim() || "HTTP " + resp.status);
+    v.dirty = false;
+    v.status.textContent = "gespeichert";
+    await refresh();
+  } catch (e) {
+    v.status.className = "small error-text";
+    v.status.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// Gruppen alphabetisch, Hosts ohne Gruppe am Ende.
+function groupHosts(hosts) {
+  const groups = new Map();
+  for (const h of hosts) {
+    const g = h.group || "";
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(h);
+  }
+  return [...groups.entries()].sort(([a], [b]) =>
+    (a === "") - (b === "") || a.localeCompare(b, "de", { sensitivity: "base" }));
+}
+
+function groupRow(name, hosts) {
+  const tr = el("tr", null, "group-row");
+  const td = el("td");
+  td.colSpan = 11;
+  const collapsed = collapsedGroups.has(name);
+  const btn = el("button", (collapsed ? "▸ " : "▾ ") + (name || "Ohne Gruppe"), "group-toggle");
+  btn.type = "button";
+  btn.setAttribute("aria-expanded", String(!collapsed));
+  const online = hosts.filter(h => h.online).length;
+  const nAlerts = hosts.reduce((n, h) => n + alertCountFor(h.id), 0);
+  td.append(btn, el("span", hosts.length + (hosts.length === 1 ? " Host, " : " Hosts, ") + online + " online", "muted small"));
+  if (nAlerts) td.append(el("span", alertBadgeText(nAlerts), "pill crit"));
+  btn.addEventListener("click", () => {
+    if (collapsed) collapsedGroups.delete(name); else collapsedGroups.add(name);
+    saveCollapsed();
+    render(lastHosts);
+  });
+  tr.append(td);
+  return tr;
+}
+
 function render(hosts) {
   lastHosts = hosts;
   const tbody = document.querySelector("#hosts tbody");
   const rows = [];
-  for (const h of hosts) {
-    rows.push(hostRow(h));
-    if (openHosts.has(h.id)) rows.push(detailRow(h));
+  const groups = groupHosts(hosts);
+  // Überschriften nur, wenn überhaupt Gruppen vergeben sind.
+  const withHeads = groups.some(([g]) => g !== "");
+  for (const [name, list] of groups) {
+    if (withHeads) {
+      rows.push(groupRow(name, list));
+      if (collapsedGroups.has(name)) continue;
+    }
+    for (const h of list) {
+      rows.push(hostRow(h));
+      if (openHosts.has(h.id)) rows.push(detailRow(h));
+    }
   }
   tbody.replaceChildren(...rows);
+
+  const dl = document.getElementById("host-groups");
+  dl.replaceChildren(...groups.filter(([g]) => g !== "").map(([g]) => {
+    const o = el("option");
+    o.value = g;
+    return o;
+  }));
 
   const online = hosts.filter(h => h.online).length;
   document.getElementById("summary").textContent = hosts.length + " Hosts, " + online + " online";

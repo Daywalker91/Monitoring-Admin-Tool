@@ -9,6 +9,8 @@ M2 fertig – GUI-Login, Verlaufsdiagramme, Prometheus-Endpunkt, HTTPS/wss.
 M3 fertig – Alarme mit Schwellwerten, Anzeige in der GUI, Benachrichtigung per ntfy und E-Mail.
 M4 fertig – Installation als Dienst (Windows, systemd), Server in k3s, Alarme je Host, Stummschalten, Erinnerungen.
 M5 fertig – Self-Update der Agenten aus signierten GitHub-Releases, Warnung vor Ablauf des Server-Zertifikats.
+M6 – CPU-Temperatur, externe Checks (HTTP(S), Ping, TCP), k3s-Ansicht; Hosts umbenennen (Anzeigename,
+auch in Alarmen) und in Gruppen ordnen – intern bleibt die Agent-ID die Kennung.
 
 ## Schnellstart (lokal)
 
@@ -133,6 +135,7 @@ Alle `/api/*`-Endpunkte außer Login/Logout erfordern eine Session.
 | `GET /api/hosts`                | alle Hosts mit letztem Stand               |
 | `GET /api/hosts/{id}/history`   | Historie, `?hours=1..168`, `?points=0..2000` verdichtet |
 | `DELETE /api/hosts/{id}`        | Host samt Historie entfernen (nur offline) |
+| `POST /api/hosts/{id}/meta`     | Anzeigename und Gruppe (`{"display_name":"…","group":"…"}`, leer = zurücksetzen) |
 | `GET /api/alerts`               | aktive Alarme, `?all=1` mit Verlauf (7 Tage) |
 | `GET /api/alert-rules`          | Regeln und konfigurierte Kanäle            |
 | `POST /api/alert-rules`         | Regeln speichern (`{"rules":[…]}`)         |
