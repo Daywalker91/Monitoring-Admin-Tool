@@ -72,3 +72,21 @@ func TestWithoutApt(t *testing.T) {
 		t.Fatalf("status: %+v", u)
 	}
 }
+
+func TestHasCap(t *testing.T) {
+	cases := []struct {
+		status string
+		want   bool
+	}{
+		{"Name:\tmat-agent\nCapEff:\t000001ffffffffff\n", true},
+		{"CapInh:\t0000000000200100\nCapEff:\t000001ffffffff7f\n", false}, // Host ohne CAP_SETUID
+		{"CapEff:\t0000000000000000\n", false},
+		{"CapEff:\tkaputt\n", true},
+		{"Name:\tohne caps\n", true},
+	}
+	for _, c := range cases {
+		if got := hasCap([]byte(c.status), capSetUID); got != c.want {
+			t.Errorf("hasCap(%q) = %v", c.status, got)
+		}
+	}
+}

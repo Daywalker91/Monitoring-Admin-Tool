@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -92,7 +93,7 @@ func (c *Checker) run(ctx context.Context, args ...string) ([]byte, error) {
 
 // Refresh ist der Job packages.refresh (apt-get update).
 func (c *Checker) Refresh(ctx context.Context, _ map[string]string) (string, bool, error) {
-	return c.job(ctx, "update", "-q")
+	return c.job(ctx, "-q", "update")
 }
 
 // Upgrade ist der Job packages.upgrade. Geänderte Konfigurationsdateien
@@ -106,13 +107,52 @@ func (c *Checker) job(ctx context.Context, args ...string) (string, bool, error)
 	if c.apt == "" {
 		return "", false, errors.New("keine unterstützte paketverwaltung (apt)")
 	}
+	verb := args[len(args)-1]
+	note := ""
+	if !canSetUID() {
+		// Ohne CAP_SETUID scheitert apt beim Wechsel zum Benutzer _apt
+		// ("seteuid 105 failed"); dann ohne diese Sandbox laden. Die
+		// Signaturprüfung der Paketquellen bleibt davon unberührt.
+		args = append([]string{"-o", "APT::Sandbox::User=root"}, args...)
+		note = "Hinweis: Dem Agenten fehlt CAP_SETUID, apt lädt ohne _apt-Sandbox als root.\n"
+	}
 	out, err := c.run(ctx, args...)
 	c.Invalidate()
-	text := tail(string(out), proto.MaxJobOutputLen)
+	text := tail(note+string(out), proto.MaxJobOutputLen)
 	if err != nil {
-		return text, false, fmt.Errorf("apt-get %s: %w", args[len(args)-1], err)
+		return text, false, fmt.Errorf("apt-get %s: %w", verb, err)
 	}
 	return text, false, nil
+}
+
+// capSetUID ist das Bit von CAP_SETUID in den Capability-Masken.
+const capSetUID = 7
+
+// canSetUID meldet, ob der Agent die Benutzerkennung wechseln darf. Auf
+// manchen Hosts fehlt systemd-Diensten CAP_SETUID; apt-get erbt das.
+var canSetUID = func() bool {
+	data, err := os.ReadFile("/proc/self/status")
+	if err != nil {
+		return true // kein Linux-procfs: nichts ändern
+	}
+	return hasCap(data, capSetUID)
+}
+
+// hasCap prüft, ob die Zeile CapEff aus /proc/<pid>/status das Bit cap
+// enthält. Ohne lesbare Zeile gilt das Recht als vorhanden.
+func hasCap(status []byte, cap uint) bool {
+	for sc := bufio.NewScanner(bytes.NewReader(status)); sc.Scan(); {
+		v, ok := strings.CutPrefix(sc.Text(), "CapEff:")
+		if !ok {
+			continue
+		}
+		mask, err := strconv.ParseUint(strings.TrimSpace(v), 16, 64)
+		if err != nil {
+			return true
+		}
+		return mask&(1<<cap) != 0
+	}
+	return true
 }
 
 // tail kürzt s auf die letzten n Bytes (das Ende einer apt-Ausgabe ist das
