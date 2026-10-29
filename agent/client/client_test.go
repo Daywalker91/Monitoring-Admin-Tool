@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -230,5 +231,71 @@ func TestJobWithoutCapability(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal("kein job-ergebnis")
+	}
+}
+
+// Ein Job, der während einer Trennung fertig wird, meldet sein Ergebnis über
+// die nächste Verbindung (nach deren hello).
+func TestJobResultAfterReconnect(t *testing.T) {
+	firstGone := make(chan struct{})
+	results := make(chan proto.JobResult, 1)
+	var conns atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		if _, data, err := conn.Read(r.Context()); err != nil || !strings.Contains(string(data), `"hello"`) {
+			t.Errorf("erste nachricht ist kein hello")
+			return
+		}
+		if conns.Add(1) == 1 {
+			data, _ := proto.Encode(proto.TypeJobRequest, proto.JobRequest{JobID: "j1", Action: proto.ActionAgentUpdate,
+				Params: map[string]string{"version": "v9.9.9"}})
+			conn.Write(r.Context(), websocket.MessageText, data)
+			conn.Close(websocket.StatusGoingAway, "server startet neu")
+			close(firstGone)
+			return
+		}
+		for {
+			_, data, err := conn.Read(r.Context())
+			if err != nil {
+				return
+			}
+			var env proto.Envelope
+			var res proto.JobResult
+			if json.Unmarshal(data, &env) == nil && env.Type == proto.TypeJobResult && json.Unmarshal(env.Data, &res) == nil {
+				results <- res
+			}
+		}
+	}))
+	t.Cleanup(ts.Close)
+	cfg := config.Config{ServerURL: "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/agent",
+		Token: "tok", IntervalSec: 10, ProcessIntervalSec: 30}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	c, err := New(cfg, proto.Hello{AgentID: "t", Capabilities: []proto.Capability{proto.CapUpdate}}, collector.New(), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.HandleJob(proto.ActionAgentUpdate, func(ctx context.Context, _ map[string]string) (string, bool, error) {
+		select {
+		case <-firstGone:
+		case <-ctx.Done():
+			return "", false, ctx.Err()
+		}
+		time.Sleep(100 * time.Millisecond) // sicher nach dem Ende der ersten Sitzung
+		return "fertig", false, nil
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	go c.Run(ctx)
+	select {
+	case res := <-results:
+		if res.JobID != "j1" || !res.OK || res.Output != "fertig" {
+			t.Fatalf("ergebnis %+v", res)
+		}
+	case <-ctx.Done():
+		t.Fatal("ergebnis nicht nachgeliefert")
 	}
 }

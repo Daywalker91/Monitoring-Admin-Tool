@@ -15,7 +15,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
+
+	"github.com/Daywalker91/Monitoring-Admin-Tool/proto"
 )
 
 // Config ist die Agent-Konfiguration.
@@ -29,7 +32,14 @@ type Config struct {
 	// CAFile ist ein PEM-Zertifikat, dem bei wss:// vertraut wird (z. B. das
 	// selbst signierte Server-Zertifikat). Leer = System-Zertifikate.
 	CAFile string `json:"ca_file"`
+	// Jobs schaltet ändernde Admin-Aktionen frei, z. B. ["services", "packages",
+	// "reboot"]. Nur in der Datei, nicht per Flag: ohne Eintrag meldet der Agent
+	// diese Fähigkeiten nicht, und der Server kann sie nicht auslösen.
+	Jobs []proto.Capability `json:"jobs"`
 }
+
+// jobCapabilities sind die Fähigkeiten, die sich über Jobs freischalten lassen.
+var jobCapabilities = []proto.Capability{proto.CapServices, proto.CapPackages, proto.CapReboot}
 
 // Defaults liefert die Standardkonfiguration.
 func Defaults() Config {
@@ -120,7 +130,20 @@ func (c *Config) Validate() error {
 	if c.CAFile != "" && u.Scheme != "wss" {
 		return errors.New("ca_file ist nur mit wss:// sinnvoll")
 	}
+	for i, j := range c.Jobs {
+		if !slices.Contains(jobCapabilities, j) {
+			return fmt.Errorf("jobs: unbekannte fähigkeit %q (erlaubt: %v)", j, jobCapabilities)
+		}
+		if slices.Contains(c.Jobs[:i], j) {
+			return fmt.Errorf("jobs: %q doppelt", j)
+		}
+	}
 	return nil
+}
+
+// Allows meldet, ob eine Admin-Fähigkeit in der Konfiguration freigeschaltet ist.
+func (c *Config) Allows(capability proto.Capability) bool {
+	return slices.Contains(c.Jobs, capability)
 }
 
 // TLSConfig liefert die TLS-Einstellungen für die Verbindung. Ohne CAFile

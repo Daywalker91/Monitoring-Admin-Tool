@@ -142,19 +142,11 @@ func (s *Server) handleHostUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "fremde herkunft", http.StatusForbidden)
 		return
 	}
-	hosts, err := s.store.ListHosts(r.Context())
-	if err != nil {
-		s.log.Error("hosts lesen", "err", err)
-		http.Error(w, "interner fehler", http.StatusInternalServerError)
+	h, ok := s.findHost(w, r)
+	if !ok {
 		return
 	}
-	id := r.PathValue("id")
-	i := slices.IndexFunc(hosts, func(h store.Host) bool { return h.ID == id })
-	if i < 0 {
-		http.Error(w, "host nicht gefunden", http.StatusNotFound)
-		return
-	}
-	if err := s.startUpdate(hosts[i], r.RemoteAddr); err != nil {
+	if err := s.startUpdate(h, userFrom(r.Context()), r.RemoteAddr); err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
@@ -175,7 +167,7 @@ func (s *Server) handleUpdateAll(w http.ResponseWriter, r *http.Request) {
 	}
 	started := 0
 	for _, h := range hosts {
-		if s.updateAvailable(h) != "" && s.startUpdate(h, r.RemoteAddr) == nil {
+		if s.updateAvailable(h) != "" && s.startUpdate(h, userFrom(r.Context()), r.RemoteAddr) == nil {
 			started++
 		}
 	}
@@ -206,7 +198,7 @@ func active(state string) bool {
 
 // startUpdate prüft die Voraussetzungen und startet das Update im Hintergrund:
 // Binary laden, dann den Job an den Agenten schicken.
-func (s *Server) startUpdate(h store.Host, remote string) error {
+func (s *Server) startUpdate(h store.Host, user, remote string) error {
 	if s.upd == nil || !s.upd.checker.Enabled() {
 		return errors.New("self-update ist abgeschaltet")
 	}
@@ -224,7 +216,7 @@ func (s *Server) startUpdate(h store.Host, remote string) error {
 		return errors.New("agent ist bereits aktuell")
 	}
 	now := s.nowFor().Unix()
-	u := &hostUpdate{JobID: newJobID(), Target: m.Version, State: updPrepare, Started: now, Changed: now}
+	u := &hostUpdate{JobID: newJobID("upd"), Target: m.Version, State: updPrepare, Started: now, Changed: now}
 	s.upd.mu.Lock()
 	if cur := s.upd.hosts[h.ID]; cur != nil && active(cur.State) && now-cur.Changed < int64(updateStale.Seconds()) {
 		s.upd.mu.Unlock()
@@ -233,6 +225,11 @@ func (s *Server) startUpdate(h store.Host, remote string) error {
 	s.upd.hosts[h.ID] = u
 	s.upd.mu.Unlock()
 	s.log.Info("agent-update gestartet", "agent_id", h.ID, "from", h.AgentVersion, "to", m.Version, "remote", remote)
+	job := proto.JobRequest{JobID: u.JobID, Action: proto.ActionAgentUpdate, Params: map[string]string{"version": m.Version}}
+	if _, err := s.recordJob(context.Background(), h.ID, job, user, remote, prepareTimeout); err != nil {
+		s.setUpdate(h.ID, u.JobID, updFailed, err.Error())
+		return err
+	}
 
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), prepareTimeout)
@@ -244,12 +241,12 @@ func (s *Server) startUpdate(h store.Host, remote string) error {
 		if err == nil {
 			// Erst den Zustand setzen: die Antwort des Agenten kann sofort kommen.
 			s.setUpdate(h.ID, u.JobID, updRunning, "")
-			err = s.sendJob(ctx, h.ID, proto.JobRequest{JobID: u.JobID, Action: proto.ActionAgentUpdate,
-				Params: map[string]string{"version": m.Version}})
+			err = s.sendJob(ctx, h.ID, job)
 		}
 		if err != nil {
 			s.log.Warn("agent-update fehlgeschlagen", "agent_id", h.ID, "err", err)
 			s.setUpdate(h.ID, u.JobID, updFailed, err.Error())
+			s.failJob(h.ID, u.JobID, err)
 		}
 	}()
 	return nil
@@ -286,25 +283,26 @@ func (s *Server) setUpdate(id, jobID, state, msg string) {
 	u.State, u.Error, u.Changed = state, msg, s.nowFor().Unix()
 }
 
-// jobResult verarbeitet die Rückmeldung eines Agenten.
-func (s *Server) jobResult(id string, res proto.JobResult) {
+// updateResult verarbeitet die Rückmeldung zu einem Self-Update; false = kein
+// laufendes Update mit dieser Job-ID.
+func (s *Server) updateResult(id string, res proto.JobResult) bool {
 	if s.upd == nil {
-		return
+		return false
 	}
 	s.upd.mu.Lock()
 	u := s.upd.hosts[id]
 	s.upd.mu.Unlock()
 	if u == nil || u.JobID != res.JobID {
-		s.log.Warn("job-ergebnis ohne passenden job", "agent_id", id, "job_id", res.JobID)
-		return
+		return false
 	}
 	if res.OK {
 		s.log.Info("agent-update installiert, agent startet neu", "agent_id", id, "to", u.Target)
 		s.setUpdate(id, res.JobID, updRestarting, "")
-		return
+		return true
 	}
 	s.log.Warn("agent-update vom agenten abgelehnt", "agent_id", id, "err", res.Error)
 	s.setUpdate(id, res.JobID, updFailed, res.Error)
+	return true
 }
 
 // agentHello gleicht ein neues hello mit einem laufenden Update ab.
@@ -379,8 +377,9 @@ func (s *Server) forgetUpdate(id string) {
 	s.upd.mu.Unlock()
 }
 
-func newJobID() string {
+// newJobID erzeugt eine zufällige Job-ID mit Präfix (z. B. "upd", "job").
+func newJobID(prefix string) string {
 	b := make([]byte, 8)
 	rand.Read(b)
-	return "upd-" + hex.EncodeToString(b)
+	return prefix + "-" + hex.EncodeToString(b)
 }

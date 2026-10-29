@@ -624,6 +624,10 @@ table.k8s .mono, .mono { font-family: Consolas, "SFMono-Regular", Menlo, monospa
 #k8s-pods tr.pod-row { cursor: pointer; }
 #k8s-pods tr.pod-row:hover, #k8s-pods tr.pod-row.open { background: var(--bg); }
 .log-view { display: grid; gap: 8px; }
+.job-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+table.job-list tr.job-row { cursor: pointer; }
+table.job-list tr.job-row:hover, table.job-list tr.job-row.open { background: var(--bg); }
+pre.job-output { margin-top: 8px; max-height: 320px; }
 .log-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 pre.log-text {
   margin: 0;

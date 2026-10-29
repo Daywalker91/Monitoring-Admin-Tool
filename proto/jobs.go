@@ -1,6 +1,9 @@
 package proto
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // Jobs sind Aufträge des Servers an einen Agenten.
 //
@@ -41,11 +44,39 @@ var ActionCapability = map[string]Capability{
 	ActionAgentUpdate: CapUpdate,
 }
 
+// Param beschreibt einen erlaubten Parameter einer Aktion.
+type Param struct {
+	Valid    func(string) bool
+	Optional bool
+}
+
+// actionParams legt je Aktion die erlaubten Parameter fest. Andere Parameter
+// werden abgelehnt; Aktionen ohne Eintrag haben keine Parameter.
+var actionParams = map[string]map[string]Param{
+	// Die Version prüft der Agent beim Update zusätzlich gegen das signierte Manifest.
+	ActionAgentUpdate: {"version": {Valid: validID}},
+}
+
+// actionTimeout ist die Laufzeitgrenze je Aktion; fehlt eine Aktion, gilt
+// defaultJobTimeout. Agent (Abbruch) und Server (keine Rückmeldung) nutzen
+// denselben Wert.
+var actionTimeout = map[string]time.Duration{}
+
+const defaultJobTimeout = 5 * time.Minute
+
+// JobTimeout liefert die Laufzeitgrenze einer Aktion.
+func JobTimeout(action string) time.Duration {
+	if d, ok := actionTimeout[action]; ok {
+		return d
+	}
+	return defaultJobTimeout
+}
+
 // Obergrenzen für Jobs.
 const (
 	maxParams       = 8
 	maxParamLen     = 256
-	MaxJobOutputLen = 4096
+	MaxJobOutputLen = 64 << 10 // reicht für Logs und Paket-Ausgaben
 	maxJobErrorLen  = 1024
 )
 
@@ -68,9 +99,19 @@ func (j *JobRequest) Validate() error {
 	if len(j.Params) > maxParams {
 		return fmt.Errorf("zu viele parameter")
 	}
+	spec := actionParams[j.Action]
 	for k, v := range j.Params {
-		if !validID(k) || len(v) > maxParamLen {
+		p, ok := spec[k]
+		if !ok || len(v) > maxParamLen {
 			return fmt.Errorf("ungültiger parameter %q", k)
+		}
+		if !p.Valid(v) {
+			return fmt.Errorf("ungültiger wert für %q", k)
+		}
+	}
+	for k, p := range spec {
+		if _, ok := j.Params[k]; !ok && !p.Optional {
+			return fmt.Errorf("parameter %q fehlt", k)
 		}
 	}
 	return nil

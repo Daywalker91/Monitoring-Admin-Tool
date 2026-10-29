@@ -58,6 +58,9 @@ func TestJobValidate(t *testing.T) {
 		{JobID: "", Action: ActionAgentUpdate},
 		{JobID: "j1", Action: ActionAgentUpdate, Params: map[string]string{"a b": "x"}},
 		{JobID: "j1", Action: ActionAgentUpdate, Params: map[string]string{"version": strings.Repeat("x", 300)}},
+		{JobID: "j1", Action: ActionAgentUpdate},                                                       // fehlt
+		{JobID: "j1", Action: ActionAgentUpdate, Params: map[string]string{"version": "v1; rm -rf /"}}, // wert
+		{JobID: "j1", Action: ActionAgentUpdate, Params: map[string]string{"version": "v1", "x": "y"}}, // zusätzlich
 	}
 	for i, j := range bad {
 		if err := j.Validate(); err == nil {
@@ -67,6 +70,9 @@ func TestJobValidate(t *testing.T) {
 	r := JobResult{JobID: "j1", Output: strings.Repeat("x", MaxJobOutputLen+1)}
 	if err := r.Validate(); err == nil {
 		t.Error("zu lange ausgabe akzeptiert")
+	}
+	if JobTimeout("unbekannt") != defaultJobTimeout {
+		t.Error("standard-zeitlimit fehlt")
 	}
 	if got := Truncate("aä", 2); got != "a" {
 		t.Errorf("Truncate = %q", got)

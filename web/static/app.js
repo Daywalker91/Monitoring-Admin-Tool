@@ -337,6 +337,7 @@ function detailRow(h) {
   tr.querySelector(".host-alerts-slot").replaceWith(hostAlertSection(h));
   tr.querySelector(".host-meta-slot").replaceWith(hostMetaSection(h));
   tr.querySelector(".host-update-slot").replaceWith(hostUpdateSection(h));
+  tr.querySelector(".host-jobs-slot").replaceWith(hostJobSection(h));
 
   const cores = tr.querySelector(".cores");
   (m.cpu?.per_core || []).forEach((v, i) => {
@@ -399,6 +400,7 @@ async function deleteHost(h) {
     historyViews.delete(h.id);
     hostAlertViews.delete(h.id);
     metaViews.delete(h.id);
+    jobViews.delete(h.id);
     saveOpenHosts();
     await refresh();
   } catch (e) {

@@ -207,7 +207,7 @@ func runCheck(args []string) error {
 	if id == "" {
 		id = "(hostname)"
 	}
-	fmt.Printf("ok: server=%s agent_id=%s interval=%ds ca_file=%q\n", cfg.ServerURL, id, cfg.IntervalSec, cfg.CAFile)
+	fmt.Printf("ok: server=%s agent_id=%s interval=%ds ca_file=%q jobs=%v\n", cfg.ServerURL, id, cfg.IntervalSec, cfg.CAFile, cfg.Jobs)
 	if cfg.Insecure() {
 		fmt.Println("warnung: unverschlüsselte verbindung (ws://) zu entferntem server")
 	}

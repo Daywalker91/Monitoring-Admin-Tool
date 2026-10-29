@@ -101,6 +101,9 @@ func (s *Server) Handler() http.Handler {
 	private.HandleFunc("POST /api/update/check", s.handleUpdateCheck)
 	private.HandleFunc("POST /api/update/all", s.handleUpdateAll)
 	private.HandleFunc("POST /api/hosts/{id}/update", s.handleHostUpdate)
+	private.HandleFunc("GET /api/hosts/{id}/jobs", s.handleHostJobs)
+	private.HandleFunc("POST /api/hosts/{id}/jobs", s.handleCreateJob)
+	private.HandleFunc("GET /api/jobs/{job}", s.handleJob)
 	if s.checks != nil {
 		private.HandleFunc("GET /api/checks", s.handleChecks)
 		private.HandleFunc("POST /api/checks", s.handleCreateCheck)
@@ -497,8 +500,11 @@ func writeJSON(w http.ResponseWriter, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// jobRetention: so lange bleiben Jobs als Audit-Log erhalten.
+const jobRetention = 90 * 24 * time.Hour
+
 // RunRetention löscht stündlich Historienpunkte, die älter als retention sind,
-// sowie abgelaufene Sessions.
+// abgelaufene Sessions und alte Jobs.
 func RunRetention(ctx context.Context, st *store.Store, retention time.Duration, log *slog.Logger) {
 	prune := func() {
 		n, err := st.Prune(ctx, time.Now().Add(-retention))
@@ -509,6 +515,12 @@ func RunRetention(ctx context.Context, st *store.Store, retention time.Duration,
 		}
 		if _, err := st.PruneSessions(ctx, time.Now()); err != nil {
 			log.Error("sessions bereinigen", "err", err)
+		}
+		if _, err := st.ExpireJobs(ctx, time.Now()); err != nil {
+			log.Error("jobs ablaufen lassen", "err", err)
+		}
+		if _, err := st.PruneJobs(ctx, time.Now().Add(-jobRetention)); err != nil {
+			log.Error("jobs bereinigen", "err", err)
 		}
 	}
 	prune()

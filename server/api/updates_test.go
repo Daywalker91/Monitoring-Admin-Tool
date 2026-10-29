@@ -80,8 +80,13 @@ func newUpdateTestServer(t *testing.T) *httptest.Server {
 	return ts
 }
 
-// fakeAgent verbindet sich mit Version und Fähigkeiten.
+// fakeAgent verbindet sich mit Version und den Fähigkeiten metrics und update.
 func fakeAgent(t *testing.T, ctx context.Context, ts *httptest.Server, version, note string) *websocket.Conn {
+	t.Helper()
+	return fakeAgentCaps(t, ctx, ts, version, note, proto.CapMetrics, proto.CapUpdate)
+}
+
+func fakeAgentCaps(t *testing.T, ctx context.Context, ts *httptest.Server, version, note string, caps ...proto.Capability) *websocket.Conn {
 	t.Helper()
 	h := http.Header{"Authorization": {"Bearer secret"}}
 	conn, _, err := websocket.Dial(ctx, wsURL(ts), &websocket.DialOptions{HTTPHeader: h})
@@ -91,7 +96,7 @@ func fakeAgent(t *testing.T, ctx context.Context, ts *httptest.Server, version, 
 	t.Cleanup(func() { conn.CloseNow() })
 	data, _ := proto.Encode(proto.TypeHello, proto.Hello{AgentID: "a1", Hostname: "a1", IntervalSec: 10,
 		AgentVersion: version, OS: "linux", Arch: "amd64", UpdateNote: note,
-		Capabilities: []proto.Capability{proto.CapMetrics, proto.CapUpdate}})
+		Capabilities: caps})
 	if err := conn.Write(ctx, websocket.MessageText, data); err != nil {
 		t.Fatal(err)
 	}

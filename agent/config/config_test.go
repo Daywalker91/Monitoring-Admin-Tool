@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/Daywalker91/Monitoring-Admin-Tool/proto"
 )
 
 func TestLoadFileAndFlags(t *testing.T) {
@@ -38,6 +40,31 @@ func TestValidate(t *testing.T) {
 		if _, err := Load(args); err == nil {
 			t.Errorf("ungültige Konfiguration akzeptiert: %v", args)
 		}
+	}
+}
+
+func TestJobs(t *testing.T) {
+	t.Setenv("MAT_AGENT_TOKEN", "")
+	dir := t.TempDir()
+	load := func(jobs string) (Config, error) {
+		path := filepath.Join(dir, "agent.json")
+		os.WriteFile(path, []byte(`{"server_url":"ws://a/ws","token":"t","jobs":`+jobs+`}`), 0o600)
+		return Load([]string{"-config", path})
+	}
+	cfg, err := load(`["services","reboot"]`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Allows(proto.CapServices) || !cfg.Allows(proto.CapReboot) || cfg.Allows(proto.CapPackages) {
+		t.Errorf("freischaltung falsch: %v", cfg.Jobs)
+	}
+	for _, bad := range []string{`["shell"]`, `["update"]`, `["reboot","reboot"]`} {
+		if _, err := load(bad); err == nil {
+			t.Errorf("jobs %s akzeptiert", bad)
+		}
+	}
+	if cfg, _ := load(`null`); cfg.Allows(proto.CapReboot) {
+		t.Error("ohne eintrag freigeschaltet")
 	}
 }
 
