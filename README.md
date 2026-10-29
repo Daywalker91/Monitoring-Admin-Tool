@@ -153,8 +153,12 @@ sudo sh install-agent.sh --server wss://192.168.100.50/ws/agent --fingerprint <s
 Für `--fingerprint` braucht das Skript `openssl`. Es erkennt die Architektur (amd64, arm64, armv7), lädt das Programm (liegt es neben dem
 Skript oder in `../dist`, wird dieses genommen), fragt das Token verdeckt ab (oder nimmt
 `MAT_AGENT_TOKEN`), schreibt `/etc/mat-agent/agent.json` mit 0600, prüft sie und startet den Dienst.
-Ohne `--server` aktualisiert es nur das Programm. Log: `journalctl -u mat-agent -f`.
+Ohne `--server` aktualisiert es nur Programm und systemd-Unit. Log: `journalctl -u mat-agent -f`.
 Entfernen: `sudo sh install-agent.sh --uninstall [--purge]`.
+
+Installationen vor v1.3.0 haben `MemoryMax=64M` in der Unit. Die Grenze gilt auch für `apt-get`/`dpkg` aus
+Paket-Jobs und kann ein Upgrade mittendrin abbrechen. Das Self-Update tauscht nur das Programm, daher einmal
+`sudo sh install-agent.sh` (ohne `--server`) ausführen, um die neue Unit einzuspielen.
 
 ### Server unter Windows
 

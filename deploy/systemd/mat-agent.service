@@ -18,13 +18,18 @@ ExecStart=/usr/local/bin/mat-agent -config /etc/mat-agent/agent.json
 Restart=always
 RestartSec=5
 
-# Läuft als root, weil später Admin-Jobs (Pakete, Neustart) ausgeführt werden.
+# Läuft als root, weil Admin-Jobs (Pakete, Neustart) ausgeführt werden.
 User=root
+# Hält den Agenten selbst klein (Ziel im Betrieb: 10–25 MB). Bewusst kein
+# MemoryMax: Die Grenze gälte für die ganze Unit, also auch für apt-get und
+# dpkg aus einem Paket-Job; ein OOM-Kill mitten im Upgrade hinterließe halb
+# installierte Pakete.
 Environment=GOMEMLIMIT=20MiB
-# Harte Obergrenze, falls etwas schiefläuft (Ziel im Betrieb: 10–25 MB).
-MemoryMax=64M
+# Beim Neustart oder Absturz des Agenten nur ihn selbst beenden, nicht ein
+# laufendes apt-get/dpkg (das Upgrade läuft dann zu Ende).
+KillMode=process
 
-# Härtung, die M1 (nur Metriken) nicht einschränkt. Für Admin-Jobs später prüfen.
+# Härtung, die die Admin-Jobs nicht einschränkt.
 NoNewPrivileges=yes
 ProtectHome=read-only
 PrivateTmp=yes
