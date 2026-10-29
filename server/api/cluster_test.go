@@ -125,3 +125,33 @@ func TestClusterAPI(t *testing.T) {
 		t.Errorf("unbekannter pod: %d", code)
 	}
 }
+
+func TestMatchNode(t *testing.T) {
+	nodes := map[string]*k8s.Node{
+		"node1":   {Name: "node1", Ready: true, Roles: []string{"worker"}},
+		"server1": {Name: "server1", Ready: false, Reason: "kubelet stopped"},
+	}
+	for _, tc := range []struct {
+		host store.Host
+		want string
+	}{
+		{store.Host{ID: "a", Hostname: "node1"}, "node1"},
+		{store.Host{ID: "a", Hostname: "NODE1.home.mgmnt"}, "node1"},
+		{store.Host{ID: "server1", Hostname: "pi"}, "server1"},
+		{store.Host{ID: "pc", Hostname: "PC-Buero"}, ""},
+	} {
+		name := ""
+		if got := matchNode(nodes, tc.host); got != nil {
+			name = got.Name
+		}
+		if name != tc.want {
+			t.Errorf("%+v: %q, erwartet %q", tc.host, name, tc.want)
+		}
+	}
+	if l := matchNode(nodes, store.Host{Hostname: "server1"}); l.Ready || l.Reason != "kubelet stopped" {
+		t.Errorf("status nicht übernommen: %+v", l)
+	}
+	if matchNode(nil, store.Host{Hostname: "node1"}) != nil {
+		t.Error("ohne cluster darf es keine zuordnung geben")
+	}
+}

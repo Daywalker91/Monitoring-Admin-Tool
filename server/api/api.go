@@ -386,6 +386,7 @@ type hostView struct {
 	UpdateAvailable string      `json:"update_available,omitempty"`
 	Update          *hostUpdate `json:"update,omitempty"`
 	UpdateNote      string      `json:"update_note,omitempty"`
+	K8sNode         *nodeLink   `json:"k8s_node,omitempty"` // Host ist ein k3s-Node
 }
 
 func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
@@ -395,10 +396,11 @@ func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "interner fehler", http.StatusInternalServerError)
 		return
 	}
+	nodes := s.clusterNodes()
 	out := make([]hostView, len(hosts))
 	for i, h := range hosts {
 		out[i] = hostView{Host: h, Online: s.online(h.ID), UpdateAvailable: s.updateAvailable(h),
-			Update: s.hostUpdateState(h.ID), UpdateNote: s.updateNote(h.ID)}
+			Update: s.hostUpdateState(h.ID), UpdateNote: s.updateNote(h.ID), K8sNode: matchNode(nodes, h)}
 		if s.alerts != nil {
 			if until, muted := s.alerts.MutedUntil(h.ID, s.nowFor()); muted {
 				ts := until.Unix()

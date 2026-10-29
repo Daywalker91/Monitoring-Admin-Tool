@@ -116,15 +116,34 @@ function pctOrDash(v) {
   return td;
 }
 
+// Läuft auf dem Node ein Agent, kommen CPU, RAM und Temperatur von ihm
+// (genauer, mit Temperatur), sonst vom metrics-server.
 function renderNodes(nodes) {
   document.querySelector("#k8s-nodes tbody").replaceChildren(...nodes.map(n => {
+    const host = lastHosts.find(h => h.k8s_node?.name === n.name);
+    const m = host?.online ? host.metrics : null;
     const tr = el("tr");
     const st = cell("status", null, null);
     st.append(el("span", null, "dot" + (n.ready ? " online" : " crit")), n.ready ? "bereit" : "nicht bereit");
     if (!n.ready && n.reason) st.title = n.reason;
-    tr.append(st, cell("name", null, n.name, "name"), cell("roles", null, n.roles.join(", ") || "–", "hide-sm"),
+    const name = cell("name", null, null, "name");
+    name.append(n.name);
+    if (host) {
+      const link = el("button", host.online ? "Agent" : "Agent offline", "pill host-alerts link-pill" + (host.online ? "" : " crit"));
+      link.type = "button";
+      link.title = "Host „" + hostName(host) + "“ öffnen";
+      link.addEventListener("click", () => openHost(host.id));
+      name.append(link);
+    }
+    const cpu = pctOrDash(m ? m.cpu?.total_pct : n.cpu_pct);
+    const mem = pctOrDash(m ? m.mem?.used_pct : n.mem_pct);
+    const src = m ? "vom Agenten" : "vom metrics-server";
+    cpu.title = mem.title = src;
+    const temp = m ? tempCell(m.cpu_temp) : cell("temp", null, "–", "num");
+    temp.classList.add("hide-sm");
+    tr.append(st, name, cell("roles", null, n.roles.join(", ") || "–", "hide-sm"),
       cell("version", null, n.version, "hide-sm"), cell("ip", null, n.ip || "–", "hide-sm"),
-      pctOrDash(n.cpu_pct), pctOrDash(n.mem_pct), cell("pods", null, String(n.pods), "num"),
+      cpu, mem, temp, cell("pods", null, String(n.pods), "num"),
       cell("age", null, fmtAge(n.created), "num hide-sm"));
     return tr;
   }));

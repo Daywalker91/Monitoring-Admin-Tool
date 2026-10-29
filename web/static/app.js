@@ -106,6 +106,21 @@ function tempCell(v) {
   return td;
 }
 
+// Markierung für Hosts, die k3s-Nodes sind; „nicht bereit“ kommt aus der k3s-API.
+function k8sPill(n) {
+  const p = el("span", n.ready ? "k3s" : "k3s nicht bereit", "pill host-alerts" + (n.ready ? "" : " crit"));
+  p.title = "k3s-Node " + n.name + (n.roles?.length ? " (" + n.roles.join(", ") + ")" : "") +
+    (!n.ready && n.reason ? ": " + n.reason : "");
+  return p;
+}
+
+// Öffnet einen Host in der Host-Liste (z. B. aus dem Tab „Cluster“).
+function openHost(id) {
+  openHosts.add(id);
+  showView("hosts");
+  requestAnimationFrame(() => document.querySelector(`#hosts tr.host[data-id="${CSS.escape(id)}"]`)?.scrollIntoView({ block: "start" }));
+}
+
 function hostRow(h) {
   const m = h.metrics || {};
   const tr = el("tr", null, "host");
@@ -125,6 +140,7 @@ function hostRow(h) {
   const nAlerts = alertCountFor(h.id);
   if (nAlerts) host.append(el("span", alertBadgeText(nAlerts), "pill crit host-alerts"));
   if (h.muted_until) host.append(el("span", "🔕 stumm", "pill host-alerts"));
+  if (h.k8s_node) host.append(k8sPill(h.k8s_node));
   const upd = hostUpdatePill(h);
   if (upd) host.append(upd);
   tr.append(host);
@@ -354,6 +370,10 @@ function detailRow(h) {
   if (m.temps?.length) add("Sensoren", m.temps.map(t => t.name + " " + fmtTemp(t.celsius)).join(", "));
   if (hasLoad(h)) {
     add("Load 1/5/15", m.cpu ? [m.cpu.load1, m.cpu.load5, m.cpu.load15].map(x => x.toFixed(2)).join(" / ") : "");
+  }
+  if (h.k8s_node) {
+    const n = h.k8s_node;
+    add("k3s-Node", n.name + (n.roles?.length ? " · " + n.roles.join(", ") : "") + " · " + (n.ready ? "bereit" : "nicht bereit"));
   }
   add("Fähigkeiten", (h.capabilities || []).join(", "));
   add("Adresse", h.remote_addr);

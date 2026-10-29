@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/alert"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/k8s"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/server/store"
 )
 
 const (
@@ -49,6 +51,47 @@ func (s *Server) ClusterSnapshot(ctx context.Context, snap *k8s.Snapshot) {
 		}
 		s.alerts.ObserveSet(ctx, alert.ClusterID, "Cluster", part.kind, set, now)
 	}
+}
+
+// nodeLink ist der Kubernetes-Node, auf dem ein Host mit Agent läuft.
+type nodeLink struct {
+	Name   string   `json:"name"`
+	Ready  bool     `json:"ready"`
+	Reason string   `json:"reason,omitempty"`
+	Roles  []string `json:"roles"`
+}
+
+// clusterNodes liefert die Nodes des letzten Stands nach Namen (klein
+// geschrieben); nil ohne k3s-Ansicht.
+func (s *Server) clusterNodes() map[string]*k8s.Node {
+	if s.cluster == nil {
+		return nil
+	}
+	snap, _ := s.cluster.Current()
+	if snap == nil {
+		return nil
+	}
+	nodes := make(map[string]*k8s.Node, len(snap.Nodes))
+	for i := range snap.Nodes {
+		nodes[strings.ToLower(snap.Nodes[i].Name)] = &snap.Nodes[i]
+	}
+	return nodes
+}
+
+// matchNode ordnet einen Host über den Hostnamen (auch ohne Domain) oder die
+// Agent-ID einem Node zu.
+func matchNode(nodes map[string]*k8s.Node, h store.Host) *nodeLink {
+	if len(nodes) == 0 {
+		return nil
+	}
+	host := strings.ToLower(h.Hostname)
+	short, _, _ := strings.Cut(host, ".")
+	for _, name := range []string{host, short, strings.ToLower(h.ID)} {
+		if n := nodes[name]; n != nil {
+			return &nodeLink{Name: n.Name, Ready: n.Ready, Reason: n.Reason, Roles: n.Roles}
+		}
+	}
+	return nil
 }
 
 // clusterView ist die Antwort von /api/cluster.

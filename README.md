@@ -247,6 +247,10 @@ und Pods (Filter nach Namespace, Suche, „nur Probleme“). Ein Klick auf einen
 letzten Log-Zeilen, auch die des vorherigen Containers nach einem Absturz. Alles nur lesend; die
 API wird ohne client-go per HTTP angesprochen.
 
+Läuft auf einem Node zusätzlich ein Agent (systemd, wie auf jedem anderen Host), ordnet der Server
+ihn über den Hostnamen (oder die Agent-ID) dem Node zu: Der Tab „Cluster“ zeigt dann CPU, RAM und
+Temperatur vom Agenten, die Host-Liste markiert den Host mit „k3s“ samt Ready-Status.
+
 Alarme gibt es für Nodes, Workloads/Pods und ArgoCD-Apps. **Ausnahmen** (Muster `namespace/name`,
 z. B. `kube-system/svclb-*`, voreingestellt für den k3s-ServiceLB neben MetalLB) werden weiter
 angezeigt, lösen aber nichts aus. Zum Testen außerhalb des Clusters: `kubectl proxy` starten und
