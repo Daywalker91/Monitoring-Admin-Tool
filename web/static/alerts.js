@@ -87,7 +87,22 @@ function alertRow(a) {
   const tr = el("tr", null, "alert-row");
   const active = a.resolved_at === null;
   const state = cell("state", null, null);
-  state.append(el("span", active ? "⚠ aktiv" : "✓ beendet", active ? "pill crit" : "pill"));
+  state.append(el("span", active ? (a.acked_at ? "✓ quittiert" : "⚠ aktiv") : "✓ beendet",
+    active && !a.acked_at ? "pill crit" : "pill"));
+  if (active) {
+    const b = el("button", a.acked_at ? "Aufheben" : "Quittieren", "secondary small-btn ack-btn");
+    b.type = "button";
+    b.addEventListener("click", ev => {
+      ev.stopPropagation();
+      ackAlert(a, b);
+    });
+    state.append(b);
+  }
+  if (a.acked_at) {
+    state.append(el("span", "von " + a.acked_by + ", " + fmtDateTime(a.acked_at) +
+      (a.ack_comment ? ": " + a.ack_comment : ""), "muted small alert-note"));
+  }
+  if (a.silenced) state.append(el("span", "🔕 nicht gemeldet: " + a.silenced, "muted small alert-note"));
   tr.append(state);
 
   const host = cell("host", "Host", null);
@@ -113,6 +128,27 @@ function alertRow(a) {
     showView("hosts");
   });
   return tr;
+}
+
+// ackAlert quittiert einen Alarm (Kommentar optional) bzw. hebt die Quittierung auf.
+async function ackAlert(a, btn) {
+  let opts = { method: "DELETE" };
+  if (!a.acked_at) {
+    const comment = prompt("Alarm „" + alertSubject(a) + "“ auf „" + a.hostname + "“ quittieren.\n" +
+      "Danach keine Erinnerungen mehr. Kommentar (optional):", "");
+    if (comment === null) return;
+    opts = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ comment }) };
+  }
+  btn.disabled = true;
+  try {
+    const resp = await fetch("api/alerts/" + a.id + "/ack", opts);
+    if (resp.status === 401) return toLogin();
+    if (!resp.ok) throw new Error((await resp.text()).trim() || "HTTP " + resp.status);
+    await refresh();
+  } catch (e) {
+    alert("Quittieren fehlgeschlagen: " + e.message);
+    btn.disabled = false;
+  }
 }
 
 function renderAlerts(list) {

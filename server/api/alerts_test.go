@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -231,5 +232,41 @@ func TestHostRulesAndMuteAPI(t *testing.T) {
 	json.NewDecoder(r.Body).Decode(&rv)
 	if r.StatusCode != http.StatusOK || rv.ReminderHours != 6 {
 		t.Fatalf("erinnerung: %d %+v", r.StatusCode, rv)
+	}
+}
+
+func TestAckAPI(t *testing.T) {
+	ts, _ := newAlertTestServer(t)
+	c := login(t, ts)
+	ctx := context.Background()
+	conn := fakeAgentCaps(t, ctx, ts, "v1.2.0", "", proto.CapMetrics)
+	rules := map[string]any{"rules": []store.AlertRule{{Kind: "unit_failed", Enabled: true, ForSec: 0}}}
+	postJSON(t, c, ts.URL+"/api/hosts/a1/alert-rules", ts.URL, rules)
+	sendServices(t, ctx, conn, proto.Service{Name: "backup", State: proto.SvcFailed, Detail: "failed/failed"})
+	var a store.Alert
+	waitFor(t, "alarm", func() bool { var ok bool; a, ok = activeAlerts(t, c, ts.URL)["unit_failed/backup"]; return ok })
+
+	url := ts.URL + "/api/alerts/" + strconv.FormatInt(a.ID, 10) + "/ack"
+	if r := postJSON(t, c, url, "http://evil.example", map[string]string{"comment": "x"}); r.StatusCode != http.StatusForbidden {
+		t.Errorf("fremde herkunft: %d", r.StatusCode)
+	}
+	if r := postJSON(t, c, url, ts.URL, map[string]string{"comment": "a\nb"}); r.StatusCode != http.StatusBadRequest {
+		t.Errorf("steuerzeichen: %d", r.StatusCode)
+	}
+	if r := postJSON(t, c, ts.URL+"/api/alerts/99999/ack", ts.URL, map[string]string{}); r.StatusCode != http.StatusNotFound {
+		t.Errorf("unbekannter alarm: %d", r.StatusCode)
+	}
+	if r := postJSON(t, c, url, ts.URL, map[string]string{"comment": " Backup-Ziel voll, kümmere mich "}); r.StatusCode != http.StatusOK {
+		t.Fatalf("quittieren: %d", r.StatusCode)
+	}
+	got := activeAlerts(t, c, ts.URL)["unit_failed/backup"]
+	if got.AckedAt == nil || got.AckedBy != "admin" || got.AckComment != "Backup-Ziel voll, kümmere mich" {
+		t.Fatalf("quittiert: %+v", got)
+	}
+	if code := status(t, c, http.MethodDelete, url, ts.URL); code != http.StatusOK {
+		t.Fatalf("aufheben: %d", code)
+	}
+	if got := activeAlerts(t, c, ts.URL)["unit_failed/backup"]; got.AckedAt != nil || got.AckedBy != "" {
+		t.Fatalf("nach aufheben: %+v", got)
 	}
 }

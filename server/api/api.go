@@ -94,6 +94,8 @@ func (s *Server) Handler() http.Handler {
 	private.HandleFunc("POST /api/hosts/{id}/meta", s.handleHostMeta)
 	private.HandleFunc("GET /api/alerts", s.handleAlerts)
 	private.HandleFunc("POST /api/alerts/test", s.handleTestAlert)
+	private.HandleFunc("POST /api/alerts/{id}/ack", s.handleAck)
+	private.HandleFunc("DELETE /api/alerts/{id}/ack", s.handleAck)
 	private.HandleFunc("GET /api/alert-rules", s.handleGetAlertRules)
 	private.HandleFunc("POST /api/alert-rules", s.handleSetAlertRules)
 	private.HandleFunc("GET /api/hosts/{id}/alert-rules", s.handleGetHostRules)

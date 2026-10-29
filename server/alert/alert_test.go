@@ -2,6 +2,7 @@ package alert
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"path/filepath"
@@ -418,5 +419,69 @@ func TestMetricsKeepServiceAlerts(t *testing.T) {
 	f.observe(cpu(10), time.Second)
 	if ev := f.take(); len(ev) != 0 {
 		t.Fatalf("metrik hat dienst-alarm beendet: %+v", ev)
+	}
+}
+
+// Weitere Gründe (Wartung, Abhängigkeit) wirken wie die Stummschaltung.
+func TestQuiet(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	f.ev.SetRules(ctx, []store.AlertRule{{Kind: KindCPU, Enabled: true, Threshold: 90, ForSec: 0}}, f.now)
+	quiet := true
+	f.ev.SetQuiet(func(host string, _ time.Time) (string, bool) { return "Wartung „Patchday“", quiet && host == "h1" })
+
+	f.observe(cpu(95), 10*time.Second)
+	if ev := f.take(); len(ev) != 0 {
+		t.Fatalf("während wartung gemeldet: %+v", ev)
+	}
+	active, _ := f.st.Alerts(ctx, true, time.Time{}, 10)
+	if len(active) != 1 || active[0].Silenced != "Wartung „Patchday“" || active[0].NotifiedAt != nil {
+		t.Fatalf("erfasst mit grund: %+v", active)
+	}
+	quiet = false
+	f.ev.Tick(ctx, f.now)
+	if ev := f.take(); len(ev) != 1 || ev[0].Type != Firing {
+		t.Fatalf("nachmeldung nach wartung: %+v", ev)
+	}
+}
+
+func TestAck(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	f.ev.SetRules(ctx, []store.AlertRule{{Kind: KindCPU, Enabled: true, Threshold: 90, ForSec: 0}}, f.now)
+	f.ev.SetReminder(ctx, 1)
+	f.observe(cpu(95), 10*time.Second)
+	f.take()
+	active, _ := f.st.Alerts(ctx, true, time.Time{}, 10)
+	a, err := f.ev.Ack(ctx, active[0].ID, true, "admin", "Lüfter getauscht", f.now)
+	if err != nil || a.AckedAt == nil || a.AckedBy != "admin" {
+		t.Fatalf("quittieren: %+v %v", a, err)
+	}
+	f.now = f.now.Add(2 * time.Hour)
+	f.ev.Tick(ctx, f.now)
+	if ev := f.take(); len(ev) != 0 {
+		t.Fatalf("erinnerung trotz quittierung: %+v", ev)
+	}
+	// Nach dem Neustart des Servers bleibt die Quittierung erhalten.
+	f.ev = f.open()
+	f.ev.SetReminder(ctx, 1)
+	f.ev.Tick(ctx, f.now)
+	if ev := f.take(); len(ev) != 0 {
+		t.Fatalf("erinnerung nach neustart: %+v", ev)
+	}
+	if _, err := f.ev.Ack(ctx, active[0].ID, false, "", "", f.now); err != nil {
+		t.Fatal(err)
+	}
+	f.ev.Tick(ctx, f.now)
+	if ev := f.take(); len(ev) != 1 || ev[0].Type != Reminder {
+		t.Fatalf("erinnerung nach aufheben: %+v", ev)
+	}
+	if _, err := f.ev.Ack(ctx, 9999, true, "admin", "", f.now); !errors.Is(err, ErrNotActive) {
+		t.Errorf("unbekannter alarm: %v", err)
+	}
+	// Ende wird trotz Quittierung gemeldet (Beginn war gemeldet).
+	f.observe(cpu(10), 10*time.Second)
+	if ev := f.take(); len(ev) != 1 || ev[0].Type != Resolved {
+		t.Fatalf("ende: %+v", ev)
 	}
 }

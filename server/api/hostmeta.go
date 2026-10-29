@@ -18,9 +18,13 @@ type hostMeta struct {
 }
 
 // validMeta bereinigt v (Leerraum am Rand) und prüft Länge und Zeichen.
-func validMeta(v string) (string, bool) {
+func validMeta(v string) (string, bool) { return validText(v, maxMetaLen) }
+
+// validText bereinigt v (Leerraum am Rand) und prüft: gültiges UTF-8, höchstens
+// max Zeichen, keine Steuerzeichen.
+func validText(v string, max int) (string, bool) {
 	v = strings.TrimSpace(v)
-	ok := utf8.ValidString(v) && utf8.RuneCountInString(v) <= maxMetaLen &&
+	ok := utf8.ValidString(v) && utf8.RuneCountInString(v) <= max &&
 		strings.IndexFunc(v, unicode.IsControl) < 0
 	return v, ok
 }

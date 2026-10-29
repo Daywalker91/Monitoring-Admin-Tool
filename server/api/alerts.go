@@ -3,8 +3,10 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/alert"
@@ -50,6 +52,55 @@ func (s *Server) hostStates(ctx context.Context) ([]alert.HostState, error) {
 			LastSeen: time.Unix(h.LastSeen, 0)}
 	}
 	return out, nil
+}
+
+// maxAckComment begrenzt den Kommentar einer Quittierung (Zeichen).
+const maxAckComment = 256
+
+// handleAck quittiert einen aktiven Alarm (POST, {"comment": "…"}) oder hebt
+// die Quittierung auf (DELETE). Quittierte Alarme bekommen keine Erinnerungen.
+func (s *Server) handleAck(w http.ResponseWriter, r *http.Request) {
+	if !sameOrigin(r) {
+		http.Error(w, "fremde herkunft", http.StatusForbidden)
+		return
+	}
+	if s.alerts == nil {
+		http.Error(w, "alarme deaktiviert", http.StatusNotFound)
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.Error(w, "ungültige id", http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		Comment string `json:"comment"`
+	}
+	ack := r.Method == http.MethodPost
+	if ack {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&req); err != nil {
+			http.Error(w, "ungültige anfrage", http.StatusBadRequest)
+			return
+		}
+		var ok bool
+		if req.Comment, ok = validText(req.Comment, maxAckComment); !ok {
+			http.Error(w, "kommentar: höchstens 256 zeichen, keine steuerzeichen", http.StatusBadRequest)
+			return
+		}
+	}
+	user := userFrom(r.Context())
+	a, err := s.alerts.Ack(r.Context(), id, ack, user, req.Comment, s.nowFor())
+	switch {
+	case errors.Is(err, alert.ErrNotActive):
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	case err != nil:
+		s.log.Error("quittieren", "err", err)
+		http.Error(w, "interner fehler", http.StatusInternalServerError)
+		return
+	}
+	s.log.Info("alarm quittiert", "alert_id", id, "ack", ack, "user", user)
+	writeJSON(w, a)
 }
 
 // handleAlerts liefert aktive Alarme, mit ?all=1 zusätzlich die beendeten der letzten 7 Tage.

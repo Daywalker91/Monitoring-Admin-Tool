@@ -8,6 +8,7 @@ package alert
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -170,7 +171,13 @@ type Evaluator struct {
 	reminder  time.Duration                         // 0 = keine Erinnerungen
 	pending   map[key]*pending
 	firing    map[key]*store.Alert
+	// quiet meldet weitere Gründe, einen Host nicht zu melden (Wartungsfenster,
+	// Abhängigkeit). Wird unter e.mu aufgerufen und darf den Evaluator nicht benutzen.
+	quiet func(hostID string, now time.Time) (reason string, ok bool)
 }
+
+// ErrNotActive meldet, dass ein Alarm nicht (mehr) aktiv ist.
+var ErrNotActive = errors.New("alarm ist nicht aktiv")
 
 // New lädt Regeln und offene Alarme aus der Datenbank. notify wird für jedes
 // Ereignis aufgerufen und darf nicht blockieren.
@@ -356,6 +363,51 @@ func (e *Evaluator) MutedUntil(hostID string, now time.Time) (time.Time, bool) {
 func (e *Evaluator) mutedUntil(hostID string, now time.Time) (time.Time, bool) {
 	until, ok := e.muted[hostID]
 	return until, ok && until.After(now)
+}
+
+// SetQuiet setzt die Abfrage weiterer Gründe, einen Host nicht zu melden.
+func (e *Evaluator) SetQuiet(fn func(hostID string, now time.Time) (reason string, ok bool)) {
+	e.mu.Lock()
+	e.quiet = fn
+	e.mu.Unlock()
+}
+
+// silenced meldet, ob Alarme eines Hosts zu now nicht gemeldet werden, und
+// warum. Sie werden trotzdem erfasst; was danach noch aktiv ist, meldet Tick
+// nach. e.mu ist gesperrt.
+func (e *Evaluator) silenced(hostID string, now time.Time) (string, bool) {
+	if _, muted := e.mutedUntil(hostID, now); muted {
+		return "stummgeschaltet", true
+	}
+	if e.quiet != nil {
+		return e.quiet(hostID, now)
+	}
+	return "", false
+}
+
+// Ack quittiert einen aktiven Alarm (ack = false hebt die Quittierung auf).
+// Quittierte Alarme bekommen keine Erinnerungen mehr.
+func (e *Evaluator) Ack(ctx context.Context, id int64, ack bool, user, comment string, now time.Time) (store.Alert, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, a := range e.firing {
+		if a.ID != id {
+			continue
+		}
+		var at *int64
+		if ack {
+			ts := now.Unix()
+			at = &ts
+		} else {
+			user, comment = "", ""
+		}
+		if err := e.st.SetAlertAck(ctx, id, at, user, comment); err != nil {
+			return *a, err
+		}
+		a.AckedAt, a.AckedBy, a.AckComment = at, user, comment
+		return *a, nil
+	}
+	return store.Alert{}, ErrNotActive
 }
 
 // Reminder liefert den Erinnerungsabstand (0 = aus).
@@ -613,8 +665,10 @@ func (e *Evaluator) fire(ctx context.Context, k key, hostname string, rule store
 func (e *Evaluator) fireDetail(ctx context.Context, k key, hostname, detail string, rule store.AlertRule, v, peak float64, now time.Time) {
 	a := &store.Alert{HostID: k.host, Hostname: hostname, Detail: detail, Kind: k.kind, Target: k.target,
 		Threshold: rule.Threshold, Value: v, Peak: peak, StartedAt: now.Unix()}
-	_, muted := e.mutedUntil(k.host, now)
-	if !muted {
+	reason, muted := e.silenced(k.host, now)
+	if muted {
+		a.Silenced = reason
+	} else {
 		ts := now.Unix()
 		a.NotifiedAt = &ts
 	}
@@ -644,7 +698,7 @@ func (e *Evaluator) resolve(ctx context.Context, k key, now time.Time) {
 	a.ResolvedAt = &ts
 	e.log.Info("alarm beendet", "host", k.host, "kind", k.kind, "target", k.target)
 	// Ende nur melden, wenn der Beginn gemeldet wurde und der Host nicht stumm ist.
-	if _, muted := e.mutedUntil(k.host, now); a.NotifiedAt != nil && !muted {
+	if _, muted := e.silenced(k.host, now); a.NotifiedAt != nil && !muted {
 		e.notify(Event{Type: Resolved, Alert: *a, Rule: e.ruleFor(k.host, k.kind), At: now})
 	}
 }
@@ -655,7 +709,11 @@ func (e *Evaluator) Tick(ctx context.Context, now time.Time) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for k, a := range e.firing {
-		if _, muted := e.mutedUntil(k.host, now); muted {
+		// Quittiert: keine Erinnerungen und keine nachgeholte Meldung mehr.
+		if a.AckedAt != nil {
+			continue
+		}
+		if _, muted := e.silenced(k.host, now); muted {
 			continue
 		}
 		typ := Firing

@@ -80,6 +80,12 @@ var migrations = []struct{ table, column, def, fill string }{
 	{"hosts", "log_sources", "TEXT NOT NULL DEFAULT '[]'", ""},
 	// Letzter SMART-Stand (M7, JSON).
 	{"hosts", "last_smart", "TEXT", ""},
+	// M7: Grund, warum ein Alarm beim Auslösen nicht gemeldet wurde (Stumm, Wartung,
+	// Abhängigkeit), und Quittierung.
+	{"alerts", "silenced", "TEXT NOT NULL DEFAULT ''", ""},
+	{"alerts", "acked_at", "INTEGER", ""},
+	{"alerts", "acked_by", "TEXT NOT NULL DEFAULT ''", ""},
+	{"alerts", "ack_comment", "TEXT NOT NULL DEFAULT ''", ""},
 }
 
 // AlertRule ist der Schwellwert eines Regeltyps.
@@ -102,8 +108,12 @@ type Alert struct {
 	Value      float64 `json:"value"` // Wert beim Auslösen
 	Peak       float64 `json:"peak"`  // Spitzenwert während des Alarms
 	StartedAt  int64   `json:"started_at"`
-	ResolvedAt *int64  `json:"resolved_at"` // nil = aktiv
-	NotifiedAt *int64  `json:"notified_at"` // nil = nicht benachrichtigt
+	ResolvedAt *int64  `json:"resolved_at"`        // nil = aktiv
+	NotifiedAt *int64  `json:"notified_at"`        // nil = nicht benachrichtigt
+	Silenced   string  `json:"silenced,omitempty"` // warum beim Auslösen nicht gemeldet
+	AckedAt    *int64  `json:"acked_at"`           // nil = nicht quittiert
+	AckedBy    string  `json:"acked_by,omitempty"`
+	AckComment string  `json:"ack_comment,omitempty"`
 }
 
 // AlertRules liefert die gespeicherten Regeln.
@@ -145,9 +155,9 @@ ON CONFLICT(kind) DO UPDATE SET enabled = excluded.enabled, threshold = excluded
 // OpenAlert legt einen aktiven Alarm an und setzt a.ID.
 func (s *Store) OpenAlert(ctx context.Context, a *Alert) error {
 	res, err := s.db.ExecContext(ctx, `
-INSERT INTO alerts (host_id, kind, target, threshold, value, peak, started_at, notified_at, name, detail)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.HostID, a.Kind, a.Target, a.Threshold, a.Value, a.Peak, a.StartedAt, a.NotifiedAt, a.Hostname, a.Detail)
+INSERT INTO alerts (host_id, kind, target, threshold, value, peak, started_at, notified_at, name, detail, silenced)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.HostID, a.Kind, a.Target, a.Threshold, a.Value, a.Peak, a.StartedAt, a.NotifiedAt, a.Hostname, a.Detail, a.Silenced)
 	if err != nil {
 		return fmt.Errorf("alarm speichern: %w", err)
 	}
@@ -177,7 +187,8 @@ func (s *Store) ResolveAlert(ctx context.Context, id int64, at time.Time) error 
 func (s *Store) Alerts(ctx context.Context, activeOnly bool, since time.Time, limit int) ([]Alert, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT a.id, a.host_id, COALESCE(h.hostname, NULLIF(a.name, ''), a.host_id), a.kind, a.target, a.threshold,
-       a.value, a.peak, a.started_at, a.resolved_at, a.notified_at, a.detail
+       a.value, a.peak, a.started_at, a.resolved_at, a.notified_at, a.detail, a.silenced,
+       a.acked_at, a.acked_by, a.ack_comment
 FROM alerts a LEFT JOIN hosts h ON h.id = a.host_id
 WHERE a.resolved_at IS NULL OR (?1 = 0 AND a.resolved_at >= ?2)
 ORDER BY a.resolved_at IS NOT NULL, a.started_at DESC, a.id DESC
@@ -189,10 +200,13 @@ LIMIT ?3`, activeOnly, since.Unix(), limit)
 	alerts := []Alert{}
 	for rows.Next() {
 		var a Alert
-		var resolved, notified sql.NullInt64
+		var resolved, notified, acked sql.NullInt64
 		if err := rows.Scan(&a.ID, &a.HostID, &a.Hostname, &a.Kind, &a.Target, &a.Threshold, &a.Value,
-			&a.Peak, &a.StartedAt, &resolved, &notified, &a.Detail); err != nil {
+			&a.Peak, &a.StartedAt, &resolved, &notified, &a.Detail, &a.Silenced, &acked, &a.AckedBy, &a.AckComment); err != nil {
 			return nil, err
+		}
+		if acked.Valid {
+			a.AckedAt = &acked.Int64
 		}
 		if resolved.Valid {
 			a.ResolvedAt = &resolved.Int64
@@ -209,6 +223,15 @@ LIMIT ?3`, activeOnly, since.Unix(), limit)
 func (s *Store) SetAlertNotified(ctx context.Context, id int64, at time.Time) error {
 	if _, err := s.db.ExecContext(ctx, `UPDATE alerts SET notified_at = ? WHERE id = ?`, at.Unix(), id); err != nil {
 		return fmt.Errorf("benachrichtigung speichern: %w", err)
+	}
+	return nil
+}
+
+// SetAlertAck quittiert einen Alarm (at = nil hebt die Quittierung auf).
+func (s *Store) SetAlertAck(ctx context.Context, id int64, at *int64, by, comment string) error {
+	if _, err := s.db.ExecContext(ctx, `UPDATE alerts SET acked_at = ?, acked_by = ?, ack_comment = ? WHERE id = ?`,
+		at, by, comment, id); err != nil {
+		return fmt.Errorf("quittierung speichern: %w", err)
 	}
 	return nil
 }
