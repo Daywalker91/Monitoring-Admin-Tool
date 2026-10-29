@@ -290,6 +290,9 @@
         <p class="muted small">Befehl auf dem Host ausführen, das Token wird abgefragt. Das Skript lädt den
           neuesten Agenten, prüft die Prüfsumme und übernimmt das Server-Zertifikat nur, wenn der
           Fingerabdruck stimmt. Der Host muss den Server unter dieser Adresse erreichen.</p>
+        <p class="muted small">Admin-Aktionen sind erst nach Freischaltung möglich: anhängen z. B.
+          <code>--jobs services,packages,reboot --log-sources journal:sshd,journal:kernel</code> (Linux) bzw.
+          <code>-Jobs services,reboot -LogSources eventlog:System</code> (Windows).</p>
         <div id="install-cmds"></div>
       </div>
     </section>

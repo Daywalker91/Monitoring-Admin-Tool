@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/config"
@@ -44,5 +45,26 @@ func TestPrepareConfig(t *testing.T) {
 	// Erneutes Einrichten mit der bereits kopierten CA-Datei.
 	if err := prepareConfig(&got, dataDir, cfgPath); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCutListFlag(t *testing.T) {
+	rest, v, set := cutListFlag([]string{"-server", "wss://x/ws", "-jobs", "services, packages", "--log-sources=eventlog:System", "-id", "pc"}, "jobs")
+	if !set || len(v) != 2 || v[0] != "services" || v[1] != "packages" {
+		t.Fatalf("jobs: %v %v", v, set)
+	}
+	if strings.Join(rest, " ") != "-server wss://x/ws --log-sources=eventlog:System -id pc" {
+		t.Fatalf("rest: %v", rest)
+	}
+	rest, v, set = cutListFlag(rest, "log-sources")
+	if !set || len(v) != 1 || v[0] != "eventlog:System" || len(rest) != 4 {
+		t.Fatalf("log-sources: %v %v %v", v, set, rest)
+	}
+	// Leer: Freischaltung entfernen.
+	if _, v, set = cutListFlag([]string{"-jobs="}, "jobs"); !set || v != nil {
+		t.Fatalf("leer: %v %v", v, set)
+	}
+	if _, _, set = cutListFlag([]string{"-id", "pc"}, "jobs"); set {
+		t.Fatal("ohne flag gesetzt")
 	}
 }

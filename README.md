@@ -9,9 +9,9 @@ M2 fertig – GUI-Login, Verlaufsdiagramme, Prometheus-Endpunkt, HTTPS/wss.
 M3 fertig – Alarme mit Schwellwerten, Anzeige in der GUI, Benachrichtigung per ntfy und E-Mail.
 M4 fertig – Installation als Dienst (Windows, systemd), Server in k3s, Alarme je Host, Stummschalten, Erinnerungen.
 M5 fertig – Self-Update der Agenten aus signierten GitHub-Releases, Warnung vor Ablauf des Server-Zertifikats.
-M6 – CPU-Temperatur, externe Checks (HTTP(S), Ping, TCP), k3s-Ansicht; Hosts umbenennen (Anzeigename,
+M6 fertig – CPU-Temperatur, externe Checks (HTTP(S), Ping, TCP), k3s-Ansicht; Hosts umbenennen (Anzeigename,
 auch in Alarmen) und in Gruppen ordnen – intern bleibt die Agent-ID die Kennung.
-M7 (in Arbeit) – Admin-Aktionen als Jobs mit Verlauf, Dienste überwachen und steuern,
+M7 fertig – Admin-Aktionen als Jobs mit Verlauf, Dienste überwachen und steuern,
 offene Updates (apt) und Neustart, neue k3s-Versionen im Tab „Cluster“, freigegebene Logs lesen, SMART der Datenträger; Alarme quittieren, Wartungsfenster, Abhängigkeiten.
 
 ## Schnellstart (lokal)
@@ -59,8 +59,20 @@ die Konfiguration vom festen Ort (`%ProgramData%\mat-agent\agent.json` bzw. `/et
 Server kann sie sonst nicht auslösen, auch nicht, wenn er übernommen wird:
 
 ```json
-"jobs": ["services"]
+"jobs": ["services", "packages", "reboot"]
 ```
+
+Beim Einrichten geht das direkt mit dem Install-Skript (nur zusammen mit `--server`, sonst
+`agent.json` von Hand ändern und den Dienst neu starten):
+
+```sh
+sudo sh install-agent.sh --server wss://… --fingerprint … --jobs services,packages,reboot --log-sources journal:sshd,journal:kernel
+```
+```powershell
+.\install-agent.ps1 -Server wss://… -Fingerprint … -Jobs services,reboot -LogSources eventlog:System
+```
+
+Unter Windows ändert `-Jobs`/`-LogSources` auch eine vorhandene Konfiguration (`none` = keine).
 
 | Eintrag    | erlaubt                                         |
 |------------|-------------------------------------------------|

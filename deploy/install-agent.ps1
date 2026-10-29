@@ -23,6 +23,7 @@
     .\install-agent.ps1 -Server wss://192.168.100.50/ws/agent -Ca .\server.crt
     .\install-agent.ps1                        # nur Programm aktualisieren, Konfiguration bleibt
     .\install-agent.ps1 -Version v1.0.0 -Server wss://192.168.100.50/ws/agent -Ca .\server.crt -Id pc-1
+    .\install-agent.ps1 -Server wss://192.168.100.50/ws/agent -Fingerprint <sha256> -Jobs services,reboot -LogSources eventlog:System
     .\install-agent.ps1 -Uninstall [-Purge]
 #>
 param(
@@ -34,6 +35,10 @@ param(
     [string]$Fingerprint = "",
     # Agent-ID (Standard: Hostname).
     [string]$Id = "",
+    # Admin-Aktionen freischalten, z. B. "services,reboot" ("none" = keine). Ohne: unverändert.
+    [string[]]$Jobs = @(),
+    # Lesbare Logs, z. B. "eventlog:System,eventlog:Application" ("none" = keine). Ohne: unverändert.
+    [string[]]$LogSources = @(),
     # Release-Version, z. B. v1.0.0 (Standard: neueste).
     [string]$Version = "",
     # Vorhandenes Programm statt Download.
@@ -226,6 +231,14 @@ try {
     }
     if ($Ca) { $serviceArgs += @("-ca", $Ca) }
     if ($Id) { $serviceArgs += @("-id", $Id) }
+    # -Jobs a,b kommt als Array an; "none" leert die Freischaltung. Als "-flag=wert" in einem
+    # Argument, weil PowerShell 5.1 leere Argumente nicht an Programme weitergibt.
+    foreach ($f in @(@("jobs", $Jobs), @("log-sources", $LogSources))) {
+        if ($f[1].Count -eq 0) { continue }
+        $v = ($f[1] -join ",")
+        if ($v -eq "none") { $v = "" }
+        $serviceArgs += "-" + $f[0] + "=" + $v
+    }
     Info "dienst einrichten ($got)"
     & $exe @serviceArgs
     if ($LASTEXITCODE -ne 0) { Fail "service install fehlgeschlagen" }

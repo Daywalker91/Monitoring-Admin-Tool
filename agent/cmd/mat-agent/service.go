@@ -8,9 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/config"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/internal/winsvc"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/proto"
 )
 
 const serviceName = "mat-agent"
@@ -28,6 +30,10 @@ und speichert sie in %ProgramData%\mat-agent\agent.json (nur für SYSTEM und
 Administratoren lesbar). Ohne -server wird eine vorhandene Konfiguration
 übernommen; einzelne Flags überschreiben sie. Das Programm wird nach
 %ProgramFiles%\mat-agent kopiert.
+
+Nur bei install: -jobs services,packages,reboot und -log-sources eventlog:System,…
+schalten Admin-Aktionen frei (leer = keine); ohne die Flags bleiben die
+Freischaltungen der vorhandenen Konfiguration.
 
 Unter Linux übernimmt deploy/install-agent.sh diese Aufgabe (systemd).`
 
@@ -75,8 +81,22 @@ func installService(args []string) error {
 	if !winsvc.IsAdmin() {
 		return errors.New("keine berechtigung – in einer administrator-konsole ausführen")
 	}
+	args, jobs, jobsSet := cutListFlag(args, "jobs")
+	args, sources, sourcesSet := cutListFlag(args, "log-sources")
 	cfg, err := config.Load(args) // prüft die Konfiguration vollständig
 	if err != nil {
+		return fmt.Errorf("konfiguration: %w", err)
+	}
+	if jobsSet {
+		cfg.Jobs = nil
+		for _, j := range jobs {
+			cfg.Jobs = append(cfg.Jobs, proto.Capability(j))
+		}
+	}
+	if sourcesSet {
+		cfg.LogSources = sources
+	}
+	if err := cfg.Validate(); err != nil {
 		return fmt.Errorf("konfiguration: %w", err)
 	}
 
@@ -116,6 +136,35 @@ func installService(args []string) error {
 
 // prepareConfig legt das Datenverzeichnis an, übernimmt die CA-Datei und
 // schreibt die Konfiguration mit Zugriff nur für SYSTEM und Administratoren.
+// cutListFlag entfernt -name/--name (mit "=wert" oder als nächstes Argument)
+// aus args und liefert die kommagetrennten Werte. Diese Freischaltungen gibt
+// es nur bei "service install", nicht beim normalen Start.
+func cutListFlag(args []string, name string) (rest, values []string, set bool) {
+	for i := 0; i < len(args); i++ {
+		a := strings.TrimPrefix(strings.TrimPrefix(args[i], "-"), "-")
+		v, hasValue := "", false
+		switch {
+		case a == name && i+1 < len(args):
+			v, hasValue = args[i+1], true
+			i++
+		case strings.HasPrefix(a, name+"="):
+			v, hasValue = strings.TrimPrefix(a, name+"="), true
+		}
+		if !hasValue {
+			rest = append(rest, args[i])
+			continue
+		}
+		set = true
+		values = nil
+		for _, part := range strings.Split(v, ",") {
+			if part = strings.TrimSpace(part); part != "" {
+				values = append(values, part)
+			}
+		}
+	}
+	return rest, values, set
+}
+
 func prepareConfig(cfg *config.Config, dataDir, cfgPath string) error {
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return fmt.Errorf("datenverzeichnis anlegen: %w", err)

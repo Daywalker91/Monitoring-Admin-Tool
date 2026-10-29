@@ -18,7 +18,11 @@ Es wird in Meilensteinen gearbeitet. Alles, was zu keinem beauftragten Meilenste
   Alarme je Host, Stummschalten, Erinnerungen
 - **M5 (fertig):** Self-Update der Agenten (Job `agent.update`, signierte GitHub-Releases),
   Release-Workflow, Warnung vor Ablauf des Server-Zertifikats
-- **M6:** noch nicht festgelegt (naheliegend: Admin-Jobs)
+- **M6 (fertig):** CPU-Temperatur, externe Checks (HTTP(S), Ping, TCP), k3s-Ansicht (nur lesend), Anzeigename/Gruppe je Host
+- **M7 (fertig):** Admin-Jobs mit Audit-Log (Dienste, apt-Updates, Neustart, Logs lesen), Dienstüberwachung,
+  Update-Status, SMART, k3s-Versionen; Alarme quittieren, Wartungsfenster, Abhängigkeiten
+- **M8:** geplant: Playbooks (Abläufe über mehrere Hosts), `commands`-Whitelist am Host, Prognose „Platte voll“ –
+  vorher gemeinsam einen genauen Plan erarbeiten
 
 ## Tech-Stack
 
@@ -57,11 +61,12 @@ oder direkt als Binary. Agenten laufen immer direkt auf den Hosts (Windows-Diens
 ## Code-Architektur
 
 ```
-/agent    Agent: Collector (Metriken) und später Executor (Jobs)
+/agent    Agent: collector (Metriken), client (WebSocket, Jobs), services, packages (apt), power (Neustart),
+          logs (journalctl/wevtutil), smart (smartctl), update (Self-Update)
 /server   Server: API, WebSocket-Endpunkt, SQLite-Speicher, liefert die GUI aus;
           server/alert wertet Alarmregeln aus, server/notify verschickt Nachrichten (ntfy, SMTP),
           server/checks führt externe Checks aus (HTTP(S), Ping, TCP),
-          server/k8s liest den k3s-Cluster (nur lesend, REST ohne client-go)
+          server/k8s liest den k3s-Cluster (nur lesend, REST ohne client-go) und die k3s-Release-Kanäle
 /web      Frontend-Dateien (werden per go:embed eingebettet)
 /proto    gemeinsame Nachrichtentypen (JSON) zwischen Agent und Server
 /internal kleine gemeinsame Hilfspakete ohne schwere Abhängigkeiten (winsvc: Windows-Dienst, logfile,
@@ -83,17 +88,22 @@ Datenfluss M1:
 3. Server speichert den letzten Stand pro Host sowie eine kompakte Historie (Retention 7 Tage) in SQLite
    und zeigt eine Host-Liste mit aktuellen Werten in der Web-GUI.
 
-Alarme (M3): feste Regeltypen (`offline`, `cpu`, `mem`, `swap`, `disk` je Mountpoint, `temp` in °C seit M6),
+Alarme (M3): feste Regeltypen (`offline`, `cpu`, `mem`, `swap`, `disk` je Mountpoint, `temp` in °C seit M6;
+seit M7 `service`, `unit_failed`, `smart`; dazu Checks und Cluster),
 keine frei formulierbaren Ausdrücke. Auswertung im Server bei jeder Metrik-Nachricht, Offline-Prüfung alle 30 s.
 Auslösen nach ununterbrochener Mindestdauer, Ende mit 5 Prozentpunkten (bzw. 5 °C) Hysterese, je Alarm genau
 eine Nachricht beim Auslösen und eine beim Ende. Offene Alarme stehen in SQLite und überstehen Neustarts.
+Stummschaltung, Wartungsfenster und Abhängigkeiten (`Evaluator.SetQuiet`) verhindern nur das Melden: Alarme
+werden erfasst und, falls danach noch aktiv, nachgemeldet. Quittierte Alarme bekommen keine Erinnerungen.
+
+Jobs (M5/M7): Aktionen und ihre Parameter stehen fest in `proto` (`ActionCapability`, `actionParams`,
+`actionTimeout`, `readOnly`). Jeder Job steht mit Benutzer und Ergebnis in der Tabelle `jobs` (Audit, 90 Tage).
+Agent-Jobs laufen unabhängig von der Verbindung; Ergebnisse gehen nach dem nächsten hello raus.
 
 Vorbereitet für später (nicht umsetzen, solange nicht beauftragt):
 
 - weitere Benachrichtigungskanäle (Telegram, Gotify)
-
-- **Fähigkeiten** (`capabilities`, z. B. `packages`, `users`, `reboot`): der Agent meldet sie, die GUI zeigt nur passende Aktionen
-- **Jobs**: Admin-Aktionen mit festem Aktionsnamen und validierten Parametern
+- Fähigkeit `users` (Benutzer verwalten)
 
 ## Sicherheitsregeln
 
@@ -104,6 +114,10 @@ Der Agent läuft als root bzw. SYSTEM, deshalb gilt:
   zu Befehlszeilen; Programme mit fester Argumentliste aufrufen.
 - Der Agent führt nur Jobs aus, deren Fähigkeit er selbst gemeldet hat, und prüft Parameter **selbst** noch einmal —
   er vertraut dem Server nicht blind.
+- **Ändernde Fähigkeiten nur per Opt-in am Host:** `"jobs"` in `agent.json` (bzw. `--jobs`/`-Jobs` beim Installieren);
+  nie per Server, GUI oder normalem Start-Flag. Logs nur aus `"log_sources"`. Ohne Eintrag meldet der Agent die
+  Fähigkeit nicht. Dienste: nur aus der eigenen Liste, nie der Agent selbst, unter Linux nur `<name>.service`.
+  Geräte für smartctl nur aus dessen Scan. Programme mit festem Pfad (`System32\…`) bzw. fester Argumentliste.
 - Der Agent öffnet **keine eingehenden Ports**; er verbindet sich nur ausgehend zum Server.
 - Agenten authentifizieren sich mit einem Token (`Authorization: Bearer …`). Ohne konfiguriertes Token startet der Server nicht.
   Außerhalb von localhost/LAN-Tests ist `wss://` (TLS) Pflicht. Selbst signierte Zertifikate (`mat-server gen-cert`)

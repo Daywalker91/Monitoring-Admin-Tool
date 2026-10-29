@@ -5,6 +5,7 @@
 #   sudo sh install-agent.sh                 # nur Programm aktualisieren, Konfiguration bleibt
 #   sudo sh install-agent.sh --uninstall [--purge]
 #   weitere Optionen: --ca server.crt | --version v1.0.0 | --download | --binary <datei>
+#   Admin-Aktionen (nur mit --server): --jobs services,packages,reboot --log-sources journal:sshd,journal:kernel
 #
 # Server-Zertifikat: mit --fingerprint (SHA-256, steht in der GUI unter
 # Einstellungen → Agent installieren) holt das Skript das Zertifikat per openssl
@@ -41,20 +42,22 @@ systemctl_() {
 }
 
 usage() {
-	sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'
 	exit "${1:-0}"
 }
 
 # Quelle der Releases; MAT_RELEASE_URL nur für Tests oder Forks.
 RELEASES=${MAT_RELEASE_URL:-https://github.com/Daywalker91/Monitoring-Admin-Tool/releases}
 
-server= ca= fingerprint= id= binary= uninstall= purge= version= download=
+server= ca= fingerprint= id= binary= uninstall= purge= version= download= jobs= logsrc=
 while [ $# -gt 0 ]; do
 	case "$1" in
 	--server) server=${2:?}; shift 2 ;;
 	--ca) ca=${2:?}; shift 2 ;;
 	--fingerprint) fingerprint=${2:?}; shift 2 ;;
 	--id) id=${2:?}; shift 2 ;;
+	--jobs) jobs=${2:?}; shift 2 ;;
+	--log-sources) logsrc=${2:?}; shift 2 ;;
 	--binary) binary=${2:?}; shift 2 ;;
 	--version) version=${2:?}; download=1; shift 2 ;;
 	--download) download=1; shift ;;
@@ -64,6 +67,18 @@ while [ $# -gt 0 ]; do
 	*) echo "unbekannte option: $1" >&2; usage 2 ;;
 	esac
 done
+
+# Freischaltungen: nur einfache Zeichen; die genaue Prüfung macht "mat-agent check".
+if [ -n "$jobs$logsrc" ] && [ -z "$server" ]; then
+	die "--jobs/--log-sources nur zusammen mit --server (sonst agent.json von hand ändern)"
+fi
+case "$jobs" in *[!a-z,]*) die "--jobs: z. b. services,packages,reboot" ;; esac
+case "$logsrc" in *[!A-Za-z0-9:@._/,-]*) die "--log-sources: z. b. journal:sshd,journal:kernel" ;; esac
+
+# json_list macht aus "a,b" die JSON-Elemente "a", "b".
+json_list() {
+	printf '%s' "$1" | awk -v RS=, 'NF { printf "%s\"%s\"", sep, $0; sep = ", " }'
+}
 
 if [ -z "$DESTROOT" ] && [ "$(id -u)" -ne 0 ]; then
 	die "bitte als root ausführen (sudo)"
@@ -293,11 +308,21 @@ if [ -n "$server" ]; then
 		id_json=",
   \"agent_id\": \"$id\""
 	fi
+	jobs_json=
+	if [ -n "$jobs" ]; then
+		jobs_json=",
+  \"jobs\": [$(json_list "$jobs")]"
+	fi
+	logs_json=
+	if [ -n "$logsrc" ]; then
+		logs_json=",
+  \"log_sources\": [$(json_list "$logsrc")]"
+	fi
 	tmp="$CONF.tmp"
 	cat >"$tmp" <<EOF
 {
   "server_url": "$server",
-  "token": "$token"$id_json$ca_json
+  "token": "$token"$id_json$ca_json$jobs_json$logs_json
 }
 EOF
 	chmod 0600 "$tmp"
