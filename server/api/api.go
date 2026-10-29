@@ -109,6 +109,7 @@ func (s *Server) Handler() http.Handler {
 	private.HandleFunc("GET /api/jobs/{job}", s.handleJob)
 	private.HandleFunc("GET /api/hosts/{id}/services", s.handleServices)
 	private.HandleFunc("GET /api/hosts/{id}/updates", s.handleUpdates)
+	private.HandleFunc("GET /api/hosts/{id}/smart", s.handleSmart)
 	private.HandleFunc("POST /api/hosts/{id}/services/watch", s.handleServiceWatch)
 	if s.checks != nil {
 		private.HandleFunc("GET /api/checks", s.handleChecks)
@@ -288,6 +289,17 @@ func (s *Server) readLoop(ctx context.Context, conn *websocket.Conn, hello proto
 			if err := s.store.SaveUpdates(ctx, id, u, env.Data, now); err != nil {
 				log.Error("update-stand speichern", "err", err)
 			}
+		case proto.TypeSmart:
+			var sm proto.Smart
+			if err := json.Unmarshal(env.Data, &sm); err != nil {
+				log.Warn("ungültige smart-nachricht", "err", err)
+				continue
+			}
+			if err := sm.Validate(); err != nil {
+				log.Warn("smart abgelehnt", "err", err)
+				continue
+			}
+			s.observeSmart(ctx, id, s.hostName(id, hello.Hostname), sm, env.Data, now)
 		case proto.TypeJobResult:
 			var res proto.JobResult
 			if err := json.Unmarshal(env.Data, &res); err != nil {

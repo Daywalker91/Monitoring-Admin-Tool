@@ -155,6 +155,8 @@ button.danger:hover { background: var(--crit); color: var(--panel); }
 .detail-grid section.history { grid-column: 1 / -1; }
 .detail-grid section.host-services { grid-column: span 2; }
 .detail-grid section.host-logs { grid-column: 1 / -1; }
+.detail-grid section.host-smart { grid-column: span 2; }
+@media (max-width: 900px) { .detail-grid section.host-smart { grid-column: 1 / -1; } }
 .host-logs select, .host-logs input[type=search] { padding: 5px 8px; font: inherit; font-size: 13px; color: var(--text);
   background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
 .host-logs input[type=search] { flex: 1 1 160px; min-width: 0; }

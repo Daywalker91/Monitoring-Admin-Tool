@@ -344,6 +344,7 @@ function detailRow(h) {
   tr.querySelector(".host-services-slot").replaceWith(hostServiceSection(h));
   tr.querySelector(".host-packages-slot").replaceWith(hostPackageSection(h));
   tr.querySelector(".host-logs-slot").replaceWith(hostLogSection(h));
+  tr.querySelector(".host-smart-slot").replaceWith(hostSmartSection(h));
 
   const cores = tr.querySelector(".cores");
   (m.cpu?.per_core || []).forEach((v, i) => {
@@ -410,6 +411,7 @@ async function deleteHost(h) {
     serviceViews.delete(h.id);
     pkgViews.delete(h.id);
     logViews.delete(h.id);
+    smartViews.delete(h.id);
     saveOpenHosts();
     await refresh();
   } catch (e) {

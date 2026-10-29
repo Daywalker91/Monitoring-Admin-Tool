@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS hosts (
 	last_services_at INTEGER,
 	last_updates     TEXT,
 	updates_summary  TEXT,
-	log_sources      TEXT NOT NULL DEFAULT '[]'
+	log_sources      TEXT NOT NULL DEFAULT '[]',
+	last_smart       TEXT
 );
 
 -- Kompakte Historie: nur Kennzahlen, kein vollständiges JSON (spart Platz).

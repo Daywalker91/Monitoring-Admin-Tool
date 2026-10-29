@@ -78,6 +78,8 @@ var migrations = []struct{ table, column, def, fill string }{
 	{"hosts", "updates_summary", "TEXT", ""},
 	// Freigegebene Log-Quellen aus dem hello (M7, JSON-Liste).
 	{"hosts", "log_sources", "TEXT NOT NULL DEFAULT '[]'", ""},
+	// Letzter SMART-Stand (M7, JSON).
+	{"hosts", "last_smart", "TEXT", ""},
 }
 
 // AlertRule ist der Schwellwert eines Regeltyps.

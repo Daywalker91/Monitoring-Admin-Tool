@@ -37,13 +37,14 @@ const (
 
 	KindService    = "service"     // überwachter Dienst läuft nicht (Ziel: Dienstname)
 	KindUnitFailed = "unit_failed" // systemd-Unit im Zustand failed (Ziel: Dienstname)
+	KindSmart      = "smart"       // Datenträger meldet SMART-Problem (Ziel: Gerät)
 )
 
 // ClusterID ist die Kennung, unter der Cluster-Alarme geführt werden.
 const ClusterID = "k8s"
 
 // HostKinds sind die Regeltypen, die sich je Host anpassen lassen.
-var HostKinds = []string{KindOffline, KindCPU, KindMem, KindSwap, KindDisk, KindTemp, KindService, KindUnitFailed}
+var HostKinds = []string{KindOffline, KindCPU, KindMem, KindSwap, KindDisk, KindTemp, KindService, KindUnitFailed, KindSmart}
 
 const (
 	// Hysteresis in Prozentpunkten (bei "temp" in °C): ein Alarm endet erst
@@ -72,6 +73,7 @@ var DefaultRules = []store.AlertRule{
 	{Kind: KindArgoCD, Enabled: true, ForSec: 600},
 	{Kind: KindService, Enabled: true, ForSec: 60},
 	{Kind: KindUnitFailed, Enabled: true, ForSec: 0},
+	{Kind: KindSmart, Enabled: true, ForSec: 0},
 }
 
 // ValidateRule prüft eine Regel auf erlaubte Werte.
@@ -88,7 +90,7 @@ func ValidateRule(r store.AlertRule) error {
 			return fmt.Errorf("offline: dauer muss mindestens 30 s sein")
 		}
 		return nil
-	case KindCheckDown, KindK8sNode, KindK8sWorkload, KindArgoCD, KindService, KindUnitFailed:
+	case KindCheckDown, KindK8sNode, KindK8sWorkload, KindArgoCD, KindService, KindUnitFailed, KindSmart:
 		return nil
 	case KindCheckCert:
 		if r.Threshold < 1 || r.Threshold > 365 {

@@ -28,6 +28,7 @@ import (
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/packages"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/power"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/services"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/smart"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/update"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/internal/logfile"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/internal/release"
@@ -196,6 +197,7 @@ func runAgent(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		}
 	}
 	cl.WithUpdates(pkgs.Status)
+	cl.WithSmart(smart.New().Read)
 	cl.HandleJob(proto.ActionPackagesRefresh, pkgs.Refresh)
 	cl.HandleJob(proto.ActionPackagesUpgrade, pkgs.Upgrade)
 	cl.HandleJob(proto.ActionReboot, power.Job(log))

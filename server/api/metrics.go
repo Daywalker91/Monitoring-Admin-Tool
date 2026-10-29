@@ -138,6 +138,9 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Messwerte nur für verbundene Hosts, sonst blieben veraltete Werte in Grafana stehen.
+		if online {
+			s.smartMetrics(r.Context(), mw, h.ID)
+		}
 		if !online || len(h.Metrics) == 0 || string(h.Metrics) == "null" {
 			continue
 		}
@@ -217,5 +220,41 @@ func (s *Server) checkMetrics(ctx context.Context, mw *metricsWriter) {
 			mw.add("mat_check_cert_expiry_timestamp_seconds", "gauge", "Ablauf des Zertifikats (HTTPS-Checks).",
 				float64(*res.CertNotAfter), l...)
 		}
+	}
+}
+
+// smartMetrics ergänzt die SMART-Werte eines Hosts (nur Platten mit Antwort).
+func (s *Server) smartMetrics(ctx context.Context, mw *metricsWriter, hostID string) {
+	raw, err := s.store.Smart(ctx, hostID)
+	if err != nil || raw == nil {
+		return
+	}
+	var sm proto.Smart
+	if json.Unmarshal(raw, &sm) != nil {
+		return
+	}
+	for _, d := range sm.Disks {
+		if d.Passed == nil {
+			continue
+		}
+		l := []string{"host", hostID, "device", d.Device, "model", d.Model}
+		ok := 0.0
+		if d.Problem() == "" {
+			ok = 1
+		}
+		mw.add("mat_smart_healthy", "gauge", "1, wenn der Datenträger keine SMART-Probleme meldet.", ok, l...)
+		opt := func(name, help string, v *uint64) {
+			if v != nil {
+				mw.add(name, "gauge", help, float64(*v), l...)
+			}
+		}
+		if d.TempC != nil {
+			mw.add("mat_smart_temperature_celsius", "gauge", "Temperatur des Datenträgers.", *d.TempC, l...)
+		}
+		opt("mat_smart_power_on_hours", "Betriebsstunden.", d.PowerOnHrs)
+		opt("mat_smart_reallocated_sectors", "Wieder zugewiesene Sektoren (ATA 5).", d.Reallocated)
+		opt("mat_smart_pending_sectors", "Ausstehende Sektoren (ATA 197).", d.Pending)
+		opt("mat_smart_percentage_used", "Abnutzung in Prozent (NVMe).", d.PercentUsed)
+		opt("mat_smart_media_errors", "Medienfehler (NVMe).", d.MediaErrors)
 	}
 }

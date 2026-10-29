@@ -5,11 +5,11 @@
 
 const ALERT_LABELS = { offline: "Offline", cpu: "CPU", mem: "RAM", swap: "Swap", disk: "Disk", temp: "CPU-Temperatur",
   check_down: "Check", check_cert: "Zertifikat", k8s_node: "Node", k8s_workload: "Workload", argocd: "ArgoCD",
-  service: "Dienst", unit_failed: "Unit" };
+  service: "Dienst", unit_failed: "Unit", smart: "SMART" };
 // Regeltypen ohne Schwelle (nur Mindestdauer).
-const NO_THRESHOLD = ["offline", "check_down", "k8s_node", "k8s_workload", "argocd", "service", "unit_failed"];
+const NO_THRESHOLD = ["offline", "check_down", "k8s_node", "k8s_workload", "argocd", "service", "unit_failed", "smart"];
 // Regeltypen, deren Alarmwert die Zusatzinfo (detail) ist.
-const DETAIL_VALUE = ["check_down", "k8s_node", "k8s_workload", "argocd", "service", "unit_failed"];
+const DETAIL_VALUE = ["check_down", "k8s_node", "k8s_workload", "argocd", "service", "unit_failed", "smart"];
 const RULE_HELP = {
   offline: "Agent nicht verbunden",
   cpu: "CPU-Auslastung gesamt",
@@ -24,6 +24,7 @@ const RULE_HELP = {
   argocd: "ArgoCD-App Degraded, Missing oder OutOfSync",
   service: "Überwachter Dienst läuft nicht (Auswahl in den Host-Details unter „Dienste“)",
   unit_failed: "Beliebige systemd-Unit ist fehlgeschlagen (nur Linux)",
+  smart: "Datenträger: SMART FAILED, kritische NVMe-Warnung, ausstehende oder nicht korrigierbare Sektoren",
 };
 
 // Schwelle je Regeltyp: Einheit und erlaubter Bereich (wie im Server geprüft).

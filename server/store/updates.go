@@ -36,6 +36,30 @@ func (s *Store) SaveUpdates(ctx context.Context, hostID string, u proto.Updates,
 	return nil
 }
 
+// SaveSmart speichert den letzten SMART-Stand (vollständiges JSON).
+func (s *Store) SaveSmart(ctx context.Context, hostID string, raw []byte) error {
+	if _, err := s.db.ExecContext(ctx, `UPDATE hosts SET last_smart = ? WHERE id = ?`, string(raw), hostID); err != nil {
+		return fmt.Errorf("smart speichern: %w", err)
+	}
+	return nil
+}
+
+// Smart liefert den letzten SMART-Stand eines Hosts (nil = noch keiner).
+func (s *Store) Smart(ctx context.Context, hostID string) (json.RawMessage, error) {
+	var raw sql.NullString
+	err := s.db.QueryRowContext(ctx, `SELECT last_smart FROM hosts WHERE id = ?`, hostID).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("smart lesen: %w", err)
+	}
+	if !raw.Valid {
+		return nil, nil
+	}
+	return json.RawMessage(raw.String), nil
+}
+
 // Updates liefert die letzte Updates-Nachricht eines Hosts (nil = noch keine).
 func (s *Store) Updates(ctx context.Context, hostID string) (json.RawMessage, error) {
 	var raw sql.NullString

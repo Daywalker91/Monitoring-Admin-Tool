@@ -204,3 +204,53 @@ func TestUpdatesAPI(t *testing.T) {
 		}
 	}
 }
+
+func TestSmartAPI(t *testing.T) {
+	ts, _ := newAlertTestServer(t)
+	c := login(t, ts)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conn := fakeAgentCaps(t, ctx, ts, "v1.2.0", "", proto.CapMetrics)
+	waitHost(t, c, ts, "online", func(h hostView) bool { return h.Online })
+	ok, zero, pending := true, uint64(0), uint64(8)
+	send := func(sm proto.Smart) {
+		data, _ := proto.Encode(proto.TypeSmart, sm)
+		conn.Write(ctx, websocket.MessageText, data)
+	}
+	send(proto.Smart{Time: time.Now(), Disks: []proto.SmartDisk{
+		{Device: "/dev/sda", Type: "sat", Model: "SSD", Passed: &ok, Pending: &zero},
+		{Device: "/dev/sdb", Type: "sat", Model: "HDD", Passed: &ok, Pending: &pending},
+	}})
+	waitFor(t, "alarm smart", func() bool { _, ok := activeAlerts(t, c, ts.URL)["smart//dev/sdb"]; return ok })
+	if a := activeAlerts(t, c, ts.URL); len(a) != 1 || a["smart//dev/sdb"].Detail != "8 ausstehende Sektoren" {
+		t.Fatalf("alarme: %+v", a)
+	}
+	var got *proto.Smart
+	if getJSON(t, c, ts.URL+"/api/hosts/a1/smart", &got); got == nil || len(got.Disks) != 2 {
+		t.Fatalf("smart: %+v", got)
+	}
+
+	// Ein fehlgeschlagener Scan beendet den Alarm nicht, ein guter Stand schon.
+	send(proto.Smart{Time: time.Now(), Error: "smartctl --scan-open: exit status 1"})
+	time.Sleep(200 * time.Millisecond)
+	if _, ok := activeAlerts(t, c, ts.URL)["smart//dev/sdb"]; !ok {
+		t.Fatal("scan-fehler hat den alarm beendet")
+	}
+	send(proto.Smart{Time: time.Now(), Disks: []proto.SmartDisk{{Device: "/dev/sdb", Type: "sat", Model: "HDD", Passed: &ok, Pending: &zero}}})
+	waitFor(t, "alarm beendet", func() bool { return len(activeAlerts(t, c, ts.URL)) == 0 })
+
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/metrics", nil)
+	req.Header.Set("Authorization", "Bearer metrics-token-1234")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if want := `mat_smart_healthy{host="a1",device="/dev/sdb",model="HDD"} 1`; !strings.Contains(string(body), want) {
+		t.Errorf("/metrics ohne %s", want)
+	}
+	bad, _ := proto.Encode(proto.TypeSmart, proto.Smart{Disks: []proto.SmartDisk{{Device: "/dev/sda;reboot", Type: "sat"}}})
+	conn.Write(ctx, websocket.MessageText, bad) // wird abgelehnt, Verbindung bleibt
+	waitHost(t, c, ts, "noch online", func(h hostView) bool { return h.Online })
+}

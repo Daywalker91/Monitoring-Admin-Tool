@@ -12,7 +12,7 @@ M5 fertig – Self-Update der Agenten aus signierten GitHub-Releases, Warnung vo
 M6 – CPU-Temperatur, externe Checks (HTTP(S), Ping, TCP), k3s-Ansicht; Hosts umbenennen (Anzeigename,
 auch in Alarmen) und in Gruppen ordnen – intern bleibt die Agent-ID die Kennung.
 M7 (in Arbeit) – Admin-Aktionen als Jobs mit Verlauf, Dienste überwachen und steuern,
-offene Updates (apt) und Neustart, neue k3s-Versionen im Tab „Cluster“, freigegebene Logs lesen.
+offene Updates (apt) und Neustart, neue k3s-Versionen im Tab „Cluster“, freigegebene Logs lesen, SMART der Datenträger.
 
 ## Schnellstart (lokal)
 
@@ -85,6 +85,10 @@ Unter Windows gibt es nur den Neustart-Hinweis, keine Liste offener Windows-Upda
 (`journalctl`), `eventlog:<name>` ein Windows-Ereignisprotokoll (`wevtutil`). Gelesen werden bis zu
 1000 Zeilen bzw. Ereignisse, auch während ein Upgrade läuft. Wer welches Log gelesen hat, steht im
 Verlauf; den Inhalt löscht der Server nach einem Tag.
+
+**SMART:** Ist smartmontools installiert (`apt install smartmontools`, Windows: smartmontools.org),
+meldet der Agent alle 30 min die Werte aller Datenträger aus `smartctl --scan-open` (`-n standby`
+weckt keine schlafenden Platten). SD-Karten und eMMC liefern meist keine Werte.
 
 k3s selbst ist per Install-Skript installiert, nicht über apt: `packages.upgrade` aktualisiert nur
 das Betriebssystem. Vor Upgrade oder Neustart eines Nodes am besten `kubectl drain`, und immer nur
@@ -179,6 +183,7 @@ Alle `/api/*`-Endpunkte außer Login/Logout erfordern eine Session.
 | `GET /api/jobs/{id}`            | eine Aktion samt Ausgabe                   |
 | `GET /api/hosts/{id}/services`  | letzte Dienstliste und überwachte Dienste  |
 | `GET /api/hosts/{id}/updates`   | letzter Update-Stand mit Paketliste        |
+| `GET /api/hosts/{id}/smart`     | letzter SMART-Stand der Datenträger        |
 | `POST /api/hosts/{id}/services/watch` | Dienst überwachen (`{"name":"nginx","watch":true}`) |
 | `GET /api/alerts`               | aktive Alarme, `?all=1` mit Verlauf (7 Tage) |
 | `GET /api/alert-rules`          | Regeln und konfigurierte Kanäle            |
@@ -219,6 +224,7 @@ Der Server prüft feste Regeltypen; Schwelle und Mindestdauer lassen sich in der
 | ArgoCD  | 10 min                 | App Degraded, Missing oder OutOfSync        |
 | Dienst  | 1 min                  | überwachter Dienst läuft nicht (Auswahl in den Host-Details unter „Dienste“) |
 | Unit    | sofort                 | systemd-Unit ist fehlgeschlagen (Linux)     |
+| SMART   | sofort                 | Datenträger FAILED, kritische NVMe-Warnung, ausstehende oder nicht korrigierbare Sektoren (wieder zugewiesene Sektoren nur Anzeige) |
 
 Ein Alarm löst aus, wenn der Wert die Mindestdauer lang ununterbrochen über der Schwelle liegt, und endet,
 wenn er 5 Prozentpunkte (Temperatur: 5 °C) unter die Schwelle fällt.
@@ -394,6 +400,8 @@ Metriken (Präfix `mat_`): `alerts_firing` (je Host und Regel), `host_up`, `host
 `swap_total/used_bytes`, `network_{receive,transmit}_{bytes,packets}_per_second`, `network_{receive,transmit}_errors_total`,
 `filesystem_size/used_bytes`, `cpu_temperature_celsius` und `sensor_temperature_celsius` (je Sensor, nur Linux-Hosts mit Sensor).
 Updates (M7): `updates_pending`, `updates_security_pending` (nur Hosts mit apt) und `reboot_required`.
+SMART (Labels `device`, `model`): `smart_healthy`, `smart_temperature_celsius`, `smart_power_on_hours`,
+`smart_reallocated_sectors`, `smart_pending_sectors`, `smart_percentage_used`, `smart_media_errors`.
 Externe Checks: `check_up`, `check_latency_seconds`, `check_cert_expiry_timestamp_seconds` (Labels `check`, `name`, `kind`).
 
 Architektur, Zielplattformen und Sicherheitsregeln: siehe [CLAUDE.md](CLAUDE.md).

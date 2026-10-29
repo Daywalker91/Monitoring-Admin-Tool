@@ -36,6 +36,8 @@ func Label(kind string) string {
 		return "Dienst"
 	case KindUnitFailed:
 		return "Unit"
+	case KindSmart:
+		return "SMART"
 	}
 	return kind
 }
@@ -93,6 +95,11 @@ func (e Event) Title() string {
 			return host + ": " + e.Alert.Target + " fehlgeschlagen"
 		}
 		return host + ": " + e.Alert.Target + " wieder in Ordnung"
+	case KindSmart:
+		if e.Firing() {
+			return host + ": Datenträger " + e.Alert.Target + " – " + e.Alert.Detail
+		}
+		return host + ": Datenträger " + e.Alert.Target + " wieder in Ordnung"
 	case KindCheckCert:
 		if !e.Firing() {
 			return host + ": Zertifikat erneuert"
@@ -137,7 +144,7 @@ func (e Event) Body() string {
 			days(a.Value), days(a.Threshold))
 	case a.Kind == KindCheckCert:
 		fmt.Fprintf(&b, "Das Zertifikat wurde erneuert.\n")
-	case strings.HasPrefix(a.Kind, "k8s_") || a.Kind == KindArgoCD || a.Kind == KindService || a.Kind == KindUnitFailed:
+	case strings.HasPrefix(a.Kind, "k8s_") || a.Kind == KindArgoCD || a.Kind == KindService || a.Kind == KindUnitFailed || a.Kind == KindSmart:
 		if e.Type != Resolved {
 			fmt.Fprintf(&b, "%s %s", Label(a.Kind), a.Target)
 			if a.Detail != "" {

@@ -42,7 +42,12 @@ const (
 	// bei Änderung senden, sonst stündlich.
 	updatesCheck = 5 * time.Minute
 	updatesFull  = time.Hour
+	// SMART: der Reader fragt die Platten höchstens alle 30 Minuten ab.
+	smartCheck = 30 * time.Minute
 )
+
+// SmartReader liefert den SMART-Stand des Hosts.
+type SmartReader func(ctx context.Context) proto.Smart
 
 // UpdateChecker liefert den Update-Stand des Hosts.
 type UpdateChecker func(ctx context.Context) proto.Updates
@@ -70,6 +75,7 @@ type Client struct {
 	svcNow   chan struct{}      // Dienstliste sofort prüfen (nach einem Dienst-Job)
 	updates  UpdateChecker      // nil = kein Update-Stand
 	updNow   chan struct{}      // Update-Stand sofort prüfen (nach einem Paket-Job)
+	smart    SmartReader        // nil = kein SMART
 	jobs     map[string]JobFunc // erlaubte Aktionen; nur mit gemeldeter Fähigkeit
 	busy     atomic.Bool        // es läuft immer höchstens ein ändernder Job …
 	readBusy atomic.Bool        // … und daneben höchstens ein lesender (z. B. log.read)
@@ -117,6 +123,9 @@ func (c *Client) WithServices(fn ServiceLister) { c.services = fn }
 
 // WithUpdates sendet den Update-Stand des Hosts.
 func (c *Client) WithUpdates(fn UpdateChecker) { c.updates = fn }
+
+// WithSmart sendet den SMART-Stand des Hosts.
+func (c *Client) WithSmart(fn SmartReader) { c.smart = fn }
 
 // OnStable wird einmal aufgerufen, sobald eine Verbindung stableAfter gehalten hat.
 func (c *Client) OnStable(fn func()) { c.onStable = fn }
@@ -228,6 +237,8 @@ func (c *Client) session(ctx context.Context) (connected bool, err error) {
 	updTick := time.NewTicker(updatesCheck)
 	defer updTick.Stop()
 	var upd updateState
+	smartTick := time.NewTicker(smartCheck)
+	defer smartTick.Stop()
 
 	// Direkt nach dem Verbinden einen vollständigen Stand senden.
 	if err := c.sendMetrics(sessCtx, conn); err != nil {
@@ -240,6 +251,9 @@ func (c *Client) session(ctx context.Context) (connected bool, err error) {
 		return fail(err)
 	}
 	if err := c.sendUpdates(sessCtx, conn, &upd); err != nil {
+		return fail(err)
+	}
+	if err := c.sendSmart(sessCtx, conn); err != nil {
 		return fail(err)
 	}
 
@@ -282,6 +296,10 @@ func (c *Client) session(ctx context.Context) (connected bool, err error) {
 			}
 		case <-c.updNow:
 			if err := c.sendUpdates(sessCtx, conn, &upd); err != nil {
+				return fail(err)
+			}
+		case <-smartTick.C:
+			if err := c.sendSmart(sessCtx, conn); err != nil {
 				return fail(err)
 			}
 		}
@@ -478,6 +496,14 @@ func (c *Client) sendUpdates(ctx context.Context, conn *websocket.Conn, st *upda
 	}
 	st.last, st.at = u, now
 	return nil
+}
+
+// sendSmart schickt den SMART-Stand (nach dem Verbinden und alle smartCheck).
+func (c *Client) sendSmart(ctx context.Context, conn *websocket.Conn) error {
+	if c.smart == nil {
+		return nil
+	}
+	return c.send(ctx, conn, proto.TypeSmart, c.smart(ctx))
 }
 
 // sameUpdates vergleicht zwei Stände ohne den Zeitstempel.
