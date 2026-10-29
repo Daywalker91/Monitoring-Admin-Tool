@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/alert"
@@ -176,6 +177,17 @@ func (s *Server) knownHost(w http.ResponseWriter, r *http.Request) bool {
 	return ok
 }
 
+// hostDefaults liefert die globalen Regeln der Typen, die je Host gelten.
+func (s *Server) hostDefaults() []store.AlertRule {
+	out := []store.AlertRule{}
+	for _, r := range s.alerts.Rules() {
+		if slices.Contains(alert.HostKinds, r.Kind) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 type hostRulesView struct {
 	Rules    []store.AlertRule `json:"rules"`    // abweichende Regeln des Hosts
 	Defaults []store.AlertRule `json:"defaults"` // globale Regeln
@@ -185,7 +197,7 @@ func (s *Server) handleGetHostRules(w http.ResponseWriter, r *http.Request) {
 	if !s.knownHost(w, r) {
 		return
 	}
-	writeJSON(w, hostRulesView{Rules: s.alerts.HostRules(r.PathValue("id")), Defaults: s.alerts.Rules()})
+	writeJSON(w, hostRulesView{Rules: s.alerts.HostRules(r.PathValue("id")), Defaults: s.hostDefaults()})
 }
 
 func (s *Server) handleSetHostRules(w http.ResponseWriter, r *http.Request) {
@@ -209,7 +221,7 @@ func (s *Server) handleSetHostRules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.log.Info("host-alarmregeln geändert", "agent_id", id, "rules", len(req.Rules), "user", userFrom(r.Context()))
-	writeJSON(w, hostRulesView{Rules: s.alerts.HostRules(id), Defaults: s.alerts.Rules()})
+	writeJSON(w, hostRulesView{Rules: s.alerts.HostRules(id), Defaults: s.hostDefaults()})
 }
 
 // handleMute schaltet einen Host stumm (POST {"minutes": N}, 0 = unbefristet)

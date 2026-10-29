@@ -27,7 +27,9 @@ CREATE TABLE IF NOT EXISTS alerts (
 	value       REAL NOT NULL,
 	peak        REAL NOT NULL,
 	started_at  INTEGER NOT NULL,
-	resolved_at INTEGER
+	resolved_at INTEGER,
+	name        TEXT NOT NULL DEFAULT '',
+	detail      TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_alerts_open ON alerts(resolved_at) WHERE resolved_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_alerts_started ON alerts(started_at);
@@ -62,6 +64,9 @@ var migrations = []struct{ table, column, def, fill string }{
 	{"alerts", "notified_at", "INTEGER", "UPDATE alerts SET notified_at = started_at"},
 	// CPU-Temperatur in °C (M6); NULL = Host ohne Sensor.
 	{"metrics_history", "cpu_temp", "REAL", ""},
+	// Alarme ohne Host (Checks, Cluster, M6): Anzeigename und Zusatzinfo (z. B. Fehlermeldung).
+	{"alerts", "name", "TEXT NOT NULL DEFAULT ''", ""},
+	{"alerts", "detail", "TEXT NOT NULL DEFAULT ''", ""},
 }
 
 // AlertRule ist der Schwellwert eines Regeltyps.
@@ -75,8 +80,9 @@ type AlertRule struct {
 // Alert ist ein ausgelöster Alarm.
 type Alert struct {
 	ID         int64   `json:"id"`
-	HostID     string  `json:"host_id"`
-	Hostname   string  `json:"hostname"`
+	HostID     string  `json:"host_id"`          // bei Checks "check:<id>", beim Cluster "k8s"
+	Hostname   string  `json:"hostname"`         // Hostname bzw. Name des Checks
+	Detail     string  `json:"detail,omitempty"` // Zusatzinfo, z. B. Fehlermeldung eines Checks
 	Kind       string  `json:"kind"`
 	Target     string  `json:"target"` // z. B. Mountpoint bei "disk"
 	Threshold  float64 `json:"threshold"`
@@ -126,9 +132,9 @@ ON CONFLICT(kind) DO UPDATE SET enabled = excluded.enabled, threshold = excluded
 // OpenAlert legt einen aktiven Alarm an und setzt a.ID.
 func (s *Store) OpenAlert(ctx context.Context, a *Alert) error {
 	res, err := s.db.ExecContext(ctx, `
-INSERT INTO alerts (host_id, kind, target, threshold, value, peak, started_at, notified_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.HostID, a.Kind, a.Target, a.Threshold, a.Value, a.Peak, a.StartedAt, a.NotifiedAt)
+INSERT INTO alerts (host_id, kind, target, threshold, value, peak, started_at, notified_at, name, detail)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.HostID, a.Kind, a.Target, a.Threshold, a.Value, a.Peak, a.StartedAt, a.NotifiedAt, a.Hostname, a.Detail)
 	if err != nil {
 		return fmt.Errorf("alarm speichern: %w", err)
 	}
@@ -157,8 +163,8 @@ func (s *Store) ResolveAlert(ctx context.Context, id int64, at time.Time) error 
 // Alarme, sonst kommen offene sowie seit since beendete Alarme.
 func (s *Store) Alerts(ctx context.Context, activeOnly bool, since time.Time, limit int) ([]Alert, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT a.id, a.host_id, COALESCE(h.hostname, a.host_id), a.kind, a.target, a.threshold, a.value, a.peak,
-       a.started_at, a.resolved_at, a.notified_at
+SELECT a.id, a.host_id, COALESCE(h.hostname, NULLIF(a.name, ''), a.host_id), a.kind, a.target, a.threshold,
+       a.value, a.peak, a.started_at, a.resolved_at, a.notified_at, a.detail
 FROM alerts a LEFT JOIN hosts h ON h.id = a.host_id
 WHERE a.resolved_at IS NULL OR (?1 = 0 AND a.resolved_at >= ?2)
 ORDER BY a.resolved_at IS NOT NULL, a.started_at DESC, a.id DESC
@@ -172,7 +178,7 @@ LIMIT ?3`, activeOnly, since.Unix(), limit)
 		var a Alert
 		var resolved, notified sql.NullInt64
 		if err := rows.Scan(&a.ID, &a.HostID, &a.Hostname, &a.Kind, &a.Target, &a.Threshold, &a.Value,
-			&a.Peak, &a.StartedAt, &resolved, &notified); err != nil {
+			&a.Peak, &a.StartedAt, &resolved, &notified, &a.Detail); err != nil {
 			return nil, err
 		}
 		if resolved.Valid {

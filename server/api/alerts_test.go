@@ -194,7 +194,7 @@ func TestHostRulesAndMuteAPI(t *testing.T) {
 	var view hostRulesView
 	json.NewDecoder(resp.Body).Decode(&view)
 	resp.Body.Close()
-	if len(view.Rules) != 1 || view.Rules[0].Threshold != 95 || len(view.Defaults) != len(alert.DefaultRules) {
+	if len(view.Rules) != 1 || view.Rules[0].Threshold != 95 || len(view.Defaults) != len(alert.HostKinds) {
 		t.Fatalf("host-regeln lesen: %+v", view)
 	}
 

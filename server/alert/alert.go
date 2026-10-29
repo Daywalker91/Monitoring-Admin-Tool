@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -26,7 +27,13 @@ const (
 	KindSwap    = "swap"    // Swap belegt
 	KindDisk    = "disk"    // Speicher je Mountpoint
 	KindTemp    = "temp"    // CPU-Temperatur in °C
+
+	KindCheckDown = "check_down" // externer Check schlägt fehl
+	KindCheckCert = "check_cert" // Zertifikat eines HTTPS-Checks läuft in weniger als Threshold Tagen ab
 )
+
+// HostKinds sind die Regeltypen, die sich je Host anpassen lassen.
+var HostKinds = []string{KindOffline, KindCPU, KindMem, KindSwap, KindDisk, KindTemp}
 
 const (
 	// Hysteresis in Prozentpunkten (bei "temp" in °C): ein Alarm endet erst
@@ -48,6 +55,8 @@ var DefaultRules = []store.AlertRule{
 	{Kind: KindSwap, Enabled: true, Threshold: 80, ForSec: 600},
 	{Kind: KindDisk, Enabled: true, Threshold: 90, ForSec: 60},
 	{Kind: KindTemp, Enabled: true, Threshold: 80, ForSec: 300},
+	{Kind: KindCheckDown, Enabled: true, ForSec: 120},
+	{Kind: KindCheckCert, Enabled: true, Threshold: 14},
 }
 
 // ValidateRule prüft eine Regel auf erlaubte Werte.
@@ -58,9 +67,17 @@ func ValidateRule(r store.AlertRule) error {
 	if r.ForSec < 0 || r.ForSec > 86400 {
 		return fmt.Errorf("%s: dauer muss zwischen 0 und 86400 s liegen", r.Kind)
 	}
-	if r.Kind == KindOffline {
+	switch r.Kind {
+	case KindOffline:
 		if r.ForSec < 30 {
 			return fmt.Errorf("offline: dauer muss mindestens 30 s sein")
+		}
+		return nil
+	case KindCheckDown:
+		return nil
+	case KindCheckCert:
+		if r.Threshold < 1 || r.Threshold > 365 {
+			return fmt.Errorf("check_cert: schwelle muss zwischen 1 und 365 tagen liegen")
 		}
 		return nil
 	}
@@ -223,8 +240,8 @@ func (e *Evaluator) HostRules(hostID string) []store.AlertRule {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	out := []store.AlertRule{}
-	for _, d := range DefaultRules {
-		if r, ok := e.overrides[hostID][d.Kind]; ok {
+	for _, kind := range HostKinds {
+		if r, ok := e.overrides[hostID][kind]; ok {
 			out = append(out, r)
 		}
 	}
@@ -238,6 +255,9 @@ func (e *Evaluator) SetHostRules(ctx context.Context, hostID string, rules []sto
 	for _, r := range rules {
 		if err := ValidateRule(r); err != nil {
 			return err
+		}
+		if !slices.Contains(HostKinds, r.Kind) {
+			return fmt.Errorf("regeltyp %q gilt nicht je host", r.Kind)
 		}
 		if seen[r.Kind] {
 			return fmt.Errorf("regeltyp %q doppelt", r.Kind)
@@ -411,6 +431,65 @@ func (e *Evaluator) check(ctx context.Context, k key, hostname string, rule stor
 	}
 }
 
+// ObserveCheck wertet das Ergebnis eines externen Checks aus. id ist die
+// Alarm-Kennung des Checks (checks.AlarmID), detail die Fehlermeldung samt
+// Ziel. certDays ist die Restlaufzeit des Zertifikats in Tagen (nil = kein
+// HTTPS oder nicht ermittelbar; dann bleibt der Zertifikatsalarm unverändert).
+func (e *Evaluator) ObserveCheck(ctx context.Context, id, name string, ok bool, detail string, certDays *float64, now time.Time) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if rule := e.ruleFor(id, KindCheckDown); rule.Enabled {
+		e.condition(ctx, key{id, KindCheckDown, ""}, name, detail, rule, !ok, 1, now)
+	}
+	if rule := e.ruleFor(id, KindCheckCert); rule.Enabled && certDays != nil {
+		e.condition(ctx, key{id, KindCheckCert, ""}, name, "", rule, *certDays < rule.Threshold, *certDays, now)
+	}
+}
+
+// condition führt einen Alarm, dessen Bedingung ja/nein ist (ohne Hysterese):
+// auslösen, wenn cond die Mindestdauer lang gilt, beenden, sobald sie nicht
+// mehr gilt. e.mu ist gesperrt.
+func (e *Evaluator) condition(ctx context.Context, k key, name, detail string, rule store.AlertRule, cond bool, v float64, now time.Time) {
+	if a := e.firing[k]; a != nil {
+		a.Hostname = name
+		if !cond {
+			e.resolve(ctx, k, now)
+		}
+		return
+	}
+	if !cond {
+		delete(e.pending, k)
+		return
+	}
+	p := e.pending[k]
+	if p == nil {
+		p = &pending{since: now, value: v}
+		e.pending[k] = p
+	}
+	p.last = now
+	if now.Sub(p.since) >= time.Duration(rule.ForSec)*time.Second {
+		delete(e.pending, k)
+		e.fireDetail(ctx, k, name, detail, rule, v, v, now)
+	}
+}
+
+// Clear beendet alle Alarme und wartenden Bedingungen einer Kennung (z. B.
+// eines abgeschalteten Checks); das Ende wird wie üblich gemeldet.
+func (e *Evaluator) Clear(ctx context.Context, id string, now time.Time) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for k := range e.pending {
+		if k.host == id {
+			delete(e.pending, k)
+		}
+	}
+	for k := range e.firing {
+		if k.host == id {
+			e.resolve(ctx, k, now)
+		}
+	}
+}
+
 // CheckOffline prüft den Verbindungsstand aller Hosts.
 func (e *Evaluator) CheckOffline(ctx context.Context, hosts []HostState, now time.Time) {
 	e.mu.Lock()
@@ -475,7 +554,12 @@ func (e *Evaluator) ActiveCount() map[string]map[string]int {
 
 // fire legt einen Alarm an und meldet ihn. e.mu ist gesperrt.
 func (e *Evaluator) fire(ctx context.Context, k key, hostname string, rule store.AlertRule, v, peak float64, now time.Time) {
-	a := &store.Alert{HostID: k.host, Hostname: hostname, Kind: k.kind, Target: k.target,
+	e.fireDetail(ctx, k, hostname, "", rule, v, peak, now)
+}
+
+// fireDetail legt einen Alarm mit Zusatzinfo an und meldet ihn. e.mu ist gesperrt.
+func (e *Evaluator) fireDetail(ctx context.Context, k key, hostname, detail string, rule store.AlertRule, v, peak float64, now time.Time) {
+	a := &store.Alert{HostID: k.host, Hostname: hostname, Detail: detail, Kind: k.kind, Target: k.target,
 		Threshold: rule.Threshold, Value: v, Peak: peak, StartedAt: now.Unix()}
 	_, muted := e.mutedUntil(k.host, now)
 	if !muted {

@@ -345,3 +345,59 @@ func TestTempAlert(t *testing.T) {
 		t.Fatal("grenzen der temperaturschwelle")
 	}
 }
+
+func TestCheckAlerts(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	obs := func(ok bool, certDays *float64) {
+		f.ev.ObserveCheck(ctx, "check:7", "Webseite", ok, "status 503 (https://x)", certDays, f.now)
+		f.now = f.now.Add(time.Minute)
+	}
+	days := func(v float64) *float64 { return &v }
+
+	// Standard: 2 min fehlgeschlagen.
+	obs(false, nil)
+	obs(false, nil)
+	if ev := f.take(); len(ev) != 0 {
+		t.Fatalf("zu früh: %+v", ev)
+	}
+	obs(false, nil)
+	ev := f.take()
+	if len(ev) != 1 || ev[0].Alert.Kind != KindCheckDown || ev[0].Title() != "Webseite ist nicht erreichbar" ||
+		!strings.Contains(ev[0].Body(), "status 503 (https://x)") || !strings.Contains(ev[0].Body(), "Check: Webseite") {
+		t.Fatalf("auslösen: %+v %s", ev, ev[0].Body())
+	}
+	obs(true, days(30))
+	if ev := f.take(); len(ev) != 1 || ev[0].Type != Resolved || ev[0].Title() != "Webseite ist wieder erreichbar" {
+		t.Fatalf("ende: %+v", ev)
+	}
+
+	// Zertifikat: Standard 14 Tage, sofort.
+	obs(true, days(9.5))
+	ev = f.take()
+	if len(ev) != 1 || ev[0].Alert.Kind != KindCheckCert || ev[0].Title() != "Webseite: Zertifikat läuft in 9 Tagen ab" {
+		t.Fatalf("zertifikat: %+v", ev)
+	}
+	obs(false, nil) // Fehlschlag ohne Zertifikatsinfo ändert den Zertifikatsalarm nicht
+	if f.ev.firing[key{"check:7", KindCheckCert, ""}] == nil {
+		t.Fatal("zertifikatsalarm ohne neue info beendet")
+	}
+	obs(true, days(89))
+	ev = f.take()
+	if len(ev) != 1 || ev[0].Type != Resolved || ev[0].Alert.Kind != KindCheckCert {
+		t.Fatalf("zertifikat erneuert: %+v", ev)
+	}
+
+	// Abschalten beendet laufende Alarme.
+	for i := 0; i < 3; i++ {
+		obs(false, nil)
+	}
+	f.take()
+	f.ev.Clear(ctx, "check:7", f.now)
+	if ev := f.take(); len(ev) != 1 || ev[0].Type != Resolved || len(f.ev.firing) != 0 {
+		t.Fatalf("clear: %+v", ev)
+	}
+	if f.ev.SetHostRules(ctx, "h1", []store.AlertRule{{Kind: KindCheckDown, Enabled: true}}, f.now) == nil {
+		t.Fatal("check-regel als host-regel akzeptiert")
+	}
+}

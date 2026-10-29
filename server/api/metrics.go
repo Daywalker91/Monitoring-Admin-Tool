@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
@@ -108,9 +109,9 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	mw := newMetricsWriter()
 	for _, h := range hosts {
 		if s.alerts != nil {
-			for _, d := range alert.DefaultRules {
+			for _, kind := range alert.HostKinds {
 				mw.add("mat_alerts_firing", "gauge", "Anzahl aktiver Alarme je Host und Regeltyp.",
-					float64(firing[h.ID][d.Kind]), "host", h.ID, "rule", d.Kind)
+					float64(firing[h.ID][kind]), "host", h.ID, "rule", kind)
 			}
 		}
 		host := []string{"host", h.ID}
@@ -169,7 +170,41 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	s.checkMetrics(r.Context(), mw)
+
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = w.Write(mw.bytes())
+}
+
+// checkMetrics ergänzt die externen Checks.
+func (s *Server) checkMetrics(ctx context.Context, mw *metricsWriter) {
+	if s.checks == nil {
+		return
+	}
+	list, err := s.store.Checks(ctx)
+	if err != nil {
+		s.log.Error("checks für metrics lesen", "err", err)
+		return
+	}
+	last := s.checks.Last()
+	for _, c := range list {
+		res, ok := last[c.ID]
+		if !c.Enabled || !ok {
+			continue
+		}
+		l := []string{"check", strconv.FormatInt(c.ID, 10), "name", c.Name, "kind", c.Kind}
+		up := 0.0
+		if res.OK {
+			up = 1
+		}
+		mw.add("mat_check_up", "gauge", "Letzter Durchlauf des Checks erfolgreich (1) oder nicht (0).", up, l...)
+		if res.LatencyMS != nil {
+			mw.add("mat_check_latency_seconds", "gauge", "Antwortzeit des letzten Durchlaufs.", *res.LatencyMS/1000, l...)
+		}
+		if res.CertNotAfter != nil {
+			mw.add("mat_check_cert_expiry_timestamp_seconds", "gauge", "Ablauf des Zertifikats (HTTPS-Checks).",
+				float64(*res.CertNotAfter), l...)
+		}
+	}
 }

@@ -23,6 +23,7 @@ import (
 	"github.com/Daywalker91/Monitoring-Admin-Tool/proto"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/alert"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/auth"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/server/checks"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/notify"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/store"
 )
@@ -47,6 +48,7 @@ type Server struct {
 	alerts   *alert.Evaluator   // nil = keine Alarmauswertung
 	notifier *notify.Dispatcher // nil = keine externen Kanäle
 	upd      *updates           // nil = kein Self-Update
+	checks   *checks.Runner     // nil = keine externen Checks
 	version  string             // Server-Version (Anzeige)
 
 	certNotAfter    time.Time // Ablauf des TLS-Zertifikats, null = kein TLS
@@ -95,6 +97,13 @@ func (s *Server) Handler() http.Handler {
 	private.HandleFunc("POST /api/update/check", s.handleUpdateCheck)
 	private.HandleFunc("POST /api/update/all", s.handleUpdateAll)
 	private.HandleFunc("POST /api/hosts/{id}/update", s.handleHostUpdate)
+	if s.checks != nil {
+		private.HandleFunc("GET /api/checks", s.handleChecks)
+		private.HandleFunc("POST /api/checks", s.handleCreateCheck)
+		private.HandleFunc("PUT /api/checks/{id}", s.handleEditCheck)
+		private.HandleFunc("DELETE /api/checks/{id}", s.handleDeleteCheck)
+		private.HandleFunc("GET /api/checks/{id}/history", s.handleCheckHistory)
+	}
 	private.Handle("GET /", static)
 
 	public := http.NewServeMux()

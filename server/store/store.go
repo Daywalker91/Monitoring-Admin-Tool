@@ -74,7 +74,7 @@ func Open(path string) (*Store, error) {
 	}
 	// SQLite verträgt nur einen Schreiber; eine Verbindung vermeidet SQLITE_BUSY.
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(schema + usersSchema + alertsSchema); err != nil {
+	if _, err := db.Exec(schema + usersSchema + alertsSchema + checksSchema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("schema anlegen: %w", err)
 	}
@@ -283,6 +283,9 @@ func (s *Store) Prune(ctx context.Context, before time.Time) (int64, error) {
 	}
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM alerts WHERE resolved_at < ?`, before.Unix()); err != nil {
 		return 0, fmt.Errorf("alarme bereinigen: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM check_results WHERE ts < ?`, before.Unix()); err != nil {
+		return 0, fmt.Errorf("check-ergebnisse bereinigen: %w", err)
 	}
 	return res.RowsAffected()
 }

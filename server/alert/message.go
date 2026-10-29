@@ -2,6 +2,7 @@ package alert
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"time"
 )
@@ -21,6 +22,10 @@ func Label(kind string) string {
 		return "Disk"
 	case KindTemp:
 		return "CPU-Temperatur"
+	case KindCheckDown:
+		return "Check"
+	case KindCheckCert:
+		return "Zertifikat"
 	}
 	return kind
 }
@@ -42,11 +47,32 @@ func (e Event) Title() string {
 		return "Erinnerung: " + Event{Type: Firing, Alert: e.Alert, Rule: e.Rule, At: e.At}.Title()
 	}
 	host := e.Alert.Hostname
-	if e.Alert.Kind == KindOffline {
+	switch e.Alert.Kind {
+	case KindOffline:
 		if e.Firing() {
 			return host + " ist offline"
 		}
 		return host + " ist wieder online"
+	case KindCheckDown:
+		if e.Firing() {
+			return host + " ist nicht erreichbar"
+		}
+		return host + " ist wieder erreichbar"
+	case KindCheckCert:
+		if !e.Firing() {
+			return host + ": Zertifikat erneuert"
+		}
+		if e.Alert.Value <= 0 {
+			return host + ": Zertifikat ist abgelaufen"
+		}
+		switch n := int(math.Floor(e.Alert.Value)); n {
+		case 0:
+			return host + ": Zertifikat läuft heute ab"
+		case 1:
+			return host + ": Zertifikat läuft morgen ab"
+		default:
+			return fmt.Sprintf("%s: Zertifikat läuft in %d Tagen ab", host, n)
+		}
 	}
 	if e.Firing() {
 		return fmt.Sprintf("%s: %s %s", host, e.subject(), e.value(e.Alert.Value))
@@ -63,6 +89,19 @@ func (e Event) Body() string {
 		fmt.Fprintf(&b, "Alarm besteht seit %s.\n", duration(e.At.Sub(started)))
 	}
 	switch {
+	case a.Kind == KindCheckDown && e.Type != Resolved:
+		fmt.Fprintf(&b, "Check schlägt fehl")
+		if e.Rule.ForSec > 0 {
+			fmt.Fprintf(&b, " seit mindestens %s", duration(time.Duration(e.Rule.ForSec)*time.Second))
+		}
+		fmt.Fprintf(&b, ": %s\n", a.Detail)
+	case a.Kind == KindCheckDown:
+		fmt.Fprintf(&b, "Check wieder erfolgreich, war %s nicht erreichbar.\n", duration(e.At.Sub(started)))
+	case a.Kind == KindCheckCert && e.Type != Resolved:
+		fmt.Fprintf(&b, "Restlaufzeit des Zertifikats: %s (Warnschwelle %s). Zertifikat erneuern.\n",
+			days(a.Value), days(a.Threshold))
+	case a.Kind == KindCheckCert:
+		fmt.Fprintf(&b, "Das Zertifikat wurde erneuert.\n")
 	case a.Kind == KindOffline && e.Type != Resolved:
 		fmt.Fprintf(&b, "Keine Verbindung zum Agenten seit %s.\n", duration(time.Duration(a.Value*float64(time.Minute))))
 	case a.Kind == KindOffline:
@@ -79,7 +118,11 @@ func (e Event) Body() string {
 		fmt.Fprintf(&b, "%s wieder unter %s. Alarm dauerte %s, Spitzenwert %s.\n",
 			e.subject(), e.value(a.Threshold-Hysteresis), duration(e.At.Sub(started)), e.value(a.Peak))
 	}
-	fmt.Fprintf(&b, "Host: %s (%s)\nBeginn: %s", a.Hostname, a.HostID, started.Format("02.01.2006 15:04:05"))
+	if strings.HasPrefix(a.HostID, "check:") {
+		fmt.Fprintf(&b, "Check: %s\nBeginn: %s", a.Hostname, started.Format("02.01.2006 15:04:05"))
+	} else {
+		fmt.Fprintf(&b, "Host: %s (%s)\nBeginn: %s", a.Hostname, a.HostID, started.Format("02.01.2006 15:04:05"))
+	}
 	return b.String()
 }
 
@@ -89,6 +132,15 @@ func (e Event) value(v float64) string {
 		return strings.Replace(fmt.Sprintf("%.1f °C", v), ".", ",", 1)
 	}
 	return pct(v)
+}
+
+// days formatiert eine Anzahl Tage (abgerundet): "1 Tag", "12 Tage".
+func days(v float64) string {
+	n := int(math.Floor(v))
+	if n == 1 {
+		return "1 Tag"
+	}
+	return fmt.Sprintf("%d Tage", n)
 }
 
 func pct(v float64) string {
