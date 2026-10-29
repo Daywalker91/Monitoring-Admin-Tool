@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -34,7 +35,9 @@ CREATE TABLE IF NOT EXISTS hosts (
 	first_seen       INTEGER NOT NULL,
 	last_seen        INTEGER NOT NULL,
 	last_metrics     TEXT,
-	last_processes   TEXT
+	last_processes   TEXT,
+	display_name     TEXT NOT NULL DEFAULT '',
+	group_name       TEXT NOT NULL DEFAULT ''
 );
 
 -- Kompakte Historie: nur Kennzahlen, kein vollständiges JSON (spart Platz).
@@ -171,6 +174,16 @@ type Host struct {
 	LastSeen        int64              `json:"last_seen"`
 	Metrics         json.RawMessage    `json:"metrics"`
 	Processes       json.RawMessage    `json:"processes"`
+	DisplayName     string             `json:"display_name"` // leer = Hostname
+	Group           string             `json:"group"`        // leer = ohne Gruppe
+}
+
+// Name liefert den Anzeigenamen, ersatzweise den gemeldeten Hostnamen.
+func (h Host) Name() string {
+	if h.DisplayName != "" {
+		return h.DisplayName
+	}
+	return h.Hostname
 }
 
 // ListHosts liefert alle Hosts mit dem letzten Stand, sortiert nach Hostname.
@@ -178,8 +191,8 @@ func (s *Store) ListHosts(ctx context.Context) ([]Host, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT id, hostname, os, platform, platform_version, kernel_version, arch, agent_version, cpu_cores,
        boot_time, interval_sec, capabilities, remote_addr, first_seen, last_seen,
-       COALESCE(last_metrics, 'null'), COALESCE(last_processes, 'null')
-FROM hosts ORDER BY hostname COLLATE NOCASE, id`)
+       COALESCE(last_metrics, 'null'), COALESCE(last_processes, 'null'), display_name, group_name
+FROM hosts ORDER BY CASE display_name WHEN '' THEN hostname ELSE display_name END COLLATE NOCASE, id`)
 	if err != nil {
 		return nil, fmt.Errorf("hosts lesen: %w", err)
 	}
@@ -191,7 +204,7 @@ FROM hosts ORDER BY hostname COLLATE NOCASE, id`)
 		var caps, metrics, procs string
 		if err := rows.Scan(&h.ID, &h.Hostname, &h.OS, &h.Platform, &h.PlatformVersion, &h.KernelVersion,
 			&h.Arch, &h.AgentVersion, &h.CPUCores, &h.BootTime, &h.IntervalSec, &caps, &h.RemoteAddr,
-			&h.FirstSeen, &h.LastSeen, &metrics, &procs); err != nil {
+			&h.FirstSeen, &h.LastSeen, &metrics, &procs, &h.DisplayName, &h.Group); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(caps), &h.Capabilities); err != nil {
@@ -202,6 +215,28 @@ FROM hosts ORDER BY hostname COLLATE NOCASE, id`)
 		hosts = append(hosts, h)
 	}
 	return hosts, rows.Err()
+}
+
+// SetHostMeta setzt Anzeigename und Gruppe eines Hosts (leer = zurücksetzen).
+// found meldet, ob es den Host gibt.
+func (s *Store) SetHostMeta(ctx context.Context, hostID, displayName, group string) (found bool, err error) {
+	res, err := s.db.ExecContext(ctx, `UPDATE hosts SET display_name = ?, group_name = ? WHERE id = ?`,
+		displayName, group, hostID)
+	if err != nil {
+		return false, fmt.Errorf("host-angaben speichern: %w", err)
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// HostDisplayName liefert den Anzeigenamen eines Hosts (leer = keiner gesetzt).
+func (s *Store) HostDisplayName(ctx context.Context, hostID string) (string, error) {
+	var name string
+	err := s.db.QueryRowContext(ctx, `SELECT display_name FROM hosts WHERE id = ?`, hostID).Scan(&name)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("anzeigename lesen: %w", err)
+	}
+	return name, nil
 }
 
 // HistoryPoint ist ein Punkt der kompakten Historie.

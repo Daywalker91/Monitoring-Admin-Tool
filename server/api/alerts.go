@@ -42,7 +42,7 @@ func (s *Server) hostStates(ctx context.Context) ([]alert.HostState, error) {
 	}
 	out := make([]alert.HostState, len(hosts))
 	for i, h := range hosts {
-		out[i] = alert.HostState{ID: h.ID, Hostname: h.Hostname, Online: s.online(h.ID),
+		out[i] = alert.HostState{ID: h.ID, Hostname: h.Name(), Online: s.online(h.ID),
 			LastSeen: time.Unix(h.LastSeen, 0)}
 	}
 	return out, nil

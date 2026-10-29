@@ -67,6 +67,9 @@ var migrations = []struct{ table, column, def, fill string }{
 	// Alarme ohne Host (Checks, Cluster, M6): Anzeigename und Zusatzinfo (z. B. Fehlermeldung).
 	{"alerts", "name", "TEXT NOT NULL DEFAULT ''", ""},
 	{"alerts", "detail", "TEXT NOT NULL DEFAULT ''", ""},
+	// Anzeigename und Gruppe eines Hosts, in der GUI gesetzt; leer = Hostname bzw. ohne Gruppe.
+	{"hosts", "display_name", "TEXT NOT NULL DEFAULT ''", ""},
+	{"hosts", "group_name", "TEXT NOT NULL DEFAULT ''", ""},
 }
 
 // AlertRule ist der Schwellwert eines Regeltyps.

@@ -219,6 +219,44 @@ func TestAgentFlow(t *testing.T) {
 		t.Fatalf("historie: %+v", hist)
 	}
 
+	// Anzeigename und Gruppe.
+	setMeta := func(id, body, origin string) int {
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/hosts/"+id+"/meta", strings.NewReader(body))
+		if origin != "" {
+			req.Header.Set("Origin", origin)
+		}
+		resp, err := c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	for _, tc := range []struct {
+		id, body, origin string
+		want             int
+	}{
+		{"test-1", `{"display_name":"  Küche  ","group":"Pi"}`, ts.URL, http.StatusOK},
+		{"test-1", `{"display_name":"x"}`, "http://evil.example", http.StatusForbidden},
+		{"test-1", `{"display_name":"a\nb"}`, "", http.StatusBadRequest},
+		{"test-1", `{"group":"` + strings.Repeat("ä", 65) + `"}`, "", http.StatusBadRequest},
+		{"fehlt", `{"display_name":"x"}`, "", http.StatusNotFound},
+	} {
+		if code := setMeta(tc.id, tc.body, tc.origin); code != tc.want {
+			t.Errorf("meta %s %s: %d, erwartet %d", tc.id, tc.body, code, tc.want)
+		}
+	}
+	resp, err = c.Get(ts.URL + "/api/hosts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hosts = nil
+	json.NewDecoder(resp.Body).Decode(&hosts)
+	resp.Body.Close()
+	if hosts[0].DisplayName != "Küche" || hosts[0].Group != "Pi" || hosts[0].Hostname != "test" {
+		t.Fatalf("meta nicht gespeichert: %+v", hosts[0].Host)
+	}
+
 	// Löschen: online → 409, fremde Herkunft → 403, offline → 204.
 	if code := deleteHost(t, c, ts, "test-1", ""); code != http.StatusConflict {
 		t.Fatalf("löschen online: %d, erwartet 409", code)

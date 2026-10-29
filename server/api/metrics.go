@@ -122,7 +122,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		}
 		mw.add("mat_host_up", "gauge", "1, wenn der Agent verbunden ist.", up, "host", h.ID, "hostname", h.Hostname)
 		mw.add("mat_host_info", "gauge", "Stammdaten des Hosts (Wert immer 1).", 1,
-			"host", h.ID, "hostname", h.Hostname, "os", h.OS, "platform", h.Platform,
+			"host", h.ID, "hostname", h.Hostname, "name", h.Name(), "group", h.Group, "os", h.OS, "platform", h.Platform,
 			"platform_version", h.PlatformVersion, "arch", h.Arch, "agent_version", h.AgentVersion)
 		mw.add("mat_host_last_seen_timestamp_seconds", "gauge", "Zeitpunkt der letzten Nachricht.", float64(h.LastSeen), host...)
 

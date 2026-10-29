@@ -58,6 +58,7 @@ type Server struct {
 
 	mu     sync.Mutex
 	conns  map[string]agentConn // aktuell verbundene Agenten je ID
+	names  map[string]string    // Anzeigenamen verbundener Agenten (für Alarme)
 	nowFor func() time.Time
 }
 
@@ -65,7 +66,7 @@ type Server struct {
 // Frontend-Dateien.
 func New(st *store.Store, am *auth.Manager, token string, gui fs.FS, log *slog.Logger) *Server {
 	return &Server{store: st, auth: am, token: []byte(token), gui: gui, log: log,
-		conns: make(map[string]agentConn), nowFor: time.Now}
+		conns: make(map[string]agentConn), names: make(map[string]string), nowFor: time.Now}
 }
 
 // WithVersion setzt die angezeigte Server-Version.
@@ -87,6 +88,7 @@ func (s *Server) Handler() http.Handler {
 	private.HandleFunc("GET /api/hosts", s.handleHosts)
 	private.HandleFunc("GET /api/hosts/{id}/history", s.handleHistory)
 	private.HandleFunc("DELETE /api/hosts/{id}", s.handleDeleteHost)
+	private.HandleFunc("POST /api/hosts/{id}/meta", s.handleHostMeta)
 	private.HandleFunc("GET /api/alerts", s.handleAlerts)
 	private.HandleFunc("POST /api/alerts/test", s.handleTestAlert)
 	private.HandleFunc("GET /api/alert-rules", s.handleGetAlertRules)
@@ -175,6 +177,11 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log := s.log.With("agent_id", hello.AgentID, "remote", r.RemoteAddr)
+	if name, err := s.store.HostDisplayName(ctx, hello.AgentID); err != nil {
+		log.Error("anzeigename lesen", "err", err)
+	} else {
+		s.setName(hello.AgentID, name)
+	}
 	s.register(hello.AgentID, agentConn{conn, r.RemoteAddr}, log)
 	defer s.unregister(hello.AgentID, conn)
 	log.Info("agent verbunden", "hostname", hello.Hostname, "version", hello.AgentVersion,
@@ -233,7 +240,7 @@ func (s *Server) readLoop(ctx context.Context, conn *websocket.Conn, hello proto
 				log.Error("metrics speichern", "err", err)
 			}
 			if s.alerts != nil {
-				s.alerts.Observe(ctx, id, hello.Hostname, m, now)
+				s.alerts.Observe(ctx, id, s.hostName(id, hello.Hostname), m, now)
 			}
 		case proto.TypeProcesses:
 			var p proto.Processes
@@ -342,6 +349,27 @@ func (s *Server) unregister(id string, conn *websocket.Conn) {
 	s.mu.Unlock()
 }
 
+// setName merkt sich den Anzeigenamen eines Hosts (leer = Hostname).
+func (s *Server) setName(id, name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if name == "" {
+		delete(s.names, id)
+	} else {
+		s.names[id] = name
+	}
+}
+
+// hostName liefert den Anzeigenamen, ersatzweise hostname.
+func (s *Server) hostName(id, hostname string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if name := s.names[id]; name != "" {
+		return name
+	}
+	return hostname
+}
+
 func (s *Server) online(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -445,6 +473,7 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 		s.alerts.Forget(id)
 	}
 	s.forgetUpdate(id)
+	s.setName(id, "")
 	s.log.Info("host gelöscht", "agent_id", id, "remote", r.RemoteAddr)
 	w.WriteHeader(http.StatusNoContent)
 }
