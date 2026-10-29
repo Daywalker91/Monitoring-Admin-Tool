@@ -55,11 +55,13 @@ CREATE TABLE IF NOT EXISTS alert_settings (
 );
 `
 
-// alertsMigrations ergänzt Spalten, die nach M3 hinzugekommen sind.
-var alertsMigrations = []struct{ table, column, def, fill string }{
+// migrations ergänzt Spalten, die nach M3 hinzugekommen sind.
+var migrations = []struct{ table, column, def, fill string }{
 	// Zeitpunkt der letzten Benachrichtigung; NULL = nie gemeldet (z. B. stummgeschaltet).
 	// Bestehende Alarme gelten als gemeldet, damit sie nach dem Update nicht nachgemeldet werden.
 	{"alerts", "notified_at", "INTEGER", "UPDATE alerts SET notified_at = started_at"},
+	// CPU-Temperatur in °C (M6); NULL = Host ohne Sensor.
+	{"metrics_history", "cpu_temp", "REAL", ""},
 }
 
 // AlertRule ist der Schwellwert eines Regeltyps.
@@ -300,7 +302,7 @@ func (s *Store) HostExists(ctx context.Context, hostID string) (bool, error) {
 
 // migrate ergänzt fehlende Spalten in bestehenden Datenbanken.
 func migrate(db *sql.DB) error {
-	for _, m := range alertsMigrations {
+	for _, m := range migrations {
 		var n int
 		if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, m.table, m.column).Scan(&n); err != nil {
 			return err

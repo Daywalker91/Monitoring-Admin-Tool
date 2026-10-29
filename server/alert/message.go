@@ -19,6 +19,8 @@ func Label(kind string) string {
 		return "Swap"
 	case KindDisk:
 		return "Disk"
+	case KindTemp:
+		return "CPU-Temperatur"
 	}
 	return kind
 }
@@ -47,7 +49,7 @@ func (e Event) Title() string {
 		return host + " ist wieder online"
 	}
 	if e.Firing() {
-		return fmt.Sprintf("%s: %s %s", host, e.subject(), pct(e.Alert.Value))
+		return fmt.Sprintf("%s: %s %s", host, e.subject(), e.value(e.Alert.Value))
 	}
 	return fmt.Sprintf("%s: %s wieder normal", host, e.subject())
 }
@@ -68,17 +70,25 @@ func (e Event) Body() string {
 		offline := time.Duration(a.Value*float64(time.Minute)) + e.At.Sub(started)
 		fmt.Fprintf(&b, "Agent wieder verbunden, war %s ohne Verbindung.\n", duration(offline))
 	case e.Type != Resolved:
-		fmt.Fprintf(&b, "%s über %s", e.subject(), pct(a.Threshold))
+		fmt.Fprintf(&b, "%s über %s", e.subject(), e.value(a.Threshold))
 		if e.Rule.ForSec > 0 {
 			fmt.Fprintf(&b, " seit mindestens %s", duration(time.Duration(e.Rule.ForSec)*time.Second))
 		}
-		fmt.Fprintf(&b, ", aktuell %s.\n", pct(a.Value))
+		fmt.Fprintf(&b, ", aktuell %s.\n", e.value(a.Value))
 	default:
 		fmt.Fprintf(&b, "%s wieder unter %s. Alarm dauerte %s, Spitzenwert %s.\n",
-			e.subject(), pct(a.Threshold-Hysteresis), duration(e.At.Sub(started)), pct(a.Peak))
+			e.subject(), e.value(a.Threshold-Hysteresis), duration(e.At.Sub(started)), e.value(a.Peak))
 	}
 	fmt.Fprintf(&b, "Host: %s (%s)\nBeginn: %s", a.Hostname, a.HostID, started.Format("02.01.2006 15:04:05"))
 	return b.String()
+}
+
+// value formatiert einen Messwert mit der Einheit des Regeltyps.
+func (e Event) value(v float64) string {
+	if e.Alert.Kind == KindTemp {
+		return strings.Replace(fmt.Sprintf("%.1f °C", v), ".", ",", 1)
+	}
+	return pct(v)
 }
 
 func pct(v float64) string {

@@ -161,6 +161,12 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 			mw.add("mat_filesystem_size_bytes", "gauge", "Größe des Dateisystems.", float64(d.Total), l...)
 			mw.add("mat_filesystem_used_bytes", "gauge", "Belegter Platz im Dateisystem.", float64(d.Used), l...)
 		}
+		if m.CPUTemp != nil {
+			mw.add("mat_cpu_temperature_celsius", "gauge", "CPU-Temperatur in °C.", *m.CPUTemp, host...)
+		}
+		for _, t := range m.Temps {
+			mw.add("mat_sensor_temperature_celsius", "gauge", "Temperatur je Sensor in °C.", t.Celsius, "host", h.ID, "sensor", t.Name)
+		}
 	}
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")

@@ -59,10 +59,12 @@ func TestMetrics(t *testing.T) {
 	}{
 		{proto.TypeHello, proto.Hello{AgentID: "pi-1", Hostname: "pi \"eins\"", OS: "linux", IntervalSec: 10}},
 		{proto.TypeMetrics, proto.Metrics{
-			CPU:   proto.CPU{TotalPct: 12.5, PerCore: []float64{10, 15}, Load1: 0.5},
-			Mem:   proto.Memory{Total: 1000, Used: 400},
-			Net:   []proto.NetIface{{Name: "eth0", RxBps: 100}},
-			Disks: []proto.DiskUsage{{Mount: "/", FSType: "ext4", Total: 2000, Used: 500}},
+			CPU:     proto.CPU{TotalPct: 12.5, PerCore: []float64{10, 15}, Load1: 0.5},
+			Mem:     proto.Memory{Total: 1000, Used: 400},
+			Net:     []proto.NetIface{{Name: "eth0", RxBps: 100}},
+			Disks:   []proto.DiskUsage{{Mount: "/", FSType: "ext4", Total: 2000, Used: 500}},
+			CPUTemp: func() *float64 { v := 47.5; return &v }(),
+			Temps:   []proto.Temp{{Name: "cpu-thermal", Celsius: 47.5}},
 		}},
 	} {
 		data, _ := proto.Encode(msg.typ, msg.v)
@@ -104,6 +106,8 @@ func TestMetrics(t *testing.T) {
 		`mat_network_receive_bytes_per_second{host="pi-1",interface="eth0"} 100`,
 		`mat_filesystem_used_bytes{host="pi-1",mountpoint="/",fstype="ext4"} 500`,
 		"# TYPE mat_network_receive_errors_total counter",
+		`mat_cpu_temperature_celsius{host="pi-1"} 47.5`,
+		`mat_sensor_temperature_celsius{host="pi-1",sensor="cpu-thermal"} 47.5`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("fehlt: %s", want)

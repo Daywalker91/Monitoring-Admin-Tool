@@ -47,7 +47,8 @@ CREATE TABLE IF NOT EXISTS metrics_history (
 	swap_pct     REAL NOT NULL,
 	net_rx_bps   REAL NOT NULL,
 	net_tx_bps   REAL NOT NULL,
-	disk_max_pct REAL NOT NULL
+	disk_max_pct REAL NOT NULL,
+	cpu_temp     REAL
 );
 CREATE INDEX IF NOT EXISTS idx_history_host_ts ON metrics_history(host_id, ts);
 CREATE INDEX IF NOT EXISTS idx_history_ts ON metrics_history(ts);
@@ -133,9 +134,9 @@ func (s *Store) SaveMetrics(ctx context.Context, hostID string, m proto.Metrics,
 		return fmt.Errorf("letzten stand speichern: %w", err)
 	}
 	if _, err := tx2.ExecContext(ctx, `
-INSERT INTO metrics_history (host_id, ts, cpu_pct, load1, mem_pct, swap_pct, net_rx_bps, net_tx_bps, disk_max_pct)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		hostID, now.Unix(), m.CPU.TotalPct, m.CPU.Load1, m.Mem.UsedPct, m.Swap.UsedPct, rx, tx, diskMax); err != nil {
+INSERT INTO metrics_history (host_id, ts, cpu_pct, load1, mem_pct, swap_pct, net_rx_bps, net_tx_bps, disk_max_pct, cpu_temp)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		hostID, now.Unix(), m.CPU.TotalPct, m.CPU.Load1, m.Mem.UsedPct, m.Swap.UsedPct, rx, tx, diskMax, m.CPUTemp); err != nil {
 		return fmt.Errorf("historie speichern: %w", err)
 	}
 	return tx2.Commit()
@@ -205,14 +206,15 @@ FROM hosts ORDER BY hostname COLLATE NOCASE, id`)
 
 // HistoryPoint ist ein Punkt der kompakten Historie.
 type HistoryPoint struct {
-	TS         int64   `json:"ts"`
-	CPUPct     float64 `json:"cpu_pct"`
-	Load1      float64 `json:"load1"`
-	MemPct     float64 `json:"mem_pct"`
-	SwapPct    float64 `json:"swap_pct"`
-	NetRxBps   float64 `json:"net_rx_bps"`
-	NetTxBps   float64 `json:"net_tx_bps"`
-	DiskMaxPct float64 `json:"disk_max_pct"`
+	TS         int64    `json:"ts"`
+	CPUPct     float64  `json:"cpu_pct"`
+	Load1      float64  `json:"load1"`
+	MemPct     float64  `json:"mem_pct"`
+	SwapPct    float64  `json:"swap_pct"`
+	NetRxBps   float64  `json:"net_rx_bps"`
+	NetTxBps   float64  `json:"net_tx_bps"`
+	DiskMaxPct float64  `json:"disk_max_pct"`
+	CPUTemp    *float64 `json:"cpu_temp"` // °C; nil = kein Sensor
 }
 
 // History liefert die Historie eines Hosts ab since. Bei bucket > 1 s werden
@@ -225,7 +227,7 @@ func (s *Store) History(ctx context.Context, hostID string, since time.Time, buc
 	}
 	rows, err := s.db.QueryContext(ctx, `
 SELECT (ts / ?1) * ?1 AS t, AVG(cpu_pct), AVG(load1), AVG(mem_pct), AVG(swap_pct),
-       AVG(net_rx_bps), AVG(net_tx_bps), MAX(disk_max_pct)
+       AVG(net_rx_bps), AVG(net_tx_bps), MAX(disk_max_pct), AVG(cpu_temp)
 FROM metrics_history WHERE host_id = ?2 AND ts >= ?3
 GROUP BY t ORDER BY t`, b, hostID, since.Unix())
 	if err != nil {
@@ -237,7 +239,7 @@ GROUP BY t ORDER BY t`, b, hostID, since.Unix())
 	for rows.Next() {
 		var p HistoryPoint
 		if err := rows.Scan(&p.TS, &p.CPUPct, &p.Load1, &p.MemPct, &p.SwapPct,
-			&p.NetRxBps, &p.NetTxBps, &p.DiskMaxPct); err != nil {
+			&p.NetRxBps, &p.NetTxBps, &p.DiskMaxPct, &p.CPUTemp); err != nil {
 			return nil, err
 		}
 		points = append(points, p)

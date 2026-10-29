@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"path/filepath"
 	"testing"
@@ -130,3 +131,52 @@ func TestHistoryBuckets(t *testing.T) {
 		t.Fatalf("mittelwerte falsch: %+v", hist)
 	}
 }
+
+func TestHistoryCPUTemp(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	base := time.Unix(1_800_000_000, 0)
+	s.UpsertHost(ctx, proto.Hello{AgentID: "a", Hostname: "a", IntervalSec: 10}, "", base)
+	// Erstes Fenster mit Sensor (40 und 50 °C), zweites ohne.
+	for i, temp := range []*float64{ptr(40), ptr(50), nil, nil} {
+		m := proto.Metrics{CPUTemp: temp}
+		if err := s.SaveMetrics(ctx, "a", m, []byte("{}"), base.Add(time.Duration(i)*30*time.Second)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hist, err := s.History(ctx, "a", base, time.Minute)
+	if err != nil || len(hist) != 2 {
+		t.Fatalf("historie: %+v %v", hist, err)
+	}
+	if hist[0].CPUTemp == nil || *hist[0].CPUTemp != 45 || hist[1].CPUTemp != nil {
+		t.Fatalf("temperatur: %v %v", hist[0].CPUTemp, hist[1].CPUTemp)
+	}
+}
+
+func TestMigrateCPUTemp(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Historie im Stand von M5, ohne cpu_temp.
+	if _, err := db.Exec(`CREATE TABLE metrics_history (host_id TEXT NOT NULL, ts INTEGER NOT NULL,
+		cpu_pct REAL NOT NULL, load1 REAL NOT NULL, mem_pct REAL NOT NULL, swap_pct REAL NOT NULL,
+		net_rx_bps REAL NOT NULL, net_tx_bps REAL NOT NULL, disk_max_pct REAL NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	db.Exec(`INSERT INTO metrics_history VALUES ('a', 1800000000, 1, 0, 2, 0, 0, 0, 3)`)
+	db.Close()
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	hist, err := s.History(context.Background(), "a", time.Unix(0, 0), time.Second)
+	if err != nil || len(hist) != 1 || hist[0].CPUTemp != nil || hist[0].MemPct != 2 {
+		t.Fatalf("nach migration: %+v %v", hist, err)
+	}
+}
+
+func ptr(v float64) *float64 { return &v }

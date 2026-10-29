@@ -25,10 +25,12 @@ const (
 	KindMem     = "mem"     // RAM belegt
 	KindSwap    = "swap"    // Swap belegt
 	KindDisk    = "disk"    // Speicher je Mountpoint
+	KindTemp    = "temp"    // CPU-Temperatur in °C
 )
 
 const (
-	// Hysteresis in Prozentpunkten: ein Alarm endet erst unterhalb Schwelle − Hysteresis.
+	// Hysteresis in Prozentpunkten (bei "temp" in °C): ein Alarm endet erst
+	// unterhalb Schwelle − Hysteresis.
 	Hysteresis = 5.0
 	// pendingGap: Liegen zwischen zwei Messungen mehr als pendingGap, beginnt die
 	// Mindestdauer neu (z. B. nach einem Verbindungsabbruch).
@@ -45,6 +47,7 @@ var DefaultRules = []store.AlertRule{
 	{Kind: KindMem, Enabled: true, Threshold: 90, ForSec: 300},
 	{Kind: KindSwap, Enabled: true, Threshold: 80, ForSec: 600},
 	{Kind: KindDisk, Enabled: true, Threshold: 90, ForSec: 60},
+	{Kind: KindTemp, Enabled: true, Threshold: 80, ForSec: 300},
 }
 
 // ValidateRule prüft eine Regel auf erlaubte Werte.
@@ -58,6 +61,12 @@ func ValidateRule(r store.AlertRule) error {
 	if r.Kind == KindOffline {
 		if r.ForSec < 30 {
 			return fmt.Errorf("offline: dauer muss mindestens 30 s sein")
+		}
+		return nil
+	}
+	if r.Kind == KindTemp {
+		if r.Threshold < 30 || r.Threshold > 120 {
+			return fmt.Errorf("temp: schwelle muss zwischen 30 und 120 °C liegen")
 		}
 		return nil
 	}
@@ -341,6 +350,9 @@ func (e *Evaluator) Observe(ctx context.Context, hostID, hostname string, m prot
 	}
 	if m.Swap.Total > 0 {
 		values[key{hostID, KindSwap, ""}] = m.Swap.UsedPct
+	}
+	if m.CPUTemp != nil {
+		values[key{hostID, KindTemp, ""}] = *m.CPUTemp
 	}
 	for _, d := range m.Disks {
 		values[key{hostID, KindDisk, d.Mount}] = d.UsedPct

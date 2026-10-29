@@ -312,3 +312,36 @@ func TestReminder(t *testing.T) {
 		t.Fatal("erinnerung nach neustart verloren")
 	}
 }
+
+func TestTempAlert(t *testing.T) {
+	f := newFixture(t)
+	temp := func(v float64) proto.Metrics { return proto.Metrics{CPUTemp: &v} }
+	// Standard: 80 °C für 300 s.
+	for i := 0; i <= 30; i++ {
+		f.observe(temp(82.5), 10*time.Second)
+	}
+	ev := f.take()
+	if len(ev) != 1 || ev[0].Alert.Kind != KindTemp || ev[0].Title() != "host-1: CPU-Temperatur 82,5 °C" {
+		t.Fatalf("auslösen: %+v", ev)
+	}
+	if body := ev[0].Body(); !strings.Contains(body, "über 80,0 °C") || strings.Contains(body, "%") {
+		t.Fatalf("text: %s", body)
+	}
+	f.observe(temp(76), 10*time.Second) // innerhalb der Hysterese von 5 °C
+	if ev := f.take(); len(ev) != 0 {
+		t.Fatalf("flackern: %+v", ev)
+	}
+	f.observe(temp(74), 10*time.Second)
+	if ev := f.take(); len(ev) != 1 || ev[0].Type != Resolved || !strings.Contains(ev[0].Body(), "unter 75,0 °C") {
+		t.Fatalf("ende: %+v", ev)
+	}
+	// Host ohne Sensor: kein Alarm, keine wartende Bedingung.
+	f.observe(proto.Metrics{}, 10*time.Second)
+	if len(f.ev.pending) != 0 {
+		t.Fatalf("wartend ohne sensor: %+v", f.ev.pending)
+	}
+	if ValidateRule(store.AlertRule{Kind: KindTemp, Enabled: true, Threshold: 25}) == nil ||
+		ValidateRule(store.AlertRule{Kind: KindTemp, Enabled: true, Threshold: 110}) != nil {
+		t.Fatal("grenzen der temperaturschwelle")
+	}
+}
