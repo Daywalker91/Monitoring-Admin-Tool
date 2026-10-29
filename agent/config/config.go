@@ -36,6 +36,9 @@ type Config struct {
 	// "reboot"]. Nur in der Datei, nicht per Flag: ohne Eintrag meldet der Agent
 	// diese Fähigkeiten nicht, und der Server kann sie nicht auslösen.
 	Jobs []proto.Capability `json:"jobs"`
+	// LogSources gibt Logs zum Lesen frei, z. B. ["journal:sshd", "journal:kernel",
+	// "eventlog:System"]. Ohne Eintrag kann der Server keine Logs lesen.
+	LogSources []string `json:"log_sources"`
 }
 
 // jobCapabilities sind die Fähigkeiten, die sich über Jobs freischalten lassen.
@@ -137,6 +140,9 @@ func (c *Config) Validate() error {
 		if slices.Contains(c.Jobs[:i], j) {
 			return fmt.Errorf("jobs: %q doppelt", j)
 		}
+	}
+	if !proto.ValidLogSources(c.LogSources) {
+		return errors.New(`log_sources: ungültige oder doppelte quelle (erlaubt: "journal", "journal:<unit>", "journal:kernel", "eventlog:<name>")`)
 	}
 	return nil
 }

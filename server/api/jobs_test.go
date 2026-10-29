@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -122,5 +123,38 @@ func TestJobOffline(t *testing.T) {
 	waitHost(t, c, ts, "offline", func(h hostView) bool { return !h.Online })
 	if code := postJSON(t, c, ts.URL+"/api/hosts/a1/jobs", ts.URL, jobRequest{Action: testAction}).StatusCode; code != http.StatusConflict {
 		t.Fatalf("offline: %d, erwartet 409", code)
+	}
+}
+
+func TestLogReadSources(t *testing.T) {
+	ts := newUpdateTestServer(t)
+	c := login(t, ts)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, wsURL(ts), &websocket.DialOptions{HTTPHeader: http.Header{"Authorization": {"Bearer secret"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.CloseNow()
+	hello, _ := proto.Encode(proto.TypeHello, proto.Hello{AgentID: "a1", Hostname: "a1", IntervalSec: 10,
+		Capabilities: []proto.Capability{proto.CapLogs}, LogSources: []string{"journal:sshd"}})
+	conn.Write(ctx, websocket.MessageText, hello)
+	h := waitHost(t, c, ts, "online", func(h hostView) bool { return h.Online })
+	if len(h.LogSources) != 1 || h.LogSources[0] != "journal:sshd" {
+		t.Fatalf("quellen: %v", h.LogSources)
+	}
+
+	url := ts.URL + "/api/hosts/a1/jobs"
+	if code := postJSON(t, c, url, ts.URL, jobRequest{Action: proto.ActionLogRead,
+		Params: map[string]string{"source": "journal:k3s"}}).StatusCode; code != http.StatusBadRequest {
+		t.Errorf("nicht freigegebene quelle: %d", code)
+	}
+	if code := postJSON(t, c, url, ts.URL, jobRequest{Action: proto.ActionLogRead,
+		Params: map[string]string{"source": "journal:sshd", "lines": "50"}}).StatusCode; code != http.StatusAccepted {
+		t.Fatalf("freigegebene quelle: %d", code)
+	}
+	_, data, err := conn.Read(ctx)
+	if err != nil || !strings.Contains(string(data), `"source":"journal:sshd"`) {
+		t.Fatalf("beim agenten: %s %v", data, err)
 	}
 }

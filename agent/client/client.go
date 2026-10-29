@@ -71,7 +71,8 @@ type Client struct {
 	updates  UpdateChecker      // nil = kein Update-Stand
 	updNow   chan struct{}      // Update-Stand sofort prüfen (nach einem Paket-Job)
 	jobs     map[string]JobFunc // erlaubte Aktionen; nur mit gemeldeter Fähigkeit
-	busy     atomic.Bool        // es läuft immer höchstens ein Job
+	busy     atomic.Bool        // es läuft immer höchstens ein ändernder Job …
+	readBusy atomic.Bool        // … und daneben höchstens ein lesender (z. B. log.read)
 	onStable func()
 
 	// Jobs laufen unabhängig von der Verbindung weiter (ein Paket-Upgrade soll
@@ -316,20 +317,24 @@ func (c *Client) handleMessage(runCtx, ctx context.Context, conn *websocket.Conn
 		c.sendResult(ctx, conn, proto.JobResult{JobID: job.JobID, ExitCode: 1, Error: "aktion wird von diesem agenten nicht unterstützt"})
 		return
 	}
-	if !c.busy.CompareAndSwap(false, true) {
+	busy := &c.busy
+	if proto.ReadOnly(job.Action) {
+		busy = &c.readBusy
+	}
+	if !busy.CompareAndSwap(false, true) {
 		c.sendResult(ctx, conn, proto.JobResult{JobID: job.JobID, ExitCode: 1, Error: "agent führt bereits einen job aus"})
 		return
 	}
 	c.log.Info("job gestartet", "job_id", job.JobID, "action", job.Action)
 	go func() {
-		defer c.busy.Store(false)
+		defer busy.Store(false)
 		jctx, cancel := context.WithTimeout(runCtx, proto.JobTimeout(job.Action))
 		defer cancel()
 		out, restart, err := fn(jctx, job.Params)
-		res := proto.JobResult{JobID: job.JobID, OK: err == nil, Output: proto.Truncate(out, proto.MaxJobOutputLen)}
+		res := proto.JobResult{JobID: job.JobID, OK: err == nil, Output: proto.CleanOutput(out, proto.MaxJobOutputLen)}
 		if err != nil {
 			res.ExitCode = 1
-			res.Error = proto.Truncate(err.Error(), 1024)
+			res.Error = proto.CleanOutput(err.Error(), 1024)
 			c.log.Warn("job fehlgeschlagen", "job_id", job.JobID, "action", job.Action, "err", err)
 		} else {
 			c.log.Info("job erledigt", "job_id", job.JobID, "action", job.Action)

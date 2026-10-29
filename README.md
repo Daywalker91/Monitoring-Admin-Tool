@@ -12,7 +12,7 @@ M5 fertig – Self-Update der Agenten aus signierten GitHub-Releases, Warnung vo
 M6 – CPU-Temperatur, externe Checks (HTTP(S), Ping, TCP), k3s-Ansicht; Hosts umbenennen (Anzeigename,
 auch in Alarmen) und in Gruppen ordnen – intern bleibt die Agent-ID die Kennung.
 M7 (in Arbeit) – Admin-Aktionen als Jobs mit Verlauf, Dienste überwachen und steuern,
-offene Updates (apt) und Neustart, neue k3s-Versionen im Tab „Cluster“.
+offene Updates (apt) und Neustart, neue k3s-Versionen im Tab „Cluster“, freigegebene Logs lesen.
 
 ## Schnellstart (lokal)
 
@@ -73,6 +73,18 @@ Der Agent prüft die Parameter selbst noch einmal, steuert nur Dienste aus seine
 nie sich selbst. Lesend arbeitet er immer: Dienstliste, offene Updates (`apt-get -s upgrade`,
 höchstens alle 30 min) und ob ein Neustart nötig ist (`/var/run/reboot-required` bzw. Registry).
 Unter Windows gibt es nur den Neustart-Hinweis, keine Liste offener Windows-Updates.
+
+**Logs** gibt der Agent nur aus den Quellen in `log_sources` heraus; die GUI bietet genau diese an
+(Abschnitt „Logs“ in den Host-Details):
+
+```json
+"log_sources": ["journal:sshd", "journal:k3s", "journal:kernel", "eventlog:System"]
+```
+
+`journal` ist das ganze Journal, `journal:<unit>` eine Unit, `journal:kernel` die Kernel-Meldungen
+(`journalctl`), `eventlog:<name>` ein Windows-Ereignisprotokoll (`wevtutil`). Gelesen werden bis zu
+1000 Zeilen bzw. Ereignisse, auch während ein Upgrade läuft. Wer welches Log gelesen hat, steht im
+Verlauf; den Inhalt löscht der Server nach einem Tag.
 
 k3s selbst ist per Install-Skript installiert, nicht über apt: `packages.upgrade` aktualisiert nur
 das Betriebssystem. Vor Upgrade oder Neustart eines Nodes am besten `kubectl drain`, und immer nur

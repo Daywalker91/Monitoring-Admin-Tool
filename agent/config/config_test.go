@@ -66,6 +66,17 @@ func TestJobs(t *testing.T) {
 	if cfg, _ := load(`null`); cfg.Allows(proto.CapReboot) {
 		t.Error("ohne eintrag freigeschaltet")
 	}
+	path := filepath.Join(dir, "agent.json")
+	for body, ok := range map[string]bool{
+		`{"server_url":"ws://a/ws","token":"t","log_sources":["journal:sshd","eventlog:System"]}`: true,
+		`{"server_url":"ws://a/ws","token":"t","log_sources":["file:/etc/shadow"]}`:               false,
+		`{"server_url":"ws://a/ws","token":"t","log_sources":["journal","journal"]}`:              false,
+	} {
+		os.WriteFile(path, []byte(body), 0o600)
+		if _, err := Load([]string{"-config", path}); (err == nil) != ok {
+			t.Errorf("%s: err=%v", body, err)
+		}
+	}
 }
 
 func TestInsecure(t *testing.T) {

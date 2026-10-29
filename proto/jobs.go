@@ -2,6 +2,7 @@ package proto
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -25,6 +26,7 @@ const (
 	CapUsers    Capability = "users"    // Benutzer verwalten (später)
 	CapReboot   Capability = "reboot"   // Neustart auslösen (M7)
 	CapServices Capability = "services" // Dienste starten/stoppen/neu starten (M7)
+	CapLogs     Capability = "logs"     // freigegebene Logs lesen (M7)
 )
 
 // Nachrichtentypen für Jobs.
@@ -63,6 +65,13 @@ var actionParams = map[string]map[string]Param{
 var actionTimeout = map[string]time.Duration{}
 
 const defaultJobTimeout = 5 * time.Minute
+
+// readOnly sind Aktionen, die nichts verändern. Der Agent führt sie auch aus,
+// während ein anderer Job läuft (z. B. Logs lesen während eines Upgrades).
+var readOnly = map[string]bool{}
+
+// ReadOnly meldet, ob eine Aktion nur liest.
+func ReadOnly(action string) bool { return readOnly[action] }
 
 // JobTimeout liefert die Laufzeitgrenze einer Aktion.
 func JobTimeout(action string) time.Duration {
@@ -135,6 +144,16 @@ func (r *JobResult) Validate() error {
 		return fmt.Errorf("job-ergebnis zu lang")
 	}
 	return nil
+}
+
+// CleanOutput macht eine Job-Ausgabe sendefähig: ungültiges UTF-8 wird zu
+// '?', NUL-Bytes entfallen, dann wird auf n Bytes gekürzt. Die Ersetzung
+// verlängert nie, so bleibt das Ergebnis auch nach der JSON-Kodierung unter
+// dem Limit, das der Server prüft.
+func CleanOutput(s string, n int) string {
+	s = strings.ToValidUTF8(s, "?")
+	s = strings.ReplaceAll(s, "\x00", "")
+	return Truncate(s, n)
 }
 
 // Truncate kürzt s auf höchstens n Bytes, ohne ein UTF-8-Zeichen zu zerteilen.

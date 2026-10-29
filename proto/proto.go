@@ -61,6 +61,8 @@ type Hello struct {
 	// UpdateNote meldet den Ausgang des letzten Self-Updates, z. B. eine
 	// automatische Rücknahme. Leer = nichts zu melden.
 	UpdateNote string `json:"update_note,omitempty"`
+	// LogSources sind die Log-Quellen, die der Agent lesen darf (agent.json).
+	LogSources []string `json:"log_sources,omitempty"`
 }
 
 // Validate prüft die Pflichtfelder einer Hello-Nachricht.
@@ -76,6 +78,9 @@ func (h *Hello) Validate() error {
 	}
 	if len(h.AgentVersion) > 64 || len(h.UpdateNote) > maxNameLen {
 		return fmt.Errorf("agent_version oder update_note zu lang")
+	}
+	if !ValidLogSources(h.LogSources) {
+		return fmt.Errorf("ungültige log_sources")
 	}
 	return nil
 }

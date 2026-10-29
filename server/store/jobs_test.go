@@ -53,6 +53,12 @@ func TestJobLifecycle(t *testing.T) {
 	if _, err := st.JobByID(ctx, "fehlt"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("fehlender job: %v", err)
 	}
+	if n, _ := st.ClearJobOutputs(ctx, "service.restart", now.Add(time.Hour)); n != 2 {
+		t.Fatalf("geleert: %d", n)
+	}
+	if j1, _ := st.JobByID(ctx, "j1"); j1.Output != "" || !j1.OK {
+		t.Fatalf("nach leeren: %+v", j1)
+	}
 	if n, _ := st.PruneJobs(ctx, now.Add(time.Hour)); n != 2 {
 		t.Fatalf("bereinigt: %d", n)
 	}

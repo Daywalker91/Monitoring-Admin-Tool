@@ -535,8 +535,12 @@ func writeJSON(w http.ResponseWriter, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// jobRetention: so lange bleiben Jobs als Audit-Log erhalten.
-const jobRetention = 90 * 24 * time.Hour
+// jobRetention: so lange bleiben Jobs als Audit-Log erhalten. Gelesene Logs
+// stehen nur logRetention in der Datenbank, danach bleibt nur der Eintrag.
+const (
+	jobRetention = 90 * 24 * time.Hour
+	logRetention = 24 * time.Hour
+)
 
 // RunRetention löscht stündlich Historienpunkte, die älter als retention sind,
 // abgelaufene Sessions und alte Jobs.
@@ -556,6 +560,9 @@ func RunRetention(ctx context.Context, st *store.Store, retention time.Duration,
 		}
 		if _, err := st.PruneJobs(ctx, time.Now().Add(-jobRetention)); err != nil {
 			log.Error("jobs bereinigen", "err", err)
+		}
+		if _, err := st.ClearJobOutputs(ctx, proto.ActionLogRead, time.Now().Add(-logRetention)); err != nil {
+			log.Error("log-ausgaben leeren", "err", err)
 		}
 	}
 	prune()

@@ -12,6 +12,7 @@ const ACTION_LABELS = {
   "packages.refresh": "Paketlisten holen",
   "packages.upgrade": "Updates installieren",
   "system.reboot": "Neustart",
+  "log.read": "Log gelesen",
 };
 
 // Aktionen mit Knopf in den Host-Details; jede braucht ihre Fähigkeit.
@@ -85,8 +86,9 @@ function renderJobButtons(v, h) {
   v.hint.hidden = !v.hint.textContent;
 }
 
-// startJob schickt einen Job an den Host und zeigt ihn im Verlauf aufgeklappt.
-async function startJob(hostID, action, params = {}) {
+// startJob schickt einen Job an den Host und zeigt ihn im Verlauf (mit show
+// aufgeklappt).
+async function startJob(hostID, action, params = {}, show = true) {
   const resp = await fetch("api/hosts/" + encodeURIComponent(hostID) + "/jobs", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action, params }),
@@ -96,7 +98,7 @@ async function startJob(hostID, action, params = {}) {
   const j = await resp.json();
   const v = jobViews.get(hostID);
   if (v) {
-    v.openJob = j.id;
+    if (show) v.openJob = j.id;
     loadJobs(v);
   }
   return j;

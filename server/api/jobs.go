@@ -54,6 +54,10 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "host unterstützt diese aktion nicht (fähigkeit in agent.json freigeschaltet?)", http.StatusConflict)
 		return
 	}
+	if job.Action == proto.ActionLogRead && !slices.Contains(h.LogSources, job.Params["source"]) {
+		http.Error(w, "log-quelle ist auf diesem host nicht freigegeben", http.StatusBadRequest)
+		return
+	}
 	if !s.online(h.ID) {
 		http.Error(w, "host ist offline", http.StatusConflict)
 		return

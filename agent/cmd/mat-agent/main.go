@@ -24,6 +24,7 @@ import (
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/client"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/collector"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/config"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/logs"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/packages"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/power"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/services"
@@ -154,6 +155,11 @@ func runAgent(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if power.Supported() && cfg.Allows(proto.CapReboot) {
 		hello.Capabilities = append(hello.Capabilities, proto.CapReboot)
 	}
+	// Logs nur aus den freigegebenen Quellen, die es auf dieser Plattform gibt.
+	logReader := logs.New(cfg.LogSources)
+	if hello.LogSources = logReader.Sources(); len(hello.LogSources) > 0 {
+		hello.Capabilities = append(hello.Capabilities, proto.CapLogs)
+	}
 	if err := hello.Validate(); err != nil {
 		return fmt.Errorf("ungültige agent-angaben: %w", err)
 	}
@@ -193,6 +199,7 @@ func runAgent(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	cl.HandleJob(proto.ActionPackagesRefresh, pkgs.Refresh)
 	cl.HandleJob(proto.ActionPackagesUpgrade, pkgs.Upgrade)
 	cl.HandleJob(proto.ActionReboot, power.Job(log))
+	cl.HandleJob(proto.ActionLogRead, logReader.Job)
 	col.Prime(ctx)
 	if err := cl.Run(ctx); errors.Is(err, client.ErrRestart) {
 		log.Info("agent startet für das update neu")

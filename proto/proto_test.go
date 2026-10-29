@@ -74,6 +74,9 @@ func TestJobValidate(t *testing.T) {
 	if JobTimeout("unbekannt") != defaultJobTimeout {
 		t.Error("standard-zeitlimit fehlt")
 	}
+	if got := CleanOutput("a\x00b\xf6c", 10); got != "ab?c" {
+		t.Errorf("CleanOutput = %q", got)
+	}
 	if got := Truncate("aä", 2); got != "a" {
 		t.Errorf("Truncate = %q", got)
 	}
@@ -95,5 +98,36 @@ func TestMetricsValidateTemps(t *testing.T) {
 		if err := m.Validate(); err == nil {
 			t.Errorf("%d: ungültige temperatur akzeptiert", i)
 		}
+	}
+}
+
+func TestLogSources(t *testing.T) {
+	for _, s := range []string{"journal", "journal:kernel", "journal:sshd", "journal:getty@tty1", "eventlog:System",
+		"eventlog:Microsoft-Windows-PowerShell/Operational"} {
+		if !ValidLogSource(s) {
+			t.Errorf("%q abgelehnt", s)
+		}
+	}
+	for _, s := range []string{"", "journal:", "journal:-f", "journal:a b", "file:/etc/shadow", "eventlog:Sys;tem",
+		"eventlog:-x", "journal:" + strings.Repeat("x", 200)} {
+		if ValidLogSource(s) {
+			t.Errorf("%q akzeptiert", s)
+		}
+	}
+	if ValidLogSources([]string{"journal", "journal"}) || !ValidLogSources(nil) {
+		t.Error("liste falsch geprüft")
+	}
+	j := JobRequest{JobID: "j1", Action: ActionLogRead, Params: map[string]string{"source": "journal:sshd", "lines": "500"}}
+	if err := j.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, lines := range []string{"0", "1001", "abc", "-5"} {
+		j.Params["lines"] = lines
+		if j.Validate() == nil {
+			t.Errorf("lines=%s akzeptiert", lines)
+		}
+	}
+	if LogLines("") != DefaultLogLines || LogLines("50") != 50 || !ReadOnly(ActionLogRead) || ReadOnly(ActionReboot) {
+		t.Error("LogLines/ReadOnly")
 	}
 }

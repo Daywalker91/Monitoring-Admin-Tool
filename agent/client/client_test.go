@@ -299,3 +299,44 @@ func TestJobResultAfterReconnect(t *testing.T) {
 		t.Fatal("ergebnis nicht nachgeliefert")
 	}
 }
+
+// Ein lesender Job läuft auch, während ein ändernder Job noch arbeitet.
+func TestReadOnlyJobWhileBusy(t *testing.T) {
+	cfg, results := jobServer(t,
+		proto.JobRequest{JobID: "upgrade", Action: proto.ActionPackagesUpgrade},
+		proto.JobRequest{JobID: "reboot", Action: proto.ActionReboot},
+		proto.JobRequest{JobID: "logs", Action: proto.ActionLogRead, Params: map[string]string{"source": "journal"}})
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	c, err := New(cfg, proto.Hello{AgentID: "t", Capabilities: []proto.Capability{proto.CapPackages, proto.CapReboot, proto.CapLogs}},
+		collector.New(), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	c.HandleJob(proto.ActionPackagesUpgrade, func(ctx context.Context, _ map[string]string) (string, bool, error) {
+		<-release
+		return "fertig", false, nil
+	})
+	c.HandleJob(proto.ActionReboot, func(context.Context, map[string]string) (string, bool, error) { return "", false, nil })
+	c.HandleJob(proto.ActionLogRead, func(context.Context, map[string]string) (string, bool, error) { return "zeilen", false, nil })
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	go c.Run(ctx)
+
+	got := map[string]proto.JobResult{}
+	for len(got) < 2 {
+		select {
+		case res := <-results:
+			got[res.JobID] = res
+		case <-ctx.Done():
+			t.Fatalf("ergebnisse: %+v", got)
+		}
+	}
+	if !got["logs"].OK || got["reboot"].OK {
+		t.Fatalf("während des upgrades: %+v", got)
+	}
+	close(release)
+	if res := <-results; res.JobID != "upgrade" || !res.OK {
+		t.Fatalf("upgrade: %+v", res)
+	}
+}

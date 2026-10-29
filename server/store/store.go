@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS hosts (
 	last_services    TEXT,
 	last_services_at INTEGER,
 	last_updates     TEXT,
-	updates_summary  TEXT
+	updates_summary  TEXT,
+	log_sources      TEXT NOT NULL DEFAULT '[]'
 );
 
 -- Kompakte Historie: nur Kennzahlen, kein vollständiges JSON (spart Platz).
@@ -101,18 +102,23 @@ func (s *Store) UpsertHost(ctx context.Context, h proto.Hello, remoteAddr string
 	if err != nil {
 		return err
 	}
+	sources, err := json.Marshal(h.LogSources)
+	if err != nil {
+		return err
+	}
 	_, err = s.db.ExecContext(ctx, `
 INSERT INTO hosts (id, hostname, os, platform, platform_version, kernel_version, arch, agent_version,
-                   cpu_cores, boot_time, interval_sec, capabilities, remote_addr, first_seen, last_seen)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   cpu_cores, boot_time, interval_sec, capabilities, remote_addr, first_seen, last_seen, log_sources)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	hostname = excluded.hostname, os = excluded.os, platform = excluded.platform,
 	platform_version = excluded.platform_version, kernel_version = excluded.kernel_version,
 	arch = excluded.arch, agent_version = excluded.agent_version, cpu_cores = excluded.cpu_cores,
 	boot_time = excluded.boot_time, interval_sec = excluded.interval_sec,
-	capabilities = excluded.capabilities, remote_addr = excluded.remote_addr, last_seen = excluded.last_seen`,
+	capabilities = excluded.capabilities, remote_addr = excluded.remote_addr, last_seen = excluded.last_seen,
+	log_sources = excluded.log_sources`,
 		h.AgentID, h.Hostname, h.OS, h.Platform, h.PlatformVer, h.KernelVer, h.Arch, h.AgentVersion,
-		h.CPUCores, h.BootTime, h.IntervalSec, string(caps), remoteAddr, now.Unix(), now.Unix())
+		h.CPUCores, h.BootTime, h.IntervalSec, string(caps), remoteAddr, now.Unix(), now.Unix(), string(sources))
 	if err != nil {
 		return fmt.Errorf("host speichern: %w", err)
 	}
@@ -181,6 +187,7 @@ type Host struct {
 	DisplayName     string             `json:"display_name"` // leer = Hostname
 	Group           string             `json:"group"`        // leer = ohne Gruppe
 	Updates         *UpdateSummary     `json:"updates"`      // nil = noch kein Update-Stand
+	LogSources      []string           `json:"log_sources"`  // lesbare Logs (agent.json)
 }
 
 // Name liefert den Anzeigenamen, ersatzweise den gemeldeten Hostnamen.
@@ -197,7 +204,7 @@ func (s *Store) ListHosts(ctx context.Context) ([]Host, error) {
 SELECT id, hostname, os, platform, platform_version, kernel_version, arch, agent_version, cpu_cores,
        boot_time, interval_sec, capabilities, remote_addr, first_seen, last_seen,
        COALESCE(last_metrics, 'null'), COALESCE(last_processes, 'null'), display_name, group_name,
-       COALESCE(updates_summary, 'null')
+       COALESCE(updates_summary, 'null'), log_sources
 FROM hosts ORDER BY CASE display_name WHEN '' THEN hostname ELSE display_name END COLLATE NOCASE, id`)
 	if err != nil {
 		return nil, fmt.Errorf("hosts lesen: %w", err)
@@ -207,10 +214,10 @@ FROM hosts ORDER BY CASE display_name WHEN '' THEN hostname ELSE display_name EN
 	hosts := []Host{}
 	for rows.Next() {
 		var h Host
-		var caps, metrics, procs, updates string
+		var caps, metrics, procs, updates, sources string
 		if err := rows.Scan(&h.ID, &h.Hostname, &h.OS, &h.Platform, &h.PlatformVersion, &h.KernelVersion,
 			&h.Arch, &h.AgentVersion, &h.CPUCores, &h.BootTime, &h.IntervalSec, &caps, &h.RemoteAddr,
-			&h.FirstSeen, &h.LastSeen, &metrics, &procs, &h.DisplayName, &h.Group, &updates); err != nil {
+			&h.FirstSeen, &h.LastSeen, &metrics, &procs, &h.DisplayName, &h.Group, &updates, &sources); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(caps), &h.Capabilities); err != nil {
@@ -218,6 +225,9 @@ FROM hosts ORDER BY CASE display_name WHEN '' THEN hostname ELSE display_name EN
 		}
 		h.Metrics = json.RawMessage(metrics)
 		h.Processes = json.RawMessage(procs)
+		if err := json.Unmarshal([]byte(sources), &h.LogSources); err != nil {
+			h.LogSources = nil
+		}
 		if updates != "null" && json.Unmarshal([]byte(updates), &h.Updates) != nil {
 			h.Updates = nil
 		}

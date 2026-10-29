@@ -99,6 +99,17 @@ func (s *Store) PruneJobs(ctx context.Context, before time.Time) (int64, error) 
 	return res.RowsAffected()
 }
 
+// ClearJobOutputs leert die Ausgabe von Jobs der Aktion action, die vor before
+// angelegt wurden. Der Eintrag selbst bleibt als Nachweis (z. B. wer welches Log gelesen hat).
+func (s *Store) ClearJobOutputs(ctx context.Context, action string, before time.Time) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `UPDATE jobs SET output = '' WHERE action = ? AND created_at < ? AND output != ''`,
+		action, before.Unix())
+	if err != nil {
+		return 0, fmt.Errorf("job-ausgaben leeren: %w", err)
+	}
+	return res.RowsAffected()
+}
+
 const jobColumns = `id, host_id, action, params, username, created_at, deadline, finished_at, ok, exit_code, error`
 
 func scanJob(sc interface{ Scan(...any) error }, extra ...any) (Job, error) {

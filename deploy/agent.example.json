@@ -6,5 +6,6 @@
   "process_interval_sec": 30,
   "log_level": "info",
   "ca_file": "/etc/mat-agent/server.crt",
-  "jobs": []
+  "jobs": [],
+  "log_sources": []
 }
