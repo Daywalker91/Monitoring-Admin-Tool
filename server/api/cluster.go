@@ -22,6 +22,12 @@ func (s *Server) WithCluster(w *k8s.Watcher) *Server {
 	return s
 }
 
+// WithK3sReleases zeigt im Tab „Cluster“ die neuesten k3s-Versionen an.
+func (s *Server) WithK3sReleases(r *k8s.Releases) *Server {
+	s.k3sReleases = r
+	return s
+}
+
 // ClusterSnapshot leitet einen neuen Cluster-Stand an die Alarmauswertung weiter.
 func (s *Server) ClusterSnapshot(ctx context.Context, snap *k8s.Snapshot) {
 	if s.alerts == nil {
@@ -98,6 +104,9 @@ func matchNode(nodes map[string]*k8s.Node, h store.Host) *nodeLink {
 type clusterView struct {
 	*k8s.Snapshot
 	Error string `json:"error,omitempty"` // letzter Abruffehler
+	// K3sChannels sind die neuesten k3s-Versionen je Kanal (stable, latest, v1.35 …).
+	K3sChannels map[string]string `json:"k3s_channels,omitempty"`
+	K3sError    string            `json:"k3s_error,omitempty"`
 }
 
 func (s *Server) handleCluster(w http.ResponseWriter, _ *http.Request) {
@@ -105,7 +114,11 @@ func (s *Server) handleCluster(w http.ResponseWriter, _ *http.Request) {
 	if snap == nil {
 		snap = &k8s.Snapshot{}
 	}
-	writeJSON(w, clusterView{Snapshot: snap, Error: errText})
+	v := clusterView{Snapshot: snap, Error: errText}
+	if s.k3sReleases != nil {
+		v.K3sChannels, v.K3sError = s.k3sReleases.Channels()
+	}
+	writeJSON(w, v)
 }
 
 // handleClusterLogs liefert die letzten Zeilen eines Containers als Text:

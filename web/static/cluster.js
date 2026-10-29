@@ -80,7 +80,7 @@ function renderCluster(force) {
   document.getElementById("cluster-fetched").textContent = d.fetched_at ? "Stand " + fmtAgo(d.fetched_at) : "noch kein Stand";
 
   renderClusterSummary(d);
-  renderNodes(d.nodes || []);
+  renderNodes(d.nodes || [], d);
   renderApps(d);
   renderNamespaceFilter(d);
   renderWorkloads(d.workloads || []);
@@ -101,6 +101,49 @@ function renderClusterSummary(d) {
     pill(pods.length + " Pods" + (badPods ? ", " + badPods + " mit Problemen" : ""), badPods > 0),
   );
   if (d.has_argocd) box.append(pill(okApps + "/" + apps.length + " ArgoCD-Apps in Ordnung", okApps < apps.length));
+  box.append(...k3sPills(d));
+}
+
+// k3s-Versionen wie "v1.35.5+k3s1" vergleichen.
+function k3sParts(v) {
+  const m = /^v(\d+)\.(\d+)\.(\d+)\+k3s(\d+)$/.exec(v || "");
+  return m ? m.slice(1).map(Number) : null;
+}
+
+function k3sNewer(a, b) {
+  const x = k3sParts(a), y = k3sParts(b);
+  if (!x || !y) return false;
+  for (let i = 0; i < 4; i++) if (x[i] !== y[i]) return x[i] > y[i];
+  return false;
+}
+
+// Neuester Patch im Zweig der Version (z. B. v1.35.x), falls neuer.
+function k3sPatch(d, version) {
+  const p = k3sParts(version);
+  const latest = p && d.k3s_channels?.["v" + p[0] + "." + p[1]];
+  return latest && k3sNewer(latest, version) ? latest : null;
+}
+
+// Hinweise zu neuen k3s-Versionen; aktualisiert wird außerhalb des Tools
+// (z. B. system-upgrade-controller).
+function k3sPills(d) {
+  const ch = d.k3s_channels;
+  const versions = [...new Set((d.nodes || []).map(n => n.version))].sort();
+  if (!ch || !versions.length) return [];
+  const pills = [el("span", "k3s " + versions.join(", "), "pill")];
+  const patches = [...new Set(versions.map(v => k3sPatch(d, v)).filter(Boolean))];
+  for (const p of patches) {
+    const e = el("span", "Patch " + p + " verfügbar", "pill info");
+    e.title = "Neuester Patch im selben Zweig – in der Regel ohne Umstellungen.";
+    pills.push(e);
+  }
+  const oldest = versions.reduce((a, b) => (k3sNewer(a, b) ? b : a));
+  if (ch.stable && k3sNewer(ch.stable, oldest)) {
+    const e = el("span", "stable " + ch.stable, "pill");
+    e.title = "Aktuelle stable-Version (neuer Zweig: Versionshinweise lesen; Zweige nur einzeln überspringen).";
+    pills.push(e);
+  }
+  return pills;
 }
 
 function readyCell(ready, total, label) {
@@ -118,7 +161,7 @@ function pctOrDash(v) {
 
 // Läuft auf dem Node ein Agent, kommen CPU, RAM und Temperatur von ihm
 // (genauer, mit Temperatur), sonst vom metrics-server.
-function renderNodes(nodes) {
+function renderNodes(nodes, d) {
   document.querySelector("#k8s-nodes tbody").replaceChildren(...nodes.map(n => {
     const host = lastHosts.find(h => h.k8s_node?.name === n.name);
     const m = host?.online ? host.metrics : null;
@@ -141,8 +184,15 @@ function renderNodes(nodes) {
     cpu.title = mem.title = src;
     const temp = m ? tempCell(m.cpu_temp) : cell("temp", null, "–", "num");
     temp.classList.add("hide-sm");
+    const version = cell("version", null, n.version, "hide-sm");
+    const patch = k3sPatch(d, n.version);
+    if (patch) {
+      const hint = el("span", "→ " + patch.replace(/\+k3s\d+$/, ""), "small warn-text k3s-patch");
+      hint.title = "Patch " + patch + " verfügbar";
+      version.append(hint);
+    }
     tr.append(st, name, cell("roles", null, n.roles.join(", ") || "–", "hide-sm"),
-      cell("version", null, n.version, "hide-sm"), cell("ip", null, n.ip || "–", "hide-sm"),
+      version, cell("ip", null, n.ip || "–", "hide-sm"),
       cpu, mem, temp, cell("pods", null, String(n.pods), "num"),
       cell("age", null, fmtAge(n.created), "num hide-sm"));
     return tr;

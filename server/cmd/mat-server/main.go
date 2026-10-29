@@ -198,6 +198,12 @@ func run(ctx context.Context, listen, dbPath string, retention time.Duration, to
 		watcher := k8s.NewWatcher(kc, log, apiSrv.ClusterSnapshot)
 		apiSrv.WithCluster(watcher)
 		go watcher.Run(ctx)
+		// Neueste k3s-Versionen nur anzeigen (MAT_K3S_CHANNELS=off schaltet ab).
+		if u := os.Getenv("MAT_K3S_CHANNELS"); u != "off" {
+			releases := k8s.NewReleases(u, log)
+			apiSrv.WithK3sReleases(releases)
+			go releases.Run(ctx)
+		}
 		log.Info("k3s-ansicht aktiv")
 	}
 	if tlsCfg != nil && tlsCfg.Certificates[0].Leaf != nil {

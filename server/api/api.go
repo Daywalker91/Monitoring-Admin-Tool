@@ -46,12 +46,13 @@ type Server struct {
 	metricsToken   []byte         // leer = /metrics deaktiviert
 	trustedProxies []netip.Prefix // Proxies, deren X-Forwarded-*-Header gelten
 
-	alerts   *alert.Evaluator   // nil = keine Alarmauswertung
-	notifier *notify.Dispatcher // nil = keine externen Kanäle
-	upd      *updates           // nil = kein Self-Update
-	checks   *checks.Runner     // nil = keine externen Checks
-	cluster  *k8s.Watcher       // nil = keine k3s-Ansicht
-	version  string             // Server-Version (Anzeige)
+	alerts      *alert.Evaluator   // nil = keine Alarmauswertung
+	notifier    *notify.Dispatcher // nil = keine externen Kanäle
+	upd         *updates           // nil = kein Self-Update
+	checks      *checks.Runner     // nil = keine externen Checks
+	cluster     *k8s.Watcher       // nil = keine k3s-Ansicht
+	k3sReleases *k8s.Releases      // nil = keine Anzeige neuer k3s-Versionen
+	version     string             // Server-Version (Anzeige)
 
 	certNotAfter    time.Time // Ablauf des TLS-Zertifikats, null = kein TLS
 	certFingerprint string    // SHA-256 des TLS-Zertifikats (hex)

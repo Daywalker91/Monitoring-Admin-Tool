@@ -11,7 +11,8 @@ M4 fertig – Installation als Dienst (Windows, systemd), Server in k3s, Alarme 
 M5 fertig – Self-Update der Agenten aus signierten GitHub-Releases, Warnung vor Ablauf des Server-Zertifikats.
 M6 – CPU-Temperatur, externe Checks (HTTP(S), Ping, TCP), k3s-Ansicht; Hosts umbenennen (Anzeigename,
 auch in Alarmen) und in Gruppen ordnen – intern bleibt die Agent-ID die Kennung.
-M7 (in Arbeit) – Admin-Aktionen als Jobs mit Verlauf, Dienste überwachen und steuern.
+M7 (in Arbeit) – Admin-Aktionen als Jobs mit Verlauf, Dienste überwachen und steuern,
+offene Updates (apt) und Neustart, neue k3s-Versionen im Tab „Cluster“.
 
 ## Schnellstart (lokal)
 
@@ -64,12 +65,18 @@ Server kann sie sonst nicht auslösen, auch nicht, wenn er übernommen wird:
 | Eintrag    | erlaubt                                         |
 |------------|-------------------------------------------------|
 | `services` | Dienste starten, stoppen, neu starten (`systemctl` bzw. Windows-Dienst-Manager) |
-| `packages` | Paket-Updates (folgt in M7)                     |
-| `reboot`   | Neustart (folgt in M7)                          |
+| `packages` | Paketlisten holen und Updates installieren (`apt-get update` / `apt-get -y upgrade`) |
+| `reboot`   | Neustart (`systemctl reboot` bzw. `shutdown.exe /r`) |
 
 Jede Aktion landet mit Benutzer, Zeit und Ausgabe im Verlauf („Aktionen“ in den Host-Details, 90 Tage).
 Der Agent prüft die Parameter selbst noch einmal, steuert nur Dienste aus seiner eigenen Liste und
-nie sich selbst. Lesend (Dienstliste) arbeitet er immer.
+nie sich selbst. Lesend arbeitet er immer: Dienstliste, offene Updates (`apt-get -s upgrade`,
+höchstens alle 30 min) und ob ein Neustart nötig ist (`/var/run/reboot-required` bzw. Registry).
+Unter Windows gibt es nur den Neustart-Hinweis, keine Liste offener Windows-Updates.
+
+k3s selbst ist per Install-Skript installiert, nicht über apt: `packages.upgrade` aktualisiert nur
+das Betriebssystem. Vor Upgrade oder Neustart eines Nodes am besten `kubectl drain`, und immer nur
+einen Node gleichzeitig.
 
 ## Installation als Dienst
 
@@ -159,6 +166,7 @@ Alle `/api/*`-Endpunkte außer Login/Logout erfordern eine Session.
 | `GET/POST /api/hosts/{id}/jobs` | Verlauf der Aktionen / Aktion starten (`{"action":"service.restart","params":{"name":"nginx"}}`) |
 | `GET /api/jobs/{id}`            | eine Aktion samt Ausgabe                   |
 | `GET /api/hosts/{id}/services`  | letzte Dienstliste und überwachte Dienste  |
+| `GET /api/hosts/{id}/updates`   | letzter Update-Stand mit Paketliste        |
 | `POST /api/hosts/{id}/services/watch` | Dienst überwachen (`{"name":"nginx","watch":true}`) |
 | `GET /api/alerts`               | aktive Alarme, `?all=1` mit Verlauf (7 Tage) |
 | `GET /api/alert-rules`          | Regeln und konfigurierte Kanäle            |
@@ -282,6 +290,10 @@ z. B. `kube-system/svclb-*`, voreingestellt für den k3s-ServiceLB neben MetalLB
 angezeigt, lösen aber nichts aus. Zum Testen außerhalb des Clusters: `kubectl proxy` starten und
 den Server mit `MAT_K8S_API=http://127.0.0.1:8001` aufrufen.
 
+Neue k3s-Versionen holt der Server alle 6 h von `update.k3s.io` (`MAT_K3S_CHANNELS=off` schaltet ab):
+Der Tab zeigt die Node-Versionen, den neuesten Patch im selben Zweig und `stable`. Aktualisiert wird
+k3s nicht über das Tool, sondern z. B. mit dem system-upgrade-controller.
+
 ## HTTPS / wss
 
 ```powershell
@@ -369,6 +381,7 @@ Metriken (Präfix `mat_`): `alerts_firing` (je Host und Regel), `host_up`, `host
 `cpu_usage_percent`, `cpu_core_usage_percent`, `load1/5/15` (nicht unter Windows), `memory_total/used_bytes`,
 `swap_total/used_bytes`, `network_{receive,transmit}_{bytes,packets}_per_second`, `network_{receive,transmit}_errors_total`,
 `filesystem_size/used_bytes`, `cpu_temperature_celsius` und `sensor_temperature_celsius` (je Sensor, nur Linux-Hosts mit Sensor).
+Updates (M7): `updates_pending`, `updates_security_pending` (nur Hosts mit apt) und `reboot_required`.
 Externe Checks: `check_up`, `check_latency_seconds`, `check_cert_expiry_timestamp_seconds` (Labels `check`, `name`, `kind`).
 
 Architektur, Zielplattformen und Sicherheitsregeln: siehe [CLAUDE.md](CLAUDE.md).
