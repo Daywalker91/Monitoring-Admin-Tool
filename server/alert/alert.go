@@ -30,7 +30,14 @@ const (
 
 	KindCheckDown = "check_down" // externer Check schlägt fehl
 	KindCheckCert = "check_cert" // Zertifikat eines HTTPS-Checks läuft in weniger als Threshold Tagen ab
+
+	KindK8sNode     = "k8s_node"     // Node nicht bereit
+	KindK8sWorkload = "k8s_workload" // Workload nicht bereit oder Pod im Fehlerzustand
+	KindArgoCD      = "argocd"       // ArgoCD-App Degraded/Missing oder OutOfSync
 )
+
+// ClusterID ist die Kennung, unter der Cluster-Alarme geführt werden.
+const ClusterID = "k8s"
 
 // HostKinds sind die Regeltypen, die sich je Host anpassen lassen.
 var HostKinds = []string{KindOffline, KindCPU, KindMem, KindSwap, KindDisk, KindTemp}
@@ -57,6 +64,9 @@ var DefaultRules = []store.AlertRule{
 	{Kind: KindTemp, Enabled: true, Threshold: 80, ForSec: 300},
 	{Kind: KindCheckDown, Enabled: true, ForSec: 120},
 	{Kind: KindCheckCert, Enabled: true, Threshold: 14},
+	{Kind: KindK8sNode, Enabled: true, ForSec: 120},
+	{Kind: KindK8sWorkload, Enabled: true, ForSec: 300},
+	{Kind: KindArgoCD, Enabled: true, ForSec: 600},
 }
 
 // ValidateRule prüft eine Regel auf erlaubte Werte.
@@ -73,7 +83,7 @@ func ValidateRule(r store.AlertRule) error {
 			return fmt.Errorf("offline: dauer muss mindestens 30 s sein")
 		}
 		return nil
-	case KindCheckDown:
+	case KindCheckDown, KindK8sNode, KindK8sWorkload, KindArgoCD:
 		return nil
 	case KindCheckCert:
 		if r.Threshold < 1 || r.Threshold > 365 {
@@ -470,6 +480,37 @@ func (e *Evaluator) condition(ctx context.Context, k key, name, detail string, r
 	if now.Sub(p.since) >= time.Duration(rule.ForSec)*time.Second {
 		delete(e.pending, k)
 		e.fireDetail(ctx, k, name, detail, rule, v, v, now)
+	}
+}
+
+// Condition ist der Zustand eines Ziels für ObserveSet.
+type Condition struct {
+	Bad    bool
+	Detail string
+}
+
+// ObserveSet wertet die vollständige Menge der Ziele eines Regeltyps aus (z. B.
+// alle Nodes des Clusters). Ziele, die fehlen (gelöscht), werden beendet.
+// Nur aufrufen, wenn die Menge wirklich vollständig geladen wurde.
+func (e *Evaluator) ObserveSet(ctx context.Context, id, name, kind string, conds map[string]Condition, now time.Time) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	rule := e.ruleFor(id, kind)
+	if !rule.Enabled {
+		return
+	}
+	for target, c := range conds {
+		e.condition(ctx, key{id, kind, target}, name, c.Detail, rule, c.Bad, 1, now)
+	}
+	for k := range e.pending {
+		if _, ok := conds[k.target]; !ok && k.host == id && k.kind == kind {
+			delete(e.pending, k)
+		}
+	}
+	for k := range e.firing {
+		if _, ok := conds[k.target]; !ok && k.host == id && k.kind == kind {
+			e.resolve(ctx, k, now)
+		}
 	}
 }
 

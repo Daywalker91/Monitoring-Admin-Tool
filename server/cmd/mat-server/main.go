@@ -37,6 +37,7 @@ import (
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/api"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/auth"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/checks"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/server/k8s"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/notify"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/store"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/update"
@@ -191,6 +192,14 @@ func run(ctx context.Context, listen, dbPath string, retention time.Duration, to
 		WithVersion(version).
 		WithUpdates(updates).
 		WithChecks(checkRunner)
+	if kc, err := k8s.FromEnv(); err != nil {
+		log.Warn("k3s-ansicht abgeschaltet", "err", err)
+	} else if kc != nil {
+		watcher := k8s.NewWatcher(kc, log, apiSrv.ClusterSnapshot)
+		apiSrv.WithCluster(watcher)
+		go watcher.Run(ctx)
+		log.Info("k3s-ansicht aktiv")
+	}
 	if tlsCfg != nil && tlsCfg.Certificates[0].Leaf != nil {
 		apiSrv.WithCertificate(tlsCfg.Certificates[0].Leaf)
 	}

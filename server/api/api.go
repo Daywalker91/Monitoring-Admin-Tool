@@ -24,6 +24,7 @@ import (
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/alert"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/auth"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/checks"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/server/k8s"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/notify"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/store"
 )
@@ -49,6 +50,7 @@ type Server struct {
 	notifier *notify.Dispatcher // nil = keine externen Kanäle
 	upd      *updates           // nil = kein Self-Update
 	checks   *checks.Runner     // nil = keine externen Checks
+	cluster  *k8s.Watcher       // nil = keine k3s-Ansicht
 	version  string             // Server-Version (Anzeige)
 
 	certNotAfter    time.Time // Ablauf des TLS-Zertifikats, null = kein TLS
@@ -103,6 +105,12 @@ func (s *Server) Handler() http.Handler {
 		private.HandleFunc("PUT /api/checks/{id}", s.handleEditCheck)
 		private.HandleFunc("DELETE /api/checks/{id}", s.handleDeleteCheck)
 		private.HandleFunc("GET /api/checks/{id}/history", s.handleCheckHistory)
+	}
+	if s.cluster != nil {
+		private.HandleFunc("GET /api/cluster", s.handleCluster)
+		private.HandleFunc("GET /api/cluster/logs", s.handleClusterLogs)
+		private.HandleFunc("GET /api/cluster/ignore", s.handleGetClusterIgnore)
+		private.HandleFunc("POST /api/cluster/ignore", s.handleSetClusterIgnore)
 	}
 	private.Handle("GET /", static)
 

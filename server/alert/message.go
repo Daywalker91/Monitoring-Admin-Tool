@@ -26,6 +26,12 @@ func Label(kind string) string {
 		return "Check"
 	case KindCheckCert:
 		return "Zertifikat"
+	case KindK8sNode:
+		return "Node"
+	case KindK8sWorkload:
+		return "Workload"
+	case KindArgoCD:
+		return "ArgoCD"
 	}
 	return kind
 }
@@ -58,6 +64,21 @@ func (e Event) Title() string {
 			return host + " ist nicht erreichbar"
 		}
 		return host + " ist wieder erreichbar"
+	case KindK8sNode:
+		if e.Firing() {
+			return "Node " + e.Alert.Target + " ist nicht bereit"
+		}
+		return "Node " + e.Alert.Target + " ist wieder bereit"
+	case KindK8sWorkload:
+		if e.Firing() {
+			return e.Alert.Target + " nicht bereit"
+		}
+		return e.Alert.Target + " wieder bereit"
+	case KindArgoCD:
+		if e.Firing() {
+			return "ArgoCD-App " + e.Alert.Target + ": " + e.Alert.Detail
+		}
+		return "ArgoCD-App " + e.Alert.Target + " wieder in Ordnung"
 	case KindCheckCert:
 		if !e.Firing() {
 			return host + ": Zertifikat erneuert"
@@ -102,6 +123,19 @@ func (e Event) Body() string {
 			days(a.Value), days(a.Threshold))
 	case a.Kind == KindCheckCert:
 		fmt.Fprintf(&b, "Das Zertifikat wurde erneuert.\n")
+	case strings.HasPrefix(a.Kind, "k8s_") || a.Kind == KindArgoCD:
+		if e.Type != Resolved {
+			fmt.Fprintf(&b, "%s %s", Label(a.Kind), a.Target)
+			if a.Detail != "" {
+				fmt.Fprintf(&b, ": %s", a.Detail)
+			}
+			if e.Rule.ForSec > 0 {
+				fmt.Fprintf(&b, " (seit mindestens %s)", duration(time.Duration(e.Rule.ForSec)*time.Second))
+			}
+			b.WriteString(".\n")
+		} else {
+			fmt.Fprintf(&b, "%s %s wieder in Ordnung, Problem dauerte %s.\n", Label(a.Kind), a.Target, duration(e.At.Sub(started)))
+		}
 	case a.Kind == KindOffline && e.Type != Resolved:
 		fmt.Fprintf(&b, "Keine Verbindung zum Agenten seit %s.\n", duration(time.Duration(a.Value*float64(time.Minute))))
 	case a.Kind == KindOffline:
@@ -118,7 +152,9 @@ func (e Event) Body() string {
 		fmt.Fprintf(&b, "%s wieder unter %s. Alarm dauerte %s, Spitzenwert %s.\n",
 			e.subject(), e.value(a.Threshold-Hysteresis), duration(e.At.Sub(started)), e.value(a.Peak))
 	}
-	if strings.HasPrefix(a.HostID, "check:") {
+	if a.HostID == ClusterID {
+		fmt.Fprintf(&b, "Cluster\nBeginn: %s", started.Format("02.01.2006 15:04:05"))
+	} else if strings.HasPrefix(a.HostID, "check:") {
 		fmt.Fprintf(&b, "Check: %s\nBeginn: %s", a.Hostname, started.Format("02.01.2006 15:04:05"))
 	} else {
 		fmt.Fprintf(&b, "Host: %s (%s)\nBeginn: %s", a.Hostname, a.HostID, started.Format("02.01.2006 15:04:05"))
