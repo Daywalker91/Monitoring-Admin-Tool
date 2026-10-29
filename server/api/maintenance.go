@@ -64,7 +64,7 @@ func (s *Server) quiet(id string, now time.Time) (string, bool) {
 	if name := s.maintenanceFor(id, now); name != "" {
 		return "Wartung „" + name + "“", true
 	}
-	return "", false
+	return s.dependencyDown(id)
 }
 
 // maintenanceView ergänzt ein Fenster um seinen aktuellen Stand.
@@ -176,4 +176,80 @@ func (s *Server) reloadMaintenance(ctx context.Context) {
 	if err := s.LoadMaintenance(ctx); err != nil {
 		s.log.Error("wartungsfenster laden", "err", err)
 	}
+}
+
+// maxDependencyDepth begrenzt die Kette Host → Host → … bei der Prüfung auf Schleifen.
+const maxDependencyDepth = 16
+
+// checkDependency prüft eine Abhängigkeit: Ziel existiert, ist nicht der Host
+// selbst und erzeugt keine Schleife.
+func (s *Server) checkDependency(ctx context.Context, id, dep string) error {
+	if dep == "" {
+		return nil
+	}
+	kind, target, ok := strings.Cut(dep, ":")
+	switch {
+	case !ok || target == "":
+		return errors.New(`abhängigkeit: "host:<id>" oder "check:<id>"`)
+	case kind == "check":
+		n, err := strconv.ParseInt(target, 10, 64)
+		if err != nil {
+			return errors.New("abhängigkeit: ungültige check-id")
+		}
+		if _, err := s.store.CheckByID(ctx, n); err != nil {
+			return errors.New("abhängigkeit: check nicht gefunden")
+		}
+		return nil
+	case kind != "host":
+		return errors.New(`abhängigkeit: "host:<id>" oder "check:<id>"`)
+	}
+	for depth := 0; depth < maxDependencyDepth; depth++ {
+		if target == id {
+			return errors.New("abhängigkeit: ergibt eine schleife")
+		}
+		exists, err := s.store.HostExists(ctx, target)
+		if err != nil || !exists {
+			return errors.New("abhängigkeit: host nicht gefunden")
+		}
+		next, err := s.store.HostDependsOn(ctx, target)
+		if err != nil {
+			return err
+		}
+		k, t, _ := strings.Cut(next, ":")
+		if k != "host" {
+			return nil
+		}
+		target = t
+	}
+	return errors.New("abhängigkeit: kette zu lang")
+}
+
+// dependencyDown meldet, ob das Ziel der Abhängigkeit von id ausgefallen ist:
+// ein Host ohne Verbindung bzw. ein Check, dessen letzter Lauf fehlschlug.
+func (s *Server) dependencyDown(id string) (string, bool) {
+	dep, err := s.store.HostDependsOn(context.Background(), id)
+	if err != nil {
+		s.log.Error("abhängigkeit lesen", "err", err)
+		return "", false
+	}
+	kind, target, _ := strings.Cut(dep, ":")
+	switch kind {
+	case "host":
+		if !s.online(target) {
+			return "abhängig von Host " + s.hostName(target, target) + " (offline)", true
+		}
+	case "check":
+		n, err := strconv.ParseInt(target, 10, 64)
+		if err != nil || s.checks == nil {
+			return "", false
+		}
+		if r, ok := s.checks.Last()[n]; ok && !r.OK {
+			name := target
+			if c, err := s.store.CheckByID(context.Background(), n); err == nil {
+				name = c.Name
+			}
+			return "abhängig von Check " + name + " (fehlgeschlagen)", true
+		}
+	}
+	return "", false
 }

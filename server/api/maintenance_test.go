@@ -4,12 +4,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/Daywalker91/Monitoring-Admin-Tool/proto"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/server/auth"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/notify"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/store"
 )
@@ -105,5 +110,72 @@ func TestMaintenanceSilencesAlerts(t *testing.T) {
 	case m := <-got:
 		t.Fatalf("während wartung gemeldet: %+v", m)
 	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+func TestDependencies(t *testing.T) {
+	ts, st := newAlertTestServer(t)
+	c := login(t, ts)
+	ctx := context.Background()
+	for _, id := range []string{"router", "nas", "pi"} {
+		st.UpsertHost(ctx, proto.Hello{AgentID: id, Hostname: id, IntervalSec: 10}, "x", time.Now())
+	}
+	meta := func(id, dep string) int {
+		return postJSON(t, c, ts.URL+"/api/hosts/"+id+"/meta", ts.URL, hostMeta{DependsOn: &dep}).StatusCode
+	}
+	for _, tc := range []struct{ id, dep string }{
+		{"nas", "nas"}, {"nas", "host:nas"}, {"nas", "host:fehlt"}, {"nas", "check:99"}, {"nas", "router"}, {"nas", "dns:router"},
+	} {
+		if code := meta(tc.id, tc.dep); code != http.StatusBadRequest {
+			t.Errorf("%s → %q: %d, erwartet 400", tc.id, tc.dep, code)
+		}
+	}
+	if code := meta("nas", "host:router"); code != http.StatusOK {
+		t.Fatalf("nas → router: %d", code)
+	}
+	if code := meta("pi", "host:nas"); code != http.StatusOK {
+		t.Fatalf("pi → nas: %d", code)
+	}
+	if code := meta("router", "host:pi"); code != http.StatusBadRequest {
+		t.Errorf("schleife router → pi → nas → router akzeptiert: %d", code)
+	}
+	// Ohne depends_on bleibt die Abhängigkeit beim Umbenennen erhalten.
+	postJSON(t, c, ts.URL+"/api/hosts/nas/meta", ts.URL, hostMeta{DisplayName: "NAS"})
+	var hosts []hostView
+	getJSON(t, c, ts.URL+"/api/hosts", &hosts)
+	for _, h := range hosts {
+		if h.ID == "nas" && (h.DependsOn != "host:router" || h.DisplayName != "NAS") {
+			t.Fatalf("nas: %+v", h.Host)
+		}
+	}
+	if code := meta("nas", ""); code != http.StatusOK {
+		t.Fatalf("aufheben: %d", code)
+	}
+}
+
+// Ist das Ziel ausgefallen, gilt der Host als „leise“ (Alarme nicht melden).
+func TestDependencyQuiet(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	s := New(st, auth.New(st), "secret", fstest.MapFS{}, log)
+	st.UpsertHost(ctx, proto.Hello{AgentID: "router", Hostname: "fritz", IntervalSec: 10}, "", time.Now())
+	st.UpsertHost(ctx, proto.Hello{AgentID: "nas", Hostname: "nas", IntervalSec: 10}, "", time.Now())
+	st.SetHostDependsOn(ctx, "nas", "host:router")
+
+	s.conns["router"] = agentConn{}
+	if reason, quiet := s.quiet("nas", time.Now()); quiet {
+		t.Fatalf("router online, trotzdem leise: %q", reason)
+	}
+	delete(s.conns, "router")
+	if reason, quiet := s.quiet("nas", time.Now()); !quiet || reason != "abhängig von Host router (offline)" {
+		t.Fatalf("router offline: %q %v", reason, quiet)
+	}
+	if _, quiet := s.quiet("router", time.Now()); quiet {
+		t.Fatal("router selbst ist leise")
 	}
 }

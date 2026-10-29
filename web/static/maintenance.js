@@ -17,6 +17,14 @@ function hostMaintenancePill(h) {
   return p;
 }
 
+// Hinweis, wenn das Ziel der Abhängigkeit ausgefallen ist (Alarme nicht gemeldet).
+function hostDependencyPill(h) {
+  if (!h.dependency_down) return null;
+  const p = el("span", "⛓ Ziel ausgefallen", "pill info host-alerts");
+  p.title = h.dependency_down + ": Alarme werden erfasst, aber nicht gemeldet";
+  return p;
+}
+
 function fmtMinutes(min) {
   if (min < 60) return min + " min";
   const h = Math.floor(min / 60), m = min % 60;

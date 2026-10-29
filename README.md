@@ -12,7 +12,7 @@ M5 fertig – Self-Update der Agenten aus signierten GitHub-Releases, Warnung vo
 M6 – CPU-Temperatur, externe Checks (HTTP(S), Ping, TCP), k3s-Ansicht; Hosts umbenennen (Anzeigename,
 auch in Alarmen) und in Gruppen ordnen – intern bleibt die Agent-ID die Kennung.
 M7 (in Arbeit) – Admin-Aktionen als Jobs mit Verlauf, Dienste überwachen und steuern,
-offene Updates (apt) und Neustart, neue k3s-Versionen im Tab „Cluster“, freigegebene Logs lesen, SMART der Datenträger; Alarme quittieren, Wartungsfenster.
+offene Updates (apt) und Neustart, neue k3s-Versionen im Tab „Cluster“, freigegebene Logs lesen, SMART der Datenträger; Alarme quittieren, Wartungsfenster, Abhängigkeiten.
 
 ## Schnellstart (lokal)
 
@@ -254,6 +254,11 @@ gibt es keine Erinnerungen mehr; das Ende wird trotzdem gemeldet.
 **Wartungsfenster** (Einstellungen): einmalig oder wöchentlich, für alle, eine Gruppe oder einen
 Host. Alarme werden erfasst, aber nicht gemeldet; was am Ende noch aktiv ist, wird nachgemeldet.
 Wöchentliche Fenster gelten in der Zeitzone des Servers (`TZ`, im k3s-Manifest `Europe/Berlin`).
+
+**Abhängigkeiten** (Host-Details, „Hängt ab von“): Ein Host kann von einem anderen Host oder einem
+externen Check abhängen, z. B. alles hinter dem Router. Ist das Ziel ausgefallen (Host offline bzw.
+Check fehlgeschlagen), werden Alarme des Hosts erfasst, aber nicht gemeldet – statt zwanzig
+Meldungen kommt nur die des Routers. Schleifen lehnt der Server ab.
 
 ### Benachrichtigungen
 

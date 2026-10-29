@@ -443,7 +443,8 @@ type hostView struct {
 	UpdateNote      string      `json:"update_note,omitempty"`
 	K8sNode         *nodeLink   `json:"k8s_node,omitempty"` // Host ist ein k3s-Node
 	Services        *svcSummary `json:"services,omitempty"`
-	Maintenance     string      `json:"maintenance,omitempty"` // aktives Wartungsfenster
+	Maintenance     string      `json:"maintenance,omitempty"`     // aktives Wartungsfenster
+	DependencyDown  string      `json:"dependency_down,omitempty"` // Ziel der Abhängigkeit ausgefallen
 }
 
 func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
@@ -459,6 +460,9 @@ func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 		out[i] = hostView{Host: h, Online: s.online(h.ID), UpdateAvailable: s.updateAvailable(h),
 			Update: s.hostUpdateState(h.ID), UpdateNote: s.updateNote(h.ID), K8sNode: matchNode(nodes, h),
 			Services: s.servicesSummary(h.ID), Maintenance: s.maintenanceFor(h.ID, s.nowFor())}
+		if h.DependsOn != "" {
+			out[i].DependencyDown, _ = s.dependencyDown(h.ID)
+		}
 		if s.alerts != nil {
 			if until, muted := s.alerts.MutedUntil(h.ID, s.nowFor()); muted {
 				ts := until.Unix()

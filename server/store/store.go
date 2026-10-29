@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS hosts (
 	last_updates     TEXT,
 	updates_summary  TEXT,
 	log_sources      TEXT NOT NULL DEFAULT '[]',
-	last_smart       TEXT
+	last_smart       TEXT,
+	depends_on       TEXT NOT NULL DEFAULT ''
 );
 
 -- Kompakte Historie: nur Kennzahlen, kein vollständiges JSON (spart Platz).
@@ -189,6 +190,7 @@ type Host struct {
 	Group           string             `json:"group"`        // leer = ohne Gruppe
 	Updates         *UpdateSummary     `json:"updates"`      // nil = noch kein Update-Stand
 	LogSources      []string           `json:"log_sources"`  // lesbare Logs (agent.json)
+	DependsOn       string             `json:"depends_on"`   // "host:<id>", "check:<id>" oder leer
 }
 
 // Name liefert den Anzeigenamen, ersatzweise den gemeldeten Hostnamen.
@@ -205,7 +207,7 @@ func (s *Store) ListHosts(ctx context.Context) ([]Host, error) {
 SELECT id, hostname, os, platform, platform_version, kernel_version, arch, agent_version, cpu_cores,
        boot_time, interval_sec, capabilities, remote_addr, first_seen, last_seen,
        COALESCE(last_metrics, 'null'), COALESCE(last_processes, 'null'), display_name, group_name,
-       COALESCE(updates_summary, 'null'), log_sources
+       COALESCE(updates_summary, 'null'), log_sources, depends_on
 FROM hosts ORDER BY CASE display_name WHEN '' THEN hostname ELSE display_name END COLLATE NOCASE, id`)
 	if err != nil {
 		return nil, fmt.Errorf("hosts lesen: %w", err)
@@ -218,7 +220,7 @@ FROM hosts ORDER BY CASE display_name WHEN '' THEN hostname ELSE display_name EN
 		var caps, metrics, procs, updates, sources string
 		if err := rows.Scan(&h.ID, &h.Hostname, &h.OS, &h.Platform, &h.PlatformVersion, &h.KernelVersion,
 			&h.Arch, &h.AgentVersion, &h.CPUCores, &h.BootTime, &h.IntervalSec, &caps, &h.RemoteAddr,
-			&h.FirstSeen, &h.LastSeen, &metrics, &procs, &h.DisplayName, &h.Group, &updates, &sources); err != nil {
+			&h.FirstSeen, &h.LastSeen, &metrics, &procs, &h.DisplayName, &h.Group, &updates, &sources, &h.DependsOn); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(caps), &h.Capabilities); err != nil {
@@ -247,6 +249,24 @@ func (s *Store) SetHostMeta(ctx context.Context, hostID, displayName, group stri
 	}
 	n, err := res.RowsAffected()
 	return n > 0, err
+}
+
+// SetHostDependsOn setzt, wovon ein Host abhängt ("" = von nichts).
+func (s *Store) SetHostDependsOn(ctx context.Context, hostID, dep string) error {
+	if _, err := s.db.ExecContext(ctx, `UPDATE hosts SET depends_on = ? WHERE id = ?`, dep, hostID); err != nil {
+		return fmt.Errorf("abhängigkeit speichern: %w", err)
+	}
+	return nil
+}
+
+// HostDependsOn liefert, wovon ein Host abhängt ("" = nichts oder unbekannt).
+func (s *Store) HostDependsOn(ctx context.Context, hostID string) (string, error) {
+	var dep string
+	err := s.db.QueryRowContext(ctx, `SELECT depends_on FROM hosts WHERE id = ?`, hostID).Scan(&dep)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("abhängigkeit lesen: %w", err)
+	}
+	return dep, nil
 }
 
 // HostDisplayName liefert den Anzeigenamen eines Hosts (leer = keiner gesetzt).

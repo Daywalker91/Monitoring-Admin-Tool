@@ -144,6 +144,8 @@ function hostRow(h) {
   if (svcPill) host.append(svcPill);
   const maintPill = hostMaintenancePill(h);
   if (maintPill) host.append(maintPill);
+  const depPill = hostDependencyPill(h);
+  if (depPill) host.append(depPill);
   host.append(...hostPackagePills(h));
   if (h.k8s_node) host.append(k8sPill(h.k8s_node));
   const upd = hostUpdatePill(h);
@@ -438,14 +440,56 @@ function hostMetaSection(h) {
     v.group.value = h.group || "";
   }
   v.name.placeholder = h.hostname;
+  fillDependencyOptions(v, h);
   return v.el;
+}
+
+// Auswahl „Hängt ab von“: andere Hosts und externe Checks.
+function fillDependencyOptions(v, h) {
+  const opts = [["", "nichts"]];
+  for (const x of lastHosts) {
+    if (x.id === h.id) continue;
+    const name = hostName(x);
+    opts.push(["host:" + x.id, "Host " + name + (name.toLowerCase() !== x.id ? " (" + x.id + ")" : "")]);
+  }
+  for (const c of dependencyChecks) opts.push(["check:" + c.id, "Check " + c.name]);
+  const key = opts.map(o => o[0]).join("|");
+  const want = v.dirty ? v.dep.value : (h.depends_on || "");
+  if (key !== v.depKey) {
+    v.dep.replaceChildren(...opts.map(([val, text]) => {
+      const o = el("option", text);
+      o.value = val;
+      return o;
+    }));
+    v.depKey = key;
+  }
+  // Unbekanntes Ziel (z. B. gelöschter Check) trotzdem anzeigen.
+  if (want && !opts.some(o => o[0] === want)) {
+    const o = el("option", want + " (nicht gefunden)");
+    o.value = want;
+    v.dep.append(o);
+    v.depKey = "";
+  }
+  v.dep.value = want;
+}
+
+// Checks für die Abhängigkeits-Auswahl (einmal laden reicht).
+let dependencyChecks = [];
+let dependencyChecksLoaded = false;
+async function loadDependencyChecks() {
+  if (dependencyChecksLoaded) return;
+  dependencyChecksLoaded = true;
+  try {
+    const resp = await fetch("api/checks", { cache: "no-store" });
+    if (resp.ok) dependencyChecks = (await resp.json()).map(c => ({ id: c.id, name: c.name }));
+  } catch { /* ohne Checks nur Hosts */ }
 }
 
 function createMetaView(h) {
   const v = { id: h.id, dirty: false };
   const form = el("form", null, "host-meta");
   form.autocomplete = "off";
-  form.append(el("h3", "Name und Gruppe"));
+  form.append(el("h3", "Name, Gruppe, Abhängigkeit"));
   const grid = el("div", null, "form-grid");
   const field = (label, input) => {
     const l = el("label", label);
@@ -461,6 +505,9 @@ function createMetaView(h) {
     i.maxLength = 64;
     i.addEventListener("input", () => { v.dirty = true; });
   }
+  v.dep = field("Hängt ab von", el("select"));
+  v.dep.addEventListener("change", () => { v.dirty = true; });
+  loadDependencyChecks();
   form.append(grid);
   const actions = el("div", null, "form-actions");
   const save = el("button", "Speichern", "secondary");
@@ -468,7 +515,9 @@ function createMetaView(h) {
   v.status = el("span", "", "small");
   v.status.setAttribute("role", "status");
   actions.append(save, v.status);
-  form.append(actions, el("p", "Leer lassen = Hostname bzw. ohne Gruppe. Der Name erscheint auch in Alarmen und Benachrichtigungen.", "muted small"));
+  form.append(actions, el("p", "Leer lassen = Hostname bzw. ohne Gruppe. Der Name erscheint auch in Alarmen und " +
+    "Benachrichtigungen. „Hängt ab von“: Ist das Ziel ausgefallen (z. B. der Router), werden Alarme dieses Hosts " +
+    "erfasst, aber nicht gemeldet.", "muted small"));
   form.addEventListener("click", ev => ev.stopPropagation());
   form.addEventListener("submit", ev => { ev.preventDefault(); saveMeta(v, save); });
   v.el = el("section");
@@ -483,7 +532,7 @@ async function saveMeta(v, btn) {
   try {
     const resp = await fetch("api/hosts/" + encodeURIComponent(v.id) + "/meta", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ display_name: v.name.value, group: v.group.value }),
+      body: JSON.stringify({ display_name: v.name.value, group: v.group.value, depends_on: v.dep.value }),
     });
     if (resp.status === 401) return toLogin();
     if (!resp.ok) throw new Error((await resp.text()).trim() || "HTTP " + resp.status);

@@ -15,6 +15,9 @@ const maxMetaLen = 64
 type hostMeta struct {
 	DisplayName string `json:"display_name"`
 	Group       string `json:"group"`
+	// DependsOn: "host:<id>", "check:<id>" oder "" (nil = unverändert). Ist das
+	// Ziel ausgefallen, werden Alarme dieses Hosts nicht gemeldet.
+	DependsOn *string `json:"depends_on,omitempty"`
 }
 
 // validMeta bereinigt v (Leerraum am Rand) und prüft Länge und Zeichen.
@@ -49,6 +52,12 @@ func (s *Server) handleHostMeta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
+	if m.DependsOn != nil {
+		if err := s.checkDependency(r.Context(), id, *m.DependsOn); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
 	found, err := s.store.SetHostMeta(r.Context(), id, m.DisplayName, m.Group)
 	if err != nil {
 		s.log.Error("host-angaben speichern", "err", err)
@@ -58,6 +67,13 @@ func (s *Server) handleHostMeta(w http.ResponseWriter, r *http.Request) {
 	if !found {
 		http.Error(w, "host nicht gefunden", http.StatusNotFound)
 		return
+	}
+	if m.DependsOn != nil {
+		if err := s.store.SetHostDependsOn(r.Context(), id, *m.DependsOn); err != nil {
+			s.log.Error("abhängigkeit speichern", "err", err)
+			http.Error(w, "interner fehler", http.StatusInternalServerError)
+			return
+		}
 	}
 	s.setName(id, m.DisplayName)
 	s.log.Info("host-angaben geändert", "agent_id", id, "name", m.DisplayName, "group", m.Group)
