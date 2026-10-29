@@ -1,4 +1,4 @@
-# Monitoring-Admin-Tool
+# Monitoring and Administration Tool (MAT)
 
 Selbst gebautes Monitoring- und Administrationstool fürs Homelab: ein schlanker Agent auf jeder Maschine,
 ein zentraler Server mit Web-GUI.
@@ -282,7 +282,7 @@ $env:MAT_SMTP_PORT = "587"                # Standard: 587 bei starttls, 465 bei 
 $env:MAT_SMTP_TLS  = "starttls"           # starttls (Standard), tls oder none
 $env:MAT_SMTP_USER = "monitor@example.com"
 $env:MAT_SMTP_PASS = "..."
-$env:MAT_SMTP_FROM = "Monitoring-Admin-Tool <monitor@example.com>"
+$env:MAT_SMTP_FROM = "MAT <monitor@example.com>"
 $env:MAT_SMTP_TO   = "ich@example.com,du@example.com"
 ```
 

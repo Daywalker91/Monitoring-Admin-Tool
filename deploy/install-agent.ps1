@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    Installiert bzw. aktualisiert den Agenten des Monitoring-Admin-Tool als Windows-Dienst.
+    Installiert bzw. aktualisiert den Agenten des Monitoring and Administration Tool (MAT) als Windows-Dienst.
 
 .DESCRIPTION
     Lädt mat-agent-windows-amd64.exe aus dem GitHub-Release (neueste Version oder

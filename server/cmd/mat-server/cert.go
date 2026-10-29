@@ -88,7 +88,7 @@ func generateCert(hosts []string, validFor time.Duration, now time.Time) (certPE
 	}
 	tmpl := x509.Certificate{
 		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: hosts[0], Organization: []string{"Monitoring-Admin-Tool"}},
+		Subject:               pkix.Name{CommonName: hosts[0], Organization: []string{"Monitoring and Administration Tool"}},
 		NotBefore:             now.Add(-time.Hour),
 		NotAfter:              now.Add(validFor),
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,

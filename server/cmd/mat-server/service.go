@@ -97,7 +97,7 @@ func installService(args []string) error {
 	}
 	err = winsvc.Install(winsvc.Spec{
 		Name:        serviceName,
-		DisplayName: "Monitoring-Admin-Tool Server",
+		DisplayName: "MAT Server (Monitoring and Administration Tool)",
 		Description: "Nimmt Metriken der Agenten an und liefert die Web-GUI aus.",
 		ExePath:     exe,
 		Args:        svcArgs,

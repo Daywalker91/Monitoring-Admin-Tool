@@ -50,6 +50,6 @@ func precheck() error {
 
 func reboot() (string, error) {
 	out, err := exec.Command(shutdownExe(), "/r", "/t", "30", "/d", "p:0:0",
-		"/c", "Neustart durch Monitoring-Admin-Tool").CombinedOutput()
+		"/c", "Neustart durch Monitoring and Administration Tool (MAT)").CombinedOutput()
 	return string(out), err
 }

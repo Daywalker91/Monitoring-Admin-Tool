@@ -4,7 +4,8 @@ Diese Datei enthält Hinweise für Claude Code (claude.ai/code) beim Arbeiten mi
 
 ## Projektübersicht
 
-Selbst gebautes Monitoring- und Administrationstool für das eigene Homelab.
+Selbst gebautes Monitoring- und Administrationstool für das eigene Homelab: **Monitoring and Administration Tool (MAT)**.
+Repo, Go-Modul, Image und Release-URLs heißen weiter `Monitoring-Admin-Tool` (nicht umbenennen, sonst brechen Self-Update und Install-Skripte).
 Ein schlanker **Agent** läuft auf den überwachten Maschinen, ein zentraler **Server** mit Web-GUI
 sammelt die Daten und steuert (später) Admin-Aktionen.
 

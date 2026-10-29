@@ -1,5 +1,5 @@
 #!/bin/sh
-# Installiert den Agenten des Monitoring-Admin-Tool als systemd-Dienst (Linux, auch Raspberry Pi).
+# Installiert den Agenten des Monitoring and Administration Tool (MAT) als systemd-Dienst (Linux, auch Raspberry Pi).
 #
 #   sudo sh install-agent.sh --server wss://monitor.lan:8443/ws/agent [--fingerprint <sha256>] [--id name]
 #   sudo sh install-agent.sh                 # nur Programm aktualisieren, Konfiguration bleibt
