@@ -3,7 +3,10 @@
 // erst beim Aufruf. Werte werden ausschließlich per textContent gesetzt.
 "use strict";
 
-const ALERT_LABELS = { offline: "Offline", cpu: "CPU", mem: "RAM", swap: "Swap", disk: "Disk", temp: "CPU-Temperatur" };
+const ALERT_LABELS = { offline: "Offline", cpu: "CPU", mem: "RAM", swap: "Swap", disk: "Disk", temp: "CPU-Temperatur",
+  check_down: "Check", check_cert: "Zertifikat" };
+// Regeltypen ohne Schwelle (nur Mindestdauer).
+const NO_THRESHOLD = ["offline", "check_down"];
 const RULE_HELP = {
   offline: "Agent nicht verbunden",
   cpu: "CPU-Auslastung gesamt",
@@ -11,16 +14,23 @@ const RULE_HELP = {
   swap: "Swap belegt (nur Hosts mit Swap)",
   disk: "Belegung je Mountpoint",
   temp: "CPU-Temperatur in °C (nur Linux-Hosts mit Sensor)",
+  check_down: "Externer Check schlägt fehl",
+  check_cert: "Zertifikat eines HTTPS-Checks läuft in weniger als … Tagen ab",
 };
 
 // Schwelle je Regeltyp: Einheit und erlaubter Bereich (wie im Server geprüft).
 function ruleUnit(kind) {
-  return kind === "temp" ? { unit: " °C", min: 30, max: 120, aria: "in Grad Celsius" }
-    : { unit: " %", min: 10, max: 100, aria: "in Prozent" };
+  if (kind === "temp") return { unit: " °C", min: 30, max: 120, aria: "in Grad Celsius" };
+  if (kind === "check_cert") return { unit: " Tage", min: 1, max: 365, aria: "in Tagen" };
+  return { unit: " %", min: 10, max: 100, aria: "in Prozent" };
 }
 
 // Messwert eines Alarms in der Einheit seines Regeltyps.
-function fmtAlertNum(kind, v) { return kind === "temp" ? fmtTemp(v) : fmtPct(v); }
+function fmtAlertNum(kind, v) {
+  if (kind === "temp") return fmtTemp(v);
+  if (kind === "check_cert") return Math.floor(v) + " Tage";
+  return fmtPct(v);
+}
 const CHANNEL_LABELS = { ntfy: "ntfy", email: "E-Mail" };
 
 let activeAlerts = []; // aktive Alarme, für Markierung und Host-Liste
@@ -43,7 +53,11 @@ function fmtDateTime(unix) {
 }
 
 // Wert eines Alarms: Prozent, bei "offline" die Zeit ohne Verbindung (in Minuten gespeichert).
-function alertValue(a, v) { return a.kind === "offline" ? fmtDuration(v * 60) : fmtAlertNum(a.kind, v); }
+function alertValue(a, v) {
+  if (a.kind === "offline") return fmtDuration(v * 60);
+  if (a.kind === "check_down") return a.detail || "fehlgeschlagen";
+  return fmtAlertNum(a.kind, v);
+}
 
 function alertCountFor(hostId) { return activeAlerts.filter(a => a.host_id === hostId).length; }
 
@@ -73,15 +87,18 @@ function alertRow(a) {
   tr.append(cell("rule", "Regel", alertSubject(a)));
 
   let value = alertValue(a, a.value);
-  if (a.kind !== "offline" && alertValue(a, a.peak) !== value) value += " (Spitze " + alertValue(a, a.peak) + ")";
+  if (!NO_THRESHOLD.includes(a.kind) && a.kind !== "check_cert" && alertValue(a, a.peak) !== value) {
+    value += " (Spitze " + alertValue(a, a.peak) + ")";
+  }
   tr.append(cell("value", "Wert", value, "num"));
-  tr.append(cell("threshold", "Schwelle", a.kind === "offline" ? "–" : fmtAlertNum(a.kind, a.threshold), "num hide-sm"));
+  tr.append(cell("threshold", "Schwelle", NO_THRESHOLD.includes(a.kind) ? "–" : fmtAlertNum(a.kind, a.threshold), "num hide-sm"));
   tr.append(cell("start", "Beginn", fmtDateTime(a.started_at)));
   const end = active ? Date.now() / 1000 : a.resolved_at;
   tr.append(cell("dur", "Dauer", fmtDuration(end - a.started_at), "num"));
 
   tr.title = "Host anzeigen";
   tr.addEventListener("click", () => {
+    if (a.host_id.startsWith("check:")) return showView("checks");
     openHosts.add(a.host_id);
     showView("hosts");
   });
@@ -146,7 +163,7 @@ function renderRules() {
     tr.append(name);
 
     const thr = cell("thr", "Schwelle", null, "num");
-    if (r.kind === "offline") {
+    if (NO_THRESHOLD.includes(r.kind)) {
       thr.append(el("span", "–", "muted"));
     } else {
       const u = ruleUnit(r.kind);

@@ -10,6 +10,7 @@
   <script src="alerts.js" defer></script>
   <script src="updates.js" defer></script>
   <script src="install.js" defer></script>
+  <script src="checks.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -17,6 +18,7 @@
     <h1 class="logo"><b>M</b>onitoring-<b>A</b>dmin-<b>T</b>ool</h1>
     <nav id="tabs" class="segmented" aria-label="Ansicht">
       <button type="button" data-view="hosts">Hosts</button>
+      <button type="button" data-view="checks">Checks</button>
       <button type="button" data-view="alerts">Alarme<span class="count"></span></button>
       <button type="button" data-view="rules">Einstellungen</button>
     </nav>
@@ -60,6 +62,53 @@
       </table>
     </div>
     <p id="empty" class="muted" hidden>Noch keine Agenten verbunden.</p>
+    </section>
+
+    <section id="view-checks" class="view" hidden>
+      <div class="view-head">
+        <p class="muted small">HTTP(S)-, Ping- und TCP-Checks laufen im Server. Alarme: „Check“ und „Zertifikat“
+          unter Einstellungen.</p>
+        <button type="button" id="check-add" class="primary">Check hinzufügen</button>
+      </div>
+      <form id="check-form" class="panel" hidden autocomplete="off">
+        <h2 id="check-form-title">Neuer Check</h2>
+        <div class="form-grid">
+          <label>Name <input name="name" required maxlength="64"></label>
+          <label>Art
+            <select name="kind">
+              <option value="http">HTTP(S)</option>
+              <option value="ping">Ping</option>
+              <option value="tcp">TCP-Port</option>
+            </select>
+          </label>
+          <label class="wide">Ziel <input name="target" required maxlength="2048" spellcheck="false"></label>
+          <label>Intervall (s) <input name="interval" type="number" min="30" max="3600" step="1" required inputmode="numeric"></label>
+          <label>Timeout (s) <input name="timeout" type="number" min="1" max="30" step="1" required inputmode="numeric"></label>
+          <div id="check-http-opts" class="wide form-grid sub">
+            <label>Erwarteter Status <input name="expect" type="number" min="100" max="599" step="1" placeholder="200–399" inputmode="numeric"></label>
+            <label id="check-skip-row" class="check-label"><input name="skip_verify" type="checkbox">
+              Zertifikat nicht prüfen (selbst signiert) – der Ablauf wird trotzdem überwacht</label>
+          </div>
+          <label class="check-label"><input name="enabled" type="checkbox"> aktiv</label>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="primary">Speichern</button>
+          <button type="button" id="check-cancel" class="secondary">Abbrechen</button>
+          <span id="check-form-status" class="small" role="status"></span>
+        </div>
+      </form>
+      <p id="checks-empty" class="muted">Noch keine Checks angelegt.</p>
+      <div id="checks-table" class="table-wrap" hidden>
+        <table id="checks">
+          <thead>
+            <tr>
+              <th>Status</th><th>Name</th><th>Art</th><th>Ziel</th><th>Ergebnis</th>
+              <th class="num">Zertifikat</th><th class="num">24 h</th><th>Zuletzt</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </section>
 
     <section id="view-alerts" class="view" hidden>

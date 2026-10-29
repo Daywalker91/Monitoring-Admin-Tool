@@ -143,6 +143,9 @@ Alle `/api/*`-Endpunkte außer Login/Logout erfordern eine Session.
 | `POST /api/update/check`        | sofort auf ein neues Release prüfen (höchstens 1×/min) |
 | `POST /api/hosts/{id}/update`   | Agent-Update eines Hosts starten           |
 | `POST /api/update/all`          | alle veralteten Agenten aktualisieren      |
+| `GET/POST /api/checks`          | externe Checks mit letztem Ergebnis / Check anlegen |
+| `PUT/DELETE /api/checks/{id}`   | Check ändern / samt Verlauf löschen        |
+| `GET /api/checks/{id}/history`  | Antwortzeit und Verfügbarkeit, `?hours=1..168`, `?points=` |
 | `GET /agent/update/{version}/{datei}` | Release-Dateien für Agenten (Agent-Token) |
 | `GET /healthz`                  | Health-Check                               |
 | `GET /metrics`                  | Prometheus-Format (eigenes Bearer-Token)   |
@@ -159,6 +162,8 @@ Der Server prüft feste Regeltypen; Schwelle und Mindestdauer lassen sich in der
 | Swap    | 80 % für 10 min        | Swap belegt (nur Hosts mit Swap)            |
 | Disk    | 90 % für 1 min         | Belegung je Mountpoint                      |
 | CPU-Temperatur | 80 °C für 5 min | höchster CPU-Sensor (nur Linux-Hosts mit Sensor) |
+| Check   | 2 min                  | externer Check schlägt ununterbrochen fehl  |
+| Zertifikat | < 14 Tage           | Zertifikat eines HTTPS-Checks läuft bald ab |
 
 Ein Alarm löst aus, wenn der Wert die Mindestdauer lang ununterbrochen über der Schwelle liegt, und endet,
 wenn er 5 Prozentpunkte (Temperatur: 5 °C) unter die Schwelle fällt.
@@ -206,6 +211,24 @@ $env:MAT_SMTP_TO   = "ich@example.com,du@example.com"
 ```
 
 Fehlgeschlagene Sendungen werden nach 10 s, 1 min und 5 min erneut versucht.
+
+## Externe Checks
+
+Unter „Checks“ legt man Prüfungen an, die der Server selbst ausführt (der Agent bleibt dabei außen vor):
+
+- **HTTP(S):** URL abrufen; erfolgreich bei Status 200–399 oder dem eingetragenen Status (z. B. 401 für
+  eine Login-Seite). Bei HTTPS wird der Ablauf des Zertifikats ausgewertet, auch wenn es abgelaufen ist.
+  „Zertifikat nicht prüfen“ erlaubt selbst signierte Dienste im LAN; der Ablauf wird trotzdem überwacht.
+  Höchstens 5 Weiterleitungen, kein Proxy, Zugangsdaten in der URL sind nicht erlaubt.
+- **Ping:** ICMP-Echo. Im Container braucht das unprivilegiertes ICMP (`net.ipv4.ping_group_range`
+  muss die Gruppe des Servers enthalten, unter containerd üblich); sonst meldet der Check
+  „ping nicht möglich“ – dann den TCP-Check nehmen.
+- **TCP-Port:** Verbindung zu `host:port`, z. B. `nas.lan:22`.
+
+Intervall 30–3600 s (Standard 60 s), Timeout 1–30 s. Die GUI zeigt letztes Ergebnis, Antwortzeit,
+Restlaufzeit des Zertifikats, Verfügbarkeit der letzten 24 h und ein Diagramm der Antwortzeit. Die
+Ergebnisse werden wie die Host-Historie 7 Tage aufbewahrt. Alarme: „Check“ (schlägt die Mindestdauer
+lang fehl) und „Zertifikat“ (läuft in weniger als N Tagen ab) unter Einstellungen.
 
 ## HTTPS / wss
 
@@ -294,5 +317,6 @@ Metriken (Präfix `mat_`): `alerts_firing` (je Host und Regel), `host_up`, `host
 `cpu_usage_percent`, `cpu_core_usage_percent`, `load1/5/15` (nicht unter Windows), `memory_total/used_bytes`,
 `swap_total/used_bytes`, `network_{receive,transmit}_{bytes,packets}_per_second`, `network_{receive,transmit}_errors_total`,
 `filesystem_size/used_bytes`, `cpu_temperature_celsius` und `sensor_temperature_celsius` (je Sensor, nur Linux-Hosts mit Sensor).
+Externe Checks: `check_up`, `check_latency_seconds`, `check_cert_expiry_timestamp_seconds` (Labels `check`, `name`, `kind`).
 
 Architektur, Zielplattformen und Sicherheitsregeln: siehe [CLAUDE.md](CLAUDE.md).

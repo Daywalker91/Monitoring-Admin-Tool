@@ -35,6 +35,7 @@ func TestValidate(t *testing.T) {
 	bad := []store.Check{
 		{Name: "", Kind: KindHTTP, Target: "https://x"},
 		{Name: "a\nb", Kind: KindHTTP, Target: "https://x"},
+		{Name: "gepr\xfcft", Kind: KindHTTP, Target: "https://x"},
 		{Name: "x", Kind: KindHTTP, Target: "ftp://x"},
 		{Name: "x", Kind: KindHTTP, Target: "file:///etc/passwd"},
 		{Name: "x", Kind: KindHTTP, Target: "https://user:pw@x"},
@@ -84,7 +85,7 @@ func TestProbeHTTP(t *testing.T) {
 		{"ok", store.Check{Kind: KindHTTP, Target: plain.URL}, true, 200, "", false},
 		{"503", store.Check{Kind: KindHTTP, Target: plain.URL + "/fehler"}, false, 503, "status 503", false},
 		{"503 erwartet", store.Check{Kind: KindHTTP, Target: plain.URL + "/fehler", ExpectStatus: 503}, true, 503, "", false},
-		{"selbst signiert", store.Check{Kind: KindHTTP, Target: tlsSrv.URL}, false, 0, "certificate", true},
+		{"selbst signiert", store.Check{Kind: KindHTTP, Target: tlsSrv.URL}, false, 0, "nicht vertrauenswürdig", true},
 		{"selbst signiert erlaubt", store.Check{Kind: KindHTTP, Target: tlsSrv.URL, SkipVerify: true}, true, 200, "", true},
 	}
 	for _, c := range cases {
@@ -116,7 +117,7 @@ func TestProbeTCP(t *testing.T) {
 	}
 	ln.Close()
 	r = Probe(context.Background(), store.Check{Kind: KindTCP, Target: addr, TimeoutSec: 2})
-	if r.OK || r.Error == "" {
+	if r.OK || r.Error != "verbindung abgelehnt" {
 		t.Fatalf("geschlossener port: %+v", r)
 	}
 }

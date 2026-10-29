@@ -15,8 +15,10 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/store"
 )
@@ -51,10 +53,11 @@ func AlarmID(id int64) string { return "check:" + strconv.FormatInt(id, 10) }
 func Validate(c *store.Check) error {
 	c.Name = strings.TrimSpace(c.Name)
 	c.Target = strings.TrimSpace(c.Target)
-	if c.Name == "" || len(c.Name) > maxNameLen || strings.IndexFunc(c.Name, unicode.IsControl) >= 0 {
+	if c.Name == "" || len(c.Name) > maxNameLen || !utf8.ValidString(c.Name) || strings.IndexFunc(c.Name, unicode.IsControl) >= 0 {
 		return fmt.Errorf("name: 1–%d zeichen, keine steuerzeichen", maxNameLen)
 	}
-	if c.Target == "" || len(c.Target) > maxTargetLen || strings.IndexFunc(c.Target, unicode.IsSpace) >= 0 {
+	if c.Target == "" || len(c.Target) > maxTargetLen || !utf8.ValidString(c.Target) ||
+		strings.IndexFunc(c.Target, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
 		return fmt.Errorf("ziel fehlt oder enthält leerzeichen")
 	}
 	switch c.Kind {
@@ -217,8 +220,32 @@ func probeTCP(ctx context.Context, target string) store.CheckResult {
 	return r
 }
 
-// shortError kürzt Fehlermeldungen auf den Kern (ohne wiederholte URL).
+// shortError übersetzt häufige Fehler in kurze deutsche Meldungen; sonst
+// bleibt der Kern der Originalmeldung (ohne wiederholte URL).
 func shortError(err error) string {
+	var dns *net.DNSError
+	var inv x509.CertificateInvalidError
+	var unk x509.UnknownAuthorityError
+	var host x509.HostnameError
+	var ne net.Error
+	switch {
+	case errors.As(err, &dns) && dns.IsNotFound:
+		return "host nicht gefunden"
+	case errors.As(err, &inv) && inv.Reason == x509.Expired:
+		return "zertifikat abgelaufen"
+	case errors.As(err, &inv):
+		return "zertifikat ungültig: " + inv.Error()
+	case errors.As(err, &unk):
+		return "zertifikat nicht vertrauenswürdig (selbst signiert?)"
+	case errors.As(err, &host):
+		return "zertifikat passt nicht zum namen"
+	case errors.Is(err, syscall.ECONNREFUSED) || strings.Contains(err.Error(), "refused"):
+		return "verbindung abgelehnt"
+	case errors.Is(err, syscall.EHOSTUNREACH) || errors.Is(err, syscall.ENETUNREACH):
+		return "ziel nicht erreichbar"
+	case errors.As(err, &ne) && ne.Timeout():
+		return "keine antwort (zeitüberschreitung)"
+	}
 	var ue *url.Error
 	if errors.As(err, &ue) {
 		err = ue.Err

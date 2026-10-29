@@ -4,7 +4,7 @@
 "use strict";
 
 const REFRESH_MS = 5000;
-const VIEWS = ["hosts", "alerts", "rules"];
+const VIEWS = ["hosts", "checks", "alerts", "rules"];
 // Ansicht und aufgeklappte Hosts stehen im URL-Hash (#view=alerts&open=a,b),
 // damit sie einen Reload überstehen.
 const hashParams = new URLSearchParams(location.hash.slice(1));
@@ -408,6 +408,7 @@ async function refresh() {
       renderUpdatePanel(hosts);
       renderInstallPanel();
     }
+    if (currentView === "checks") await loadChecks();
     errBox.hidden = true;
     document.getElementById("updated").textContent = "aktualisiert " + new Date().toLocaleTimeString("de-DE");
   } catch (e) {

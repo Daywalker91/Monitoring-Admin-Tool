@@ -71,9 +71,9 @@ th, td { padding: 8px 10px; text-align: left; white-space: nowrap; }
 th { font-size: 12px; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--border); }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
 
-#hosts > tbody > tr.host { cursor: pointer; border-top: 1px solid var(--border); }
-#hosts > tbody > tr.host:hover,
-#hosts > tbody > tr.host.open { background: var(--bg); }
+:is(#hosts, #checks) > tbody > tr.host { cursor: pointer; border-top: 1px solid var(--border); }
+:is(#hosts, #checks) > tbody > tr.host:hover,
+:is(#hosts, #checks) > tbody > tr.host.open { background: var(--bg); }
 
 .hostname { font-weight: 600; }
 .agent-id { color: var(--muted); font-size: 12px; margin-left: 6px; }
@@ -88,6 +88,7 @@ th { font-size: 12px; color: var(--muted); font-weight: 600; border-bottom: 1px 
   vertical-align: middle;
 }
 .dot.online { background: var(--ok); }
+.dot.crit { background: var(--crit); }
 
 .lvl-warn { color: var(--warn); font-weight: 600; }
 .lvl-crit { color: var(--crit); font-weight: 600; }
@@ -262,10 +263,10 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; padding
   header { padding: 10px; }
 
   .table-wrap { background: none; border: 0; overflow: visible; }
-  #hosts > thead { display: none; }
-  #hosts, #hosts > tbody { display: block; }
+  :is(#hosts, #checks) > thead { display: none; }
+  #hosts, #hosts > tbody, #checks, #checks > tbody { display: block; }
 
-  #hosts > tbody > tr.host {
+  :is(#hosts, #checks) > tbody > tr.host {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     grid-template-areas:
@@ -281,17 +282,17 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; padding
     border: 1px solid var(--border);
     border-radius: 8px;
   }
-  #hosts > tbody > tr.host.open { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
-  #hosts > tbody > tr.host:hover { background: var(--panel); }
+  :is(#hosts, #checks) > tbody > tr.host.open { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+  :is(#hosts, #checks) > tbody > tr.host:hover { background: var(--panel); }
 
-  #hosts > tbody > tr.host > td {
+  :is(#hosts, #checks) > tbody > tr.host > td {
     display: block;
     padding: 0;
     text-align: left;
     white-space: normal;
     min-width: 0;
   }
-  #hosts > tbody > tr.host > td[data-label]::before {
+  :is(#hosts, #checks) > tbody > tr.host > td[data-label]::before {
     content: attr(data-label);
     display: block;
     font-size: 11px;
@@ -311,8 +312,25 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; padding
   #hosts .c-temp   { grid-area: temp; }
   #hosts .c-net    { grid-area: net; }
 
-  #hosts > tbody > tr.detail { display: block; }
-  #hosts > tbody > tr.detail > td {
+  #checks > tbody > tr.host {
+    grid-template-areas:
+      "host   host   status"
+      "target target target"
+      "result result cert"
+      "kind   uptime seen";
+  }
+  #checks .c-status { grid-area: status; text-align: right; }
+  #checks .c-host   { grid-area: host; font-size: 15px; }
+  #checks .c-target { grid-area: target; font-size: 12px; color: var(--muted); }
+  #checks .c-result { grid-area: result; }
+  #checks .c-cert   { grid-area: cert; }
+  #checks .c-kind   { grid-area: kind; }
+  #checks .c-uptime { grid-area: uptime; }
+  #checks .c-seen   { grid-area: seen; }
+  .view-head { flex-direction: column; align-items: stretch; }
+
+  :is(#hosts, #checks) > tbody > tr.detail { display: block; }
+  :is(#hosts, #checks) > tbody > tr.detail > td {
     display: block;
     padding: 10px;
     border: 1px solid var(--border);
@@ -540,3 +558,29 @@ button.secondary { padding: 6px 14px; }
 /* Name in der Kopfzeile: nur die Anfangsbuchstaben fett */
 h1.logo { font-weight: 400; }
 h1.logo b { font-weight: 700; }
+
+/* Checks */
+.view-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.view-head p { margin: 0; }
+#checks td.target { max-width: 280px; overflow-wrap: anywhere; color: var(--muted); }
+#checks td.c-result { max-width: 320px; overflow-wrap: anywhere; }
+#checks td.c-seen { white-space: nowrap; }
+.error-text { color: var(--crit); }
+.check-detail { display: grid; gap: 12px; }
+.check-detail .chart { max-width: 760px; }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px 14px; }
+.form-grid.sub { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+.form-grid .wide { grid-column: 1 / -1; }
+.form-grid label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.form-grid input:not([type="checkbox"]), .form-grid select {
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 16px; /* verhindert Auto-Zoom auf iOS */
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.form-grid label.check-label { display: flex; align-items: center; gap: 8px; color: var(--text); }
+.form-grid label.check-label input { width: 18px; height: 18px; }
+#check-form .form-grid > [hidden], #check-form [hidden] { display: none; }
