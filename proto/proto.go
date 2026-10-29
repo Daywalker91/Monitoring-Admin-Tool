@@ -103,6 +103,16 @@ type Metrics struct {
 	Swap  Memory      `json:"swap"`
 	Net   []NetIface  `json:"net"`
 	Disks []DiskUsage `json:"disks"`
+	// CPUTemp ist die CPU-Temperatur in °C; nil = kein Sensor (z. B. Windows, VM).
+	CPUTemp *float64 `json:"cpu_temp,omitempty"`
+	// Temps sind alle gefundenen Temperatursensoren (nur zur Anzeige).
+	Temps []Temp `json:"temps,omitempty"`
+}
+
+// Temp ist ein Temperatursensor in °C.
+type Temp struct {
+	Name    string  `json:"name"`
+	Celsius float64 `json:"celsius"`
 }
 
 // CPU enthält Auslastung in Prozent (0–100) und Load-Werte.
@@ -164,6 +174,7 @@ const (
 	maxIfaces  = 256
 	maxDisks   = 256
 	maxProcs   = 50
+	maxTemps   = 64
 	maxNameLen = 512
 )
 
@@ -182,8 +193,22 @@ func (m *Metrics) Validate() error {
 			return fmt.Errorf("mountpoint zu lang")
 		}
 	}
+	if len(m.Temps) > maxTemps {
+		return fmt.Errorf("zu viele temperatursensoren")
+	}
+	if m.CPUTemp != nil && !plausibleTemp(*m.CPUTemp) {
+		return fmt.Errorf("cpu_temp unplausibel")
+	}
+	for _, t := range m.Temps {
+		if len(t.Name) > maxNameLen || !plausibleTemp(t.Celsius) {
+			return fmt.Errorf("temperatursensor ungültig")
+		}
+	}
 	return nil
 }
+
+// plausibleTemp grenzt Sensorwerte ein (auch NaN fällt heraus).
+func plausibleTemp(c float64) bool { return c >= -100 && c <= 300 }
 
 // Validate prüft eine Processes-Nachricht auf plausible Größen.
 func (p *Processes) Validate() error {

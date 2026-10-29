@@ -72,3 +72,22 @@ func TestJobValidate(t *testing.T) {
 		t.Errorf("Truncate = %q", got)
 	}
 }
+
+func TestMetricsValidateTemps(t *testing.T) {
+	temp := func(v float64) *float64 { return &v }
+	ok := Metrics{CPUTemp: temp(48.5), Temps: []Temp{{Name: "cpu-thermal", Celsius: 48.5}}}
+	if err := ok.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	bad := []Metrics{
+		{CPUTemp: temp(1e9)},
+		{Temps: []Temp{{Name: "x", Celsius: -500}}},
+		{Temps: []Temp{{Name: strings.Repeat("x", 600), Celsius: 40}}},
+		{Temps: make([]Temp, 100)},
+	}
+	for i, m := range bad {
+		if err := m.Validate(); err == nil {
+			t.Errorf("%d: ungültige temperatur akzeptiert", i)
+		}
+	}
+}

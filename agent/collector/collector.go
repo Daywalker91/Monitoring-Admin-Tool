@@ -107,6 +107,7 @@ func (c *Collector) Metrics(ctx context.Context) (proto.Metrics, error) {
 	}
 
 	m.Disks = diskUsage(ctx)
+	m.CPUTemp, m.Temps = cpuTemps()
 	return m, nil
 }
 
