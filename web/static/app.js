@@ -665,6 +665,21 @@ for (const b of document.querySelectorAll("#tabs button")) {
 }
 document.getElementById("alert-badge").addEventListener("click", () => showView("alerts"));
 
+// Steht der Cursor in einem Eingabefeld, pausiert das Neuladen: Beim Neuzeichnen
+// wandern die Abschnitte durchs DOM, dabei gehen Fokus und Handy-Tastatur verloren.
+function editing() {
+  const a = document.activeElement;
+  if (!a || a.disabled || a.readOnly) return false;
+  if (a.tagName === "TEXTAREA" || a.tagName === "SELECT") return true;
+  return a.tagName === "INPUT" && !["checkbox", "radio", "button", "submit", "reset"].includes(a.type);
+}
+
 initUser();
 showView(currentView);
-setInterval(refresh, REFRESH_MS);
+setInterval(() => {
+  if (editing()) {
+    document.getElementById("updated").textContent = "pausiert während der Eingabe";
+    return;
+  }
+  refresh();
+}, REFRESH_MS);
