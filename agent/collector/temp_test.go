@@ -63,6 +63,17 @@ func TestReadTemps(t *testing.T) {
 			"thermal/thermal_zone4/temp":  "30000\n", // ohne Namen
 			"thermal/thermal_zone9/other": "x",
 		}, 57, 3},
+		{"intel: x86_pkg_temp doppelt zu coretemp", map[string]string{
+			"thermal/thermal_zone0/type": "x86_pkg_temp\n",
+			"thermal/thermal_zone0/temp": "52000\n",
+			"hwmon/hwmon3/name":          "coretemp\n",
+			"hwmon/hwmon3/temp1_input":   "52000\n",
+			"hwmon/hwmon3/temp1_label":   "Package id 0\n",
+		}, 52, 1},
+		{"intel nur x86_pkg_temp", map[string]string{
+			"thermal/thermal_zone0/type": "x86_pkg_temp\n",
+			"thermal/thermal_zone0/temp": "52000\n",
+		}, 52, 1},
 		{"vm ohne sensoren", map[string]string{}, 0, 0},
 	}
 	for _, c := range cases {

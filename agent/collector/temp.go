@@ -21,10 +21,12 @@ var hwmonCPU = map[string]bool{"coretemp": true, "k10temp": true, "zenpower": tr
 // readTemps liest die Temperatursensoren unter root (normalerweise /sys/class):
 // thermal/thermal_zone* (Raspberry Pi, RK35xx, x86_pkg_temp) und hwmon/hwmon*
 // der CPU-Treiber. Die CPU-Temperatur ist der höchste CPU-Sensor; ohne einen
-// solchen (z. B. in einer VM) ist sie nil.
+// solchen (z. B. in einer VM) ist sie nil. Liefert coretemp & Co. Werte, fällt
+// die Zone x86_pkg_temp weg – sie ist derselbe Sensor wie "Package id 0".
 func readTemps(root string) (*float64, []proto.Temp) {
 	var temps []proto.Temp
 	cpu := math.Inf(-1)
+	pkgZone := -1 // Index von x86_pkg_temp in temps
 
 	zones, _ := filepath.Glob(filepath.Join(root, "thermal", "thermal_zone*"))
 	for _, z := range zones {
@@ -33,11 +35,15 @@ func readTemps(root string) (*float64, []proto.Temp) {
 		if name == "" || !ok {
 			continue
 		}
+		if name == "x86_pkg_temp" {
+			pkgZone = len(temps)
+		}
 		temps = append(temps, proto.Temp{Name: name, Celsius: c})
 		if cpuZone(name) {
 			cpu = max(cpu, c)
 		}
 	}
+	hwmonCPUFound := false
 
 	mons, _ := filepath.Glob(filepath.Join(root, "hwmon", "hwmon*"))
 	for _, h := range mons {
@@ -57,7 +63,11 @@ func readTemps(root string) (*float64, []proto.Temp) {
 			}
 			temps = append(temps, proto.Temp{Name: name, Celsius: c})
 			cpu = max(cpu, c)
+			hwmonCPUFound = true
 		}
+	}
+	if hwmonCPUFound && pkgZone >= 0 {
+		temps = append(temps[:pkgZone], temps[pkgZone+1:]...)
 	}
 
 	sort.Slice(temps, func(i, j int) bool { return temps[i].Name < temps[j].Name })
