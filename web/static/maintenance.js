@@ -91,11 +91,16 @@ function fillMaintTargets(keep) {
   let opts = [];
   if (scope === "group") opts = [...new Set(lastHosts.map(h => h.group).filter(Boolean))].sort().map(g => [g, g]);
   if (scope === "host") opts = lastHosts.map(h => [h.id, hostName(h) + (hostName(h) !== h.id ? " (" + h.id + ")" : "")]);
-  sel.replaceChildren(...opts.map(([v, t]) => {
-    const o = el("option", t);
-    o.value = v;
-    return o;
-  }));
+  // Nur bei geänderten Einträgen neu füllen, sonst klappt eine offene Auswahl zu.
+  const key = JSON.stringify(opts);
+  if (key !== sel.dataset.key) {
+    sel.replaceChildren(...opts.map(([v, t]) => {
+      const o = el("option", t);
+      o.value = v;
+      return o;
+    }));
+    sel.dataset.key = key;
+  }
   if (opts.some(([v]) => v === current)) sel.value = current;
   f.querySelector(".maint-target").hidden = scope === "all";
 }

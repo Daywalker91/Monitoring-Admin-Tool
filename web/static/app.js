@@ -321,11 +321,11 @@ function historySection(h) {
 }
 
 function fillTable(tbody, rows) {
-  for (const cells of rows) {
+  tbody.replaceChildren(...rows.map(cells => {
     const tr = el("tr");
     for (const [text, cls] of cells) tr.append(el("td", text, cls));
-    tbody.append(tr);
-  }
+    return tr;
+  }));
 }
 
 function procRows(list) {
@@ -334,23 +334,54 @@ function procRows(list) {
   ]);
 }
 
+// Detailzeilen je Host bleiben bestehen und werden nur aktualisiert: Würde die
+// Zeile neu gebaut, wanderten die Abschnitte mit Eingabefeldern durchs DOM und
+// Fokus bzw. Handy-Tastatur gingen verloren.
+const detailRows = new Map();
+
+const DETAIL_SLOTS = [
+  [".history-slot", historySection],
+  [".host-alerts-slot", hostAlertSection],
+  [".host-meta-slot", hostMetaSection],
+  [".host-update-slot", hostUpdateSection],
+  [".host-jobs-slot", hostJobSection],
+  [".host-services-slot", hostServiceSection],
+  [".host-packages-slot", hostPackageSection],
+  [".host-logs-slot", hostLogSection],
+  [".host-smart-slot", hostSmartSection],
+];
+
 function detailRow(h) {
-  const tpl = document.getElementById("detail-tpl").content.cloneNode(true);
-  const tr = tpl.querySelector("tr");
+  let d = detailRows.get(h.id);
+  if (!d) {
+    const tr = document.getElementById("detail-tpl").content.cloneNode(true).querySelector("tr");
+    d = { tr, slots: DETAIL_SLOTS.map(([sel]) => tr.querySelector(sel)) };
+    d.tr.querySelector(".delete").addEventListener("click", ev => {
+      ev.stopPropagation();
+      deleteHost(d.host);
+    });
+    detailRows.set(h.id, d);
+  }
+  d.host = h;
+  // Die Abschnittsfunktionen aktualisieren ihre dauerhaften Elemente; eingesetzt
+  // wird nur, was noch nicht an seinem Platz steht.
+  DETAIL_SLOTS.forEach(([, fn], i) => {
+    const sec = fn(h);
+    if (d.slots[i] !== sec) {
+      d.slots[i].replaceWith(sec);
+      d.slots[i] = sec;
+    }
+  });
+  fillDetail(d.tr, h);
+  return d.tr;
+}
+
+// fillDetail setzt die reinen Anzeigewerte (ohne Eingabefelder) neu.
+function fillDetail(tr, h) {
   const m = h.metrics || {};
   const p = h.processes || {};
-
-  tr.querySelector(".history-slot").replaceWith(historySection(h));
-  tr.querySelector(".host-alerts-slot").replaceWith(hostAlertSection(h));
-  tr.querySelector(".host-meta-slot").replaceWith(hostMetaSection(h));
-  tr.querySelector(".host-update-slot").replaceWith(hostUpdateSection(h));
-  tr.querySelector(".host-jobs-slot").replaceWith(hostJobSection(h));
-  tr.querySelector(".host-services-slot").replaceWith(hostServiceSection(h));
-  tr.querySelector(".host-packages-slot").replaceWith(hostPackageSection(h));
-  tr.querySelector(".host-logs-slot").replaceWith(hostLogSection(h));
-  tr.querySelector(".host-smart-slot").replaceWith(hostSmartSection(h));
-
   const cores = tr.querySelector(".cores");
+  cores.replaceChildren();
   (m.cpu?.per_core || []).forEach((v, i) => {
     const c = el("div", "#" + i + " " + v.toFixed(0) + " %", "core");
     const bar = el("div", null, "bar");
@@ -372,6 +403,7 @@ function detailRow(h) {
   fillTable(tr.querySelector(".procs-mem tbody"), procRows(p.top_mem));
 
   const info = tr.querySelector(".info");
+  info.replaceChildren();
   const add = (k, v) => { info.append(el("dt", k), el("dd", v || "–")); };
   add("Agent-ID", h.id);
   add("Version", h.agent_version);
@@ -392,13 +424,7 @@ function detailRow(h) {
   add("Intervall", h.interval_sec + " s");
 
   // Nur Offline-Hosts lassen sich entfernen; ein verbundener Agent würde sich sofort neu anlegen.
-  const del = tr.querySelector(".delete");
-  del.hidden = h.online;
-  del.addEventListener("click", ev => {
-    ev.stopPropagation();
-    deleteHost(h);
-  });
-  return tr;
+  tr.querySelector(".delete").hidden = h.online;
 }
 
 async function deleteHost(h) {
@@ -408,6 +434,7 @@ async function deleteHost(h) {
     if (resp.status === 401) return toLogin();
     if (!resp.ok && resp.status !== 404) throw new Error((await resp.text()).trim() || "HTTP " + resp.status);
     openHosts.delete(h.id);
+    detailRows.delete(h.id);
     historyViews.delete(h.id);
     hostAlertViews.delete(h.id);
     metaViews.delete(h.id);
@@ -580,6 +607,27 @@ function groupRow(name, hosts) {
   return tr;
 }
 
+// syncChildren bringt die Kinder von parent in die Reihenfolge nodes. Knoten,
+// die schon richtig stehen, werden nicht bewegt (sonst ginge ihr Fokus verloren).
+function syncChildren(parent, nodes) {
+  const keep = new Set(nodes);
+  let ref = parent.firstChild;
+  for (const n of nodes) {
+    while (ref && !keep.has(ref)) {
+      const next = ref.nextSibling;
+      ref.remove();
+      ref = next;
+    }
+    if (n === ref) ref = ref.nextSibling;
+    else parent.insertBefore(n, ref);
+  }
+  while (ref) {
+    const next = ref.nextSibling;
+    ref.remove();
+    ref = next;
+  }
+}
+
 function render(hosts) {
   lastHosts = hosts;
   const tbody = document.querySelector("#hosts tbody");
@@ -597,7 +645,7 @@ function render(hosts) {
       if (openHosts.has(h.id)) rows.push(detailRow(h));
     }
   }
-  tbody.replaceChildren(...rows);
+  syncChildren(tbody, rows);
 
   const dl = document.getElementById("host-groups");
   dl.replaceChildren(...groups.filter(([g]) => g !== "").map(([g]) => {
@@ -665,21 +713,6 @@ for (const b of document.querySelectorAll("#tabs button")) {
 }
 document.getElementById("alert-badge").addEventListener("click", () => showView("alerts"));
 
-// Steht der Cursor in einem Eingabefeld, pausiert das Neuladen: Beim Neuzeichnen
-// wandern die Abschnitte durchs DOM, dabei gehen Fokus und Handy-Tastatur verloren.
-function editing() {
-  const a = document.activeElement;
-  if (!a || a.disabled || a.readOnly) return false;
-  if (a.tagName === "TEXTAREA" || a.tagName === "SELECT") return true;
-  return a.tagName === "INPUT" && !["checkbox", "radio", "button", "submit", "reset"].includes(a.type);
-}
-
 initUser();
 showView(currentView);
-setInterval(() => {
-  if (editing()) {
-    document.getElementById("updated").textContent = "pausiert während der Eingabe";
-    return;
-  }
-  refresh();
-}, REFRESH_MS);
+setInterval(refresh, REFRESH_MS);
