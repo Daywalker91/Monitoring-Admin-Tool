@@ -14,7 +14,7 @@ Thumbs.db
 
 # Logs
 *.log
-logs/
+/logs/
 
 # Build-Ausgaben und lokale Daten
 dist/
