@@ -35,7 +35,13 @@ const (
 	stableAfter = time.Minute
 	// maxPending begrenzt Job-Ergebnisse, die auf die nächste Verbindung warten.
 	maxPending = 8
+	// Dienste: jede Minute prüfen, bei Änderung senden, sonst alle 5 Minuten.
+	servicesCheck = time.Minute
+	servicesFull  = 5 * time.Minute
 )
+
+// ServiceLister liest die Dienste des Hosts.
+type ServiceLister func(ctx context.Context) ([]proto.Service, error)
 
 // ErrRestart beendet Run, weil ein Job (z. B. agent.update) einen Neustart verlangt.
 var ErrRestart = errors.New("neustart angefordert")
@@ -53,6 +59,8 @@ type Client struct {
 	log        *slog.Logger
 	httpClient *http.Client // nil = Standard (System-Zertifikate)
 
+	services ServiceLister      // nil = keine Dienstliste
+	svcNow   chan struct{}      // Dienstliste sofort prüfen (nach einem Dienst-Job)
 	jobs     map[string]JobFunc // erlaubte Aktionen; nur mit gemeldeter Fähigkeit
 	busy     atomic.Bool        // es läuft immer höchstens ein Job
 	onStable func()
@@ -69,7 +77,8 @@ type Client struct {
 
 // New erzeugt einen Client. Ein Fehler entsteht nur bei ungültiger TLS-Konfiguration.
 func New(cfg config.Config, hello proto.Hello, col *collector.Collector, log *slog.Logger) (*Client, error) {
-	c := &Client{cfg: cfg, hello: hello, col: col, log: log, restart: make(chan struct{})}
+	c := &Client{cfg: cfg, hello: hello, col: col, log: log, restart: make(chan struct{}),
+		svcNow: make(chan struct{}, 1)}
 	tlsCfg, err := cfg.TLSConfig()
 	if err != nil {
 		return nil, err
@@ -92,6 +101,9 @@ func (c *Client) HandleJob(action string, fn JobFunc) {
 	}
 	c.jobs[action] = fn
 }
+
+// WithServices sendet die Dienstliste des Hosts.
+func (c *Client) WithServices(fn ServiceLister) { c.services = fn }
 
 // OnStable wird einmal aufgerufen, sobald eine Verbindung stableAfter gehalten hat.
 func (c *Client) OnStable(fn func()) { c.onStable = fn }
@@ -197,12 +209,18 @@ func (c *Client) session(ctx context.Context) (connected bool, err error) {
 	defer metricsTick.Stop()
 	procTick := time.NewTicker(time.Duration(c.cfg.ProcessIntervalSec) * time.Second)
 	defer procTick.Stop()
+	svcTick := time.NewTicker(servicesCheck)
+	defer svcTick.Stop()
+	var svc serviceState
 
 	// Direkt nach dem Verbinden einen vollständigen Stand senden.
 	if err := c.sendMetrics(sessCtx, conn); err != nil {
 		return fail(err)
 	}
 	if err := c.sendProcesses(sessCtx, conn); err != nil {
+		return fail(err)
+	}
+	if err := c.sendServices(sessCtx, conn, &svc); err != nil {
 		return fail(err)
 	}
 
@@ -229,6 +247,14 @@ func (c *Client) session(ctx context.Context) (connected bool, err error) {
 			}
 		case <-procTick.C:
 			if err := c.sendProcesses(sessCtx, conn); err != nil {
+				return fail(err)
+			}
+		case <-svcTick.C:
+			if err := c.sendServices(sessCtx, conn, &svc); err != nil {
+				return fail(err)
+			}
+		case <-c.svcNow:
+			if err := c.sendServices(sessCtx, conn, &svc); err != nil {
 				return fail(err)
 			}
 		}
@@ -283,6 +309,12 @@ func (c *Client) handleMessage(runCtx, ctx context.Context, conn *websocket.Conn
 			c.log.Info("job erledigt", "job_id", job.JobID, "action", job.Action)
 		}
 		c.deliver(res)
+		if proto.ActionCapability[job.Action] == proto.CapServices {
+			select {
+			case c.svcNow <- struct{}{}:
+			default:
+			}
+		}
 		// Auch ohne zugestelltes Ergebnis neu starten: das hello der neuen
 		// Version zeigt dem Server, dass es geklappt hat.
 		if restart && err == nil {
@@ -355,6 +387,34 @@ func (c *Client) sendProcesses(ctx context.Context, conn *websocket.Conn) error 
 		return nil
 	}
 	return c.send(ctx, conn, proto.TypeProcesses, p)
+}
+
+// serviceState merkt sich die zuletzt gesendete Dienstliste einer Sitzung.
+type serviceState struct {
+	last []proto.Service
+	at   time.Time
+}
+
+// sendServices schickt die Dienstliste, wenn sie sich geändert hat oder
+// servicesFull vergangen ist.
+func (c *Client) sendServices(ctx context.Context, conn *websocket.Conn, st *serviceState) error {
+	if c.services == nil {
+		return nil
+	}
+	list, err := c.services(ctx)
+	if err != nil {
+		c.log.Warn("dienste lesen fehlgeschlagen", "err", err)
+		return nil
+	}
+	now := time.Now()
+	if !st.at.IsZero() && slices.Equal(list, st.last) && now.Sub(st.at) < servicesFull {
+		return nil
+	}
+	if err := c.send(ctx, conn, proto.TypeServices, proto.Services{Time: now, List: list}); err != nil {
+		return err
+	}
+	st.last, st.at = list, now
+	return nil
 }
 
 func (c *Client) send(ctx context.Context, conn *websocket.Conn, typ string, payload any) error {

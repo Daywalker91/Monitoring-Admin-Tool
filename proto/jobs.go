@@ -24,7 +24,7 @@ const (
 	CapPackages Capability = "packages" // Pakete auflisten/aktualisieren (später)
 	CapUsers    Capability = "users"    // Benutzer verwalten (später)
 	CapReboot   Capability = "reboot"   // Neustart auslösen (später)
-	CapServices Capability = "services" // Dienste starten/stoppen (später)
+	CapServices Capability = "services" // Dienste starten/stoppen/neu starten (M7)
 )
 
 // Nachrichtentypen für Jobs.

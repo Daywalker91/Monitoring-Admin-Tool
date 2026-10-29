@@ -26,13 +26,17 @@ func (s *Server) WithAlerts(ev *alert.Evaluator, d *notify.Dispatcher) *Server {
 	return s
 }
 
-// RunAlerts prüft regelmäßig, ob Hosts offline sind. Ohne Alarmauswertung kehrt
+// RunAlerts prüft regelmäßig, ob Hosts offline sind, und wertet die
+// Dienstlisten neu aus. Ohne Alarmauswertung kehrt
 // die Funktion sofort zurück.
 func (s *Server) RunAlerts(ctx context.Context) {
 	if s.alerts == nil {
 		return
 	}
-	s.alerts.Run(ctx, alertCheckInterval, s.hostStates)
+	s.alerts.Run(ctx, alertCheckInterval, func(ctx context.Context) ([]alert.HostState, error) {
+		s.reevaluateServices(ctx)
+		return s.hostStates(ctx)
+	})
 }
 
 func (s *Server) hostStates(ctx context.Context) ([]alert.HostState, error) {

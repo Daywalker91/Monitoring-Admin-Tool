@@ -153,6 +153,8 @@ button.danger:hover { background: var(--crit); color: var(--panel); }
 
 /* Verlauf */
 .detail-grid section.history { grid-column: 1 / -1; }
+.detail-grid section.host-services { grid-column: span 2; }
+@media (max-width: 900px) { .detail-grid section.host-services { grid-column: 1 / -1; } }
 .history.loading .chart-grid { opacity: 0.6; transition: opacity 0.2s; }
 .history-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 .history-head h3 { margin: 0; }
@@ -624,6 +626,19 @@ table.k8s .mono, .mono { font-family: Consolas, "SFMono-Regular", Menlo, monospa
 #k8s-pods tr.pod-row { cursor: pointer; }
 #k8s-pods tr.pod-row:hover, #k8s-pods tr.pod-row.open { background: var(--bg); }
 .log-view { display: grid; gap: 8px; }
+.dot.warn { background: var(--warn); }
+.svc-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; }
+.svc-bar input[type=search] { flex: 1 1 160px; min-width: 0; padding: 5px 8px; font: inherit; font-size: 13px;
+  color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
+table.svc-list td { vertical-align: top; }
+.svc-desc { display: -webkit-box; -webkit-line-clamp: 1; line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+td.svc-state { white-space: nowrap; }
+td.svc-actions { white-space: nowrap; }
+button.small-btn { padding: 2px 8px; font-size: 12px; margin-left: 4px; }
+@media (max-width: 600px) {
+  td.svc-actions { white-space: normal; width: 1%; }
+  td.svc-actions button.small-btn { display: block; width: 100%; margin: 0 0 4px; }
+}
 .job-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 table.job-list tr.job-row { cursor: pointer; }
 table.job-list tr.job-row:hover, table.job-list tr.job-row.open { background: var(--bg); }

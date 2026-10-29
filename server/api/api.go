@@ -59,6 +59,7 @@ type Server struct {
 	mu     sync.Mutex
 	conns  map[string]agentConn // aktuell verbundene Agenten je ID
 	names  map[string]string    // Anzeigenamen verbundener Agenten (für Alarme)
+	svcs   map[string]svcState  // letzte Dienstliste je Host
 	nowFor func() time.Time
 }
 
@@ -66,7 +67,8 @@ type Server struct {
 // Frontend-Dateien.
 func New(st *store.Store, am *auth.Manager, token string, gui fs.FS, log *slog.Logger) *Server {
 	return &Server{store: st, auth: am, token: []byte(token), gui: gui, log: log,
-		conns: make(map[string]agentConn), names: make(map[string]string), nowFor: time.Now}
+		conns: make(map[string]agentConn), names: make(map[string]string), svcs: make(map[string]svcState),
+		nowFor: time.Now}
 }
 
 // WithVersion setzt die angezeigte Server-Version.
@@ -104,6 +106,8 @@ func (s *Server) Handler() http.Handler {
 	private.HandleFunc("GET /api/hosts/{id}/jobs", s.handleHostJobs)
 	private.HandleFunc("POST /api/hosts/{id}/jobs", s.handleCreateJob)
 	private.HandleFunc("GET /api/jobs/{job}", s.handleJob)
+	private.HandleFunc("GET /api/hosts/{id}/services", s.handleServices)
+	private.HandleFunc("POST /api/hosts/{id}/services/watch", s.handleServiceWatch)
 	if s.checks != nil {
 		private.HandleFunc("GET /api/checks", s.handleChecks)
 		private.HandleFunc("POST /api/checks", s.handleCreateCheck)
@@ -258,6 +262,17 @@ func (s *Server) readLoop(ctx context.Context, conn *websocket.Conn, hello proto
 			if err := s.store.SaveProcesses(ctx, id, env.Data, now); err != nil {
 				log.Error("processes speichern", "err", err)
 			}
+		case proto.TypeServices:
+			var svcs proto.Services
+			if err := json.Unmarshal(env.Data, &svcs); err != nil {
+				log.Warn("ungültige services-nachricht", "err", err)
+				continue
+			}
+			if err := svcs.Validate(); err != nil {
+				log.Warn("services abgelehnt", "err", err)
+				continue
+			}
+			s.observeServices(ctx, id, hello.Hostname, svcs, env.Data, now)
 		case proto.TypeJobResult:
 			var res proto.JobResult
 			if err := json.Unmarshal(env.Data, &res); err != nil {
@@ -390,6 +405,7 @@ type hostView struct {
 	Update          *hostUpdate `json:"update,omitempty"`
 	UpdateNote      string      `json:"update_note,omitempty"`
 	K8sNode         *nodeLink   `json:"k8s_node,omitempty"` // Host ist ein k3s-Node
+	Services        *svcSummary `json:"services,omitempty"`
 }
 
 func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
@@ -403,7 +419,8 @@ func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 	out := make([]hostView, len(hosts))
 	for i, h := range hosts {
 		out[i] = hostView{Host: h, Online: s.online(h.ID), UpdateAvailable: s.updateAvailable(h),
-			Update: s.hostUpdateState(h.ID), UpdateNote: s.updateNote(h.ID), K8sNode: matchNode(nodes, h)}
+			Update: s.hostUpdateState(h.ID), UpdateNote: s.updateNote(h.ID), K8sNode: matchNode(nodes, h),
+			Services: s.servicesSummary(h.ID)}
 		if s.alerts != nil {
 			if until, muted := s.alerts.MutedUntil(h.ID, s.nowFor()); muted {
 				ts := until.Unix()
@@ -479,6 +496,9 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 	}
 	s.forgetUpdate(id)
 	s.setName(id, "")
+	s.mu.Lock()
+	delete(s.svcs, id)
+	s.mu.Unlock()
 	s.log.Info("host gelöscht", "agent_id", id, "remote", r.RemoteAddr)
 	w.WriteHeader(http.StatusNoContent)
 }

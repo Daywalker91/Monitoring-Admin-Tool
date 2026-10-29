@@ -11,6 +11,7 @@ M4 fertig – Installation als Dienst (Windows, systemd), Server in k3s, Alarme 
 M5 fertig – Self-Update der Agenten aus signierten GitHub-Releases, Warnung vor Ablauf des Server-Zertifikats.
 M6 – CPU-Temperatur, externe Checks (HTTP(S), Ping, TCP), k3s-Ansicht; Hosts umbenennen (Anzeigename,
 auch in Alarmen) und in Gruppen ordnen – intern bleibt die Agent-ID die Kennung.
+M7 (in Arbeit) – Admin-Aktionen als Jobs mit Verlauf, Dienste überwachen und steuern.
 
 ## Schnellstart (lokal)
 
@@ -50,6 +51,25 @@ Per Flags (`-server`, `-token`, `-id`, `-interval`, `-process-interval`, `-log-l
 Das Token kann auch über `MAT_AGENT_TOKEN` gesetzt werden. Ohne `-config` und `-server` liest der Agent
 die Konfiguration vom festen Ort (`%ProgramData%\mat-agent\agent.json` bzw. `/etc/mat-agent/agent.json`).
 `mat-agent check [flags]` prüft die Konfiguration, ohne zu verbinden.
+
+### Admin-Aktionen freischalten
+
+Ändernde Aktionen führt der Agent nur aus, wenn sie in seiner `agent.json` freigeschaltet sind – der
+Server kann sie sonst nicht auslösen, auch nicht, wenn er übernommen wird:
+
+```json
+"jobs": ["services"]
+```
+
+| Eintrag    | erlaubt                                         |
+|------------|-------------------------------------------------|
+| `services` | Dienste starten, stoppen, neu starten (`systemctl` bzw. Windows-Dienst-Manager) |
+| `packages` | Paket-Updates (folgt in M7)                     |
+| `reboot`   | Neustart (folgt in M7)                          |
+
+Jede Aktion landet mit Benutzer, Zeit und Ausgabe im Verlauf („Aktionen“ in den Host-Details, 90 Tage).
+Der Agent prüft die Parameter selbst noch einmal, steuert nur Dienste aus seiner eigenen Liste und
+nie sich selbst. Lesend (Dienstliste) arbeitet er immer.
 
 ## Installation als Dienst
 
@@ -136,6 +156,10 @@ Alle `/api/*`-Endpunkte außer Login/Logout erfordern eine Session.
 | `GET /api/hosts/{id}/history`   | Historie, `?hours=1..168`, `?points=0..2000` verdichtet |
 | `DELETE /api/hosts/{id}`        | Host samt Historie entfernen (nur offline) |
 | `POST /api/hosts/{id}/meta`     | Anzeigename und Gruppe (`{"display_name":"…","group":"…"}`, leer = zurücksetzen) |
+| `GET/POST /api/hosts/{id}/jobs` | Verlauf der Aktionen / Aktion starten (`{"action":"service.restart","params":{"name":"nginx"}}`) |
+| `GET /api/jobs/{id}`            | eine Aktion samt Ausgabe                   |
+| `GET /api/hosts/{id}/services`  | letzte Dienstliste und überwachte Dienste  |
+| `POST /api/hosts/{id}/services/watch` | Dienst überwachen (`{"name":"nginx","watch":true}`) |
 | `GET /api/alerts`               | aktive Alarme, `?all=1` mit Verlauf (7 Tage) |
 | `GET /api/alert-rules`          | Regeln und konfigurierte Kanäle            |
 | `POST /api/alert-rules`         | Regeln speichern (`{"rules":[…]}`)         |
@@ -173,6 +197,8 @@ Der Server prüft feste Regeltypen; Schwelle und Mindestdauer lassen sich in der
 | Node    | 2 min                  | Kubernetes-Node nicht bereit                |
 | Workload | 5 min                 | Deployment/StatefulSet/DaemonSet nicht bereit, Pod in CrashLoopBackOff u. ä. |
 | ArgoCD  | 10 min                 | App Degraded, Missing oder OutOfSync        |
+| Dienst  | 1 min                  | überwachter Dienst läuft nicht (Auswahl in den Host-Details unter „Dienste“) |
+| Unit    | sofort                 | systemd-Unit ist fehlgeschlagen (Linux)     |
 
 Ein Alarm löst aus, wenn der Wert die Mindestdauer lang ununterbrochen über der Schwelle liegt, und endet,
 wenn er 5 Prozentpunkte (Temperatur: 5 °C) unter die Schwelle fällt.

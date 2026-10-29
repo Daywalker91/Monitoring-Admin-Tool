@@ -401,3 +401,22 @@ func TestCheckAlerts(t *testing.T) {
 		t.Fatal("check-regel als host-regel akzeptiert")
 	}
 }
+
+// Metrik-Nachrichten dürfen Dienst-Alarme desselben Hosts nicht beenden.
+func TestMetricsKeepServiceAlerts(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	bad := map[string]Condition{"backup": {Bad: true, Detail: "inactive/dead"}}
+	f.ev.ObserveSet(ctx, "h1", "host-1", KindService, bad, f.now)
+	f.observe(cpu(10), 30*time.Second)
+	f.ev.ObserveSet(ctx, "h1", "host-1", KindService, bad, f.now)
+	f.observe(cpu(10), 31*time.Second)
+	f.ev.ObserveSet(ctx, "h1", "host-1", KindService, bad, f.now)
+	if ev := f.take(); len(ev) != 1 || ev[0].Type != Firing || ev[0].Alert.Target != "backup" {
+		t.Fatalf("auslösen trotz metriken: %+v", ev)
+	}
+	f.observe(cpu(10), time.Second)
+	if ev := f.take(); len(ev) != 0 {
+		t.Fatalf("metrik hat dienst-alarm beendet: %+v", ev)
+	}
+}

@@ -34,13 +34,16 @@ const (
 	KindK8sNode     = "k8s_node"     // Node nicht bereit
 	KindK8sWorkload = "k8s_workload" // Workload nicht bereit oder Pod im Fehlerzustand
 	KindArgoCD      = "argocd"       // ArgoCD-App Degraded/Missing oder OutOfSync
+
+	KindService    = "service"     // überwachter Dienst läuft nicht (Ziel: Dienstname)
+	KindUnitFailed = "unit_failed" // systemd-Unit im Zustand failed (Ziel: Dienstname)
 )
 
 // ClusterID ist die Kennung, unter der Cluster-Alarme geführt werden.
 const ClusterID = "k8s"
 
 // HostKinds sind die Regeltypen, die sich je Host anpassen lassen.
-var HostKinds = []string{KindOffline, KindCPU, KindMem, KindSwap, KindDisk, KindTemp}
+var HostKinds = []string{KindOffline, KindCPU, KindMem, KindSwap, KindDisk, KindTemp, KindService, KindUnitFailed}
 
 const (
 	// Hysteresis in Prozentpunkten (bei "temp" in °C): ein Alarm endet erst
@@ -67,6 +70,8 @@ var DefaultRules = []store.AlertRule{
 	{Kind: KindK8sNode, Enabled: true, ForSec: 120},
 	{Kind: KindK8sWorkload, Enabled: true, ForSec: 300},
 	{Kind: KindArgoCD, Enabled: true, ForSec: 600},
+	{Kind: KindService, Enabled: true, ForSec: 60},
+	{Kind: KindUnitFailed, Enabled: true, ForSec: 0},
 }
 
 // ValidateRule prüft eine Regel auf erlaubte Werte.
@@ -83,7 +88,7 @@ func ValidateRule(r store.AlertRule) error {
 			return fmt.Errorf("offline: dauer muss mindestens 30 s sein")
 		}
 		return nil
-	case KindCheckDown, KindK8sNode, KindK8sWorkload, KindArgoCD:
+	case KindCheckDown, KindK8sNode, KindK8sWorkload, KindArgoCD, KindService, KindUnitFailed:
 		return nil
 	case KindCheckCert:
 		if r.Threshold < 1 || r.Threshold > 365 {
@@ -398,17 +403,21 @@ func (e *Evaluator) Observe(ctx context.Context, hostID, hostname string, m prot
 		e.check(ctx, k, hostname, rule, v, now)
 	}
 	// Ziele, die nicht mehr gemeldet werden (Mountpoint entfernt, Swap aus), beenden.
+	// Nur Metrik-Typen: Dienst-Alarme desselben Hosts kommen aus einer anderen Nachricht.
 	for k := range e.pending {
-		if _, ok := values[k]; !ok && k.host == hostID && k.kind != KindOffline {
+		if _, ok := values[k]; !ok && k.host == hostID && slices.Contains(metricKinds, k.kind) {
 			delete(e.pending, k)
 		}
 	}
 	for k := range e.firing {
-		if _, ok := values[k]; !ok && k.host == hostID && k.kind != KindOffline {
+		if _, ok := values[k]; !ok && k.host == hostID && slices.Contains(metricKinds, k.kind) {
 			e.resolve(ctx, k, now)
 		}
 	}
 }
+
+// metricKinds sind die Regeltypen, die Observe aus einer Metrik-Nachricht auswertet.
+var metricKinds = []string{KindCPU, KindMem, KindSwap, KindDisk, KindTemp}
 
 // check aktualisiert den Zustand eines einzelnen Messwerts. e.mu ist gesperrt.
 func (e *Evaluator) check(ctx context.Context, k key, hostname string, rule store.AlertRule, v float64, now time.Time) {

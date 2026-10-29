@@ -140,6 +140,8 @@ function hostRow(h) {
   const nAlerts = alertCountFor(h.id);
   if (nAlerts) host.append(el("span", alertBadgeText(nAlerts), "pill crit host-alerts"));
   if (h.muted_until) host.append(el("span", "🔕 stumm", "pill host-alerts"));
+  const svcPill = hostServicesPill(h);
+  if (svcPill) host.append(svcPill);
   if (h.k8s_node) host.append(k8sPill(h.k8s_node));
   const upd = hostUpdatePill(h);
   if (upd) host.append(upd);
@@ -338,6 +340,7 @@ function detailRow(h) {
   tr.querySelector(".host-meta-slot").replaceWith(hostMetaSection(h));
   tr.querySelector(".host-update-slot").replaceWith(hostUpdateSection(h));
   tr.querySelector(".host-jobs-slot").replaceWith(hostJobSection(h));
+  tr.querySelector(".host-services-slot").replaceWith(hostServiceSection(h));
 
   const cores = tr.querySelector(".cores");
   (m.cpu?.per_core || []).forEach((v, i) => {
@@ -401,6 +404,7 @@ async function deleteHost(h) {
     hostAlertViews.delete(h.id);
     metaViews.delete(h.id);
     jobViews.delete(h.id);
+    serviceViews.delete(h.id);
     saveOpenHosts();
     await refresh();
   } catch (e) {

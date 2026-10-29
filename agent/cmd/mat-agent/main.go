@@ -24,6 +24,7 @@ import (
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/client"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/collector"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/config"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/services"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/update"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/internal/logfile"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/internal/release"
@@ -138,6 +139,11 @@ func runAgent(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if selfUpdate {
 		hello.Capabilities = append(hello.Capabilities, proto.CapUpdate)
 	}
+	// Dienste liest der Agent immer; steuern nur mit Freischaltung in agent.json.
+	svcs := services.New(serviceName)
+	if svcs.Supported() && cfg.Allows(proto.CapServices) {
+		hello.Capabilities = append(hello.Capabilities, proto.CapServices)
+	}
 	if err := hello.Validate(); err != nil {
 		return fmt.Errorf("ungültige agent-angaben: %w", err)
 	}
@@ -146,7 +152,8 @@ func runAgent(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		log.Warn("unverschlüsselte verbindung (ws://) zu entferntem server – für produktiven einsatz wss:// verwenden")
 	}
 	log.Info("agent startet", "version", version, "agent_id", hello.AgentID,
-		"interval_sec", cfg.IntervalSec, "process_interval_sec", cfg.ProcessIntervalSec, "service", winsvc.IsService())
+		"interval_sec", cfg.IntervalSec, "process_interval_sec", cfg.ProcessIntervalSec, "service", winsvc.IsService(),
+		"capabilities", hello.Capabilities)
 
 	col := collector.New()
 	cl, err := client.New(cfg, hello, col, log)
@@ -165,6 +172,12 @@ func runAgent(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 			return out, err == nil, err
 		})
 		cl.OnStable(func() { update.Confirm(exe, version, log) })
+	}
+	if svcs.Supported() {
+		cl.WithServices(svcs.List)
+		for _, a := range []string{proto.ActionServiceStart, proto.ActionServiceStop, proto.ActionServiceRestart} {
+			cl.HandleJob(a, svcs.Job(a)) // ohne gemeldete Fähigkeit lehnt der Client ab
+		}
 	}
 	col.Prime(ctx)
 	if err := cl.Run(ctx); errors.Is(err, client.ErrRestart) {

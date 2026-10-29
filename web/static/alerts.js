@@ -4,11 +4,12 @@
 "use strict";
 
 const ALERT_LABELS = { offline: "Offline", cpu: "CPU", mem: "RAM", swap: "Swap", disk: "Disk", temp: "CPU-Temperatur",
-  check_down: "Check", check_cert: "Zertifikat", k8s_node: "Node", k8s_workload: "Workload", argocd: "ArgoCD" };
+  check_down: "Check", check_cert: "Zertifikat", k8s_node: "Node", k8s_workload: "Workload", argocd: "ArgoCD",
+  service: "Dienst", unit_failed: "Unit" };
 // Regeltypen ohne Schwelle (nur Mindestdauer).
-const NO_THRESHOLD = ["offline", "check_down", "k8s_node", "k8s_workload", "argocd"];
+const NO_THRESHOLD = ["offline", "check_down", "k8s_node", "k8s_workload", "argocd", "service", "unit_failed"];
 // Regeltypen, deren Alarmwert die Zusatzinfo (detail) ist.
-const DETAIL_VALUE = ["check_down", "k8s_node", "k8s_workload", "argocd"];
+const DETAIL_VALUE = ["check_down", "k8s_node", "k8s_workload", "argocd", "service", "unit_failed"];
 const RULE_HELP = {
   offline: "Agent nicht verbunden",
   cpu: "CPU-Auslastung gesamt",
@@ -21,6 +22,8 @@ const RULE_HELP = {
   k8s_node: "Kubernetes-Node nicht bereit",
   k8s_workload: "Deployment/StatefulSet/DaemonSet nicht bereit oder Pod im Fehlerzustand (CrashLoopBackOff …)",
   argocd: "ArgoCD-App Degraded, Missing oder OutOfSync",
+  service: "Überwachter Dienst läuft nicht (Auswahl in den Host-Details unter „Dienste“)",
+  unit_failed: "Beliebige systemd-Unit ist fehlgeschlagen (nur Linux)",
 };
 
 // Schwelle je Regeltyp: Einheit und erlaubter Bereich (wie im Server geprüft).
@@ -279,7 +282,7 @@ function hostAlertSection(h) {
 function ruleSummary(r) {
   if (!r.enabled) return "aus";
   const dur = Math.round(r.for_sec / 60 * 100) / 100 + " min";
-  return r.kind === "offline" ? "nach " + dur : r.threshold + ruleUnit(r.kind).unit + " · " + dur;
+  return NO_THRESHOLD.includes(r.kind) ? "nach " + dur : r.threshold + ruleUnit(r.kind).unit + " · " + dur;
 }
 
 function createHostAlertView(h) {
@@ -384,7 +387,7 @@ function renderHostRules(v) {
     const tdOn = check("rule-enabled", r.enabled, "aktiv");
 
     const tdThr = el("td", null, "num");
-    if (d.kind === "offline") tdThr.append(el("span", "–", "muted"));
+    if (NO_THRESHOLD.includes(d.kind)) tdThr.append(el("span", "–", "muted"));
     else {
       const u = ruleUnit(d.kind);
       const i = numberInput(r.threshold, u.min, u.max, 1, label + " Schwelle " + u.aria);

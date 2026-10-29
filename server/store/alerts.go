@@ -70,6 +70,9 @@ var migrations = []struct{ table, column, def, fill string }{
 	// Anzeigename und Gruppe eines Hosts, in der GUI gesetzt; leer = Hostname bzw. ohne Gruppe.
 	{"hosts", "display_name", "TEXT NOT NULL DEFAULT ''", ""},
 	{"hosts", "group_name", "TEXT NOT NULL DEFAULT ''", ""},
+	// Letzte Dienstliste (M7, JSON) und wann sie kam.
+	{"hosts", "last_services", "TEXT", ""},
+	{"hosts", "last_services_at", "INTEGER", ""},
 }
 
 // AlertRule ist der Schwellwert eines Regeltyps.

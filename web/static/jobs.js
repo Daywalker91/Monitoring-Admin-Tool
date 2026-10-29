@@ -6,6 +6,9 @@
 // Anzeigenamen der Aktionen (Whitelist steht in proto/jobs.go).
 const ACTION_LABELS = {
   "agent.update": "Agent-Update",
+  "service.start": "Dienst starten",
+  "service.stop": "Dienst stoppen",
+  "service.restart": "Dienst neu starten",
 };
 
 // Aktionen mit Knopf in den Host-Details; jede braucht ihre Fähigkeit.
@@ -73,27 +76,37 @@ function renderJobButtons(v, h) {
     return b;
   }));
   v.buttons.hidden = avail.length === 0;
-  v.hint.textContent = avail.length ? (h.online ? "" : "Host ist offline.")
-    : "Admin-Aktionen sind für diesen Host nicht freigeschaltet (\"jobs\" in agent.json).";
+  const admin = caps.some(c => ["services", "packages", "reboot"].includes(c));
+  v.hint.textContent = !admin ? "Admin-Aktionen sind für diesen Host nicht freigeschaltet (\"jobs\" in agent.json)."
+    : avail.length && !h.online ? "Host ist offline." : "";
   v.hint.hidden = !v.hint.textContent;
 }
 
-async function runJob(v, h, a, btn, params = {}) {
+// startJob schickt einen Job an den Host und zeigt ihn im Verlauf aufgeklappt.
+async function startJob(hostID, action, params = {}) {
+  const resp = await fetch("api/hosts/" + encodeURIComponent(hostID) + "/jobs", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, params }),
+  });
+  if (resp.status === 401) { toLogin(); throw new Error("nicht angemeldet"); }
+  if (!resp.ok) throw new Error((await resp.text()).trim() || "HTTP " + resp.status);
+  const j = await resp.json();
+  const v = jobViews.get(hostID);
+  if (v) {
+    v.openJob = j.id;
+    loadJobs(v);
+  }
+  return j;
+}
+
+async function runJob(v, h, a, btn) {
   if (!confirm(a.confirm(h))) return;
   btn.disabled = true;
   v.status.className = "small muted";
   v.status.textContent = a.label + " wird gestartet …";
   try {
-    const resp = await fetch("api/hosts/" + encodeURIComponent(h.id) + "/jobs", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: a.action, params }),
-    });
-    if (resp.status === 401) return toLogin();
-    if (!resp.ok) throw new Error((await resp.text()).trim() || "HTTP " + resp.status);
-    const j = await resp.json();
+    await startJob(h.id, a.action);
     v.status.textContent = "";
-    v.openJob = j.id;
-    await loadJobs(v);
   } catch (e) {
     v.status.className = "small error-text";
     v.status.textContent = e.message;
