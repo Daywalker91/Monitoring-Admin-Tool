@@ -385,6 +385,9 @@ h2 { font-size: 15px; margin: 0 0 10px; }
 .pill.warn { color: var(--warn); border-color: var(--warn); }
 .pill.info { color: var(--bar); border-color: var(--bar); }
 .host-alerts { margin-left: 8px; vertical-align: 1px; }
+/* Viele Hinweise brechen in der Host-Spalte um, statt die Tabelle zu verbreitern. */
+#hosts td.c-host { white-space: normal; min-width: 180px; }
+#hosts td.c-host .pill { display: inline-block; white-space: nowrap; margin-top: 2px; margin-bottom: 2px; }
 
 .alert-badge {
   padding: 3px 10px;
@@ -627,6 +630,9 @@ table.k8s .mono, .mono { font-family: Consolas, "SFMono-Regular", Menlo, monospa
 #k8s-pods tr.pod-row:hover, #k8s-pods tr.pod-row.open { background: var(--bg); }
 .log-view { display: grid; gap: 8px; }
 .dot.warn { background: var(--warn); }
+.warn-text { color: var(--warn); }
+.pkg-details summary { cursor: pointer; color: var(--muted); font-size: 12px; margin: 4px 0; }
+.pill.pkg-sec { margin-left: 6px; font-size: 10px; }
 .svc-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; }
 .svc-bar input[type=search] { flex: 1 1 160px; min-width: 0; padding: 5px 8px; font: inherit; font-size: 13px;
   color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }

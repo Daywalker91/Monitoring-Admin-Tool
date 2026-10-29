@@ -39,7 +39,9 @@ CREATE TABLE IF NOT EXISTS hosts (
 	display_name     TEXT NOT NULL DEFAULT '',
 	group_name       TEXT NOT NULL DEFAULT '',
 	last_services    TEXT,
-	last_services_at INTEGER
+	last_services_at INTEGER,
+	last_updates     TEXT,
+	updates_summary  TEXT
 );
 
 -- Kompakte Historie: nur Kennzahlen, kein vollständiges JSON (spart Platz).
@@ -178,6 +180,7 @@ type Host struct {
 	Processes       json.RawMessage    `json:"processes"`
 	DisplayName     string             `json:"display_name"` // leer = Hostname
 	Group           string             `json:"group"`        // leer = ohne Gruppe
+	Updates         *UpdateSummary     `json:"updates"`      // nil = noch kein Update-Stand
 }
 
 // Name liefert den Anzeigenamen, ersatzweise den gemeldeten Hostnamen.
@@ -193,7 +196,8 @@ func (s *Store) ListHosts(ctx context.Context) ([]Host, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT id, hostname, os, platform, platform_version, kernel_version, arch, agent_version, cpu_cores,
        boot_time, interval_sec, capabilities, remote_addr, first_seen, last_seen,
-       COALESCE(last_metrics, 'null'), COALESCE(last_processes, 'null'), display_name, group_name
+       COALESCE(last_metrics, 'null'), COALESCE(last_processes, 'null'), display_name, group_name,
+       COALESCE(updates_summary, 'null')
 FROM hosts ORDER BY CASE display_name WHEN '' THEN hostname ELSE display_name END COLLATE NOCASE, id`)
 	if err != nil {
 		return nil, fmt.Errorf("hosts lesen: %w", err)
@@ -203,10 +207,10 @@ FROM hosts ORDER BY CASE display_name WHEN '' THEN hostname ELSE display_name EN
 	hosts := []Host{}
 	for rows.Next() {
 		var h Host
-		var caps, metrics, procs string
+		var caps, metrics, procs, updates string
 		if err := rows.Scan(&h.ID, &h.Hostname, &h.OS, &h.Platform, &h.PlatformVersion, &h.KernelVersion,
 			&h.Arch, &h.AgentVersion, &h.CPUCores, &h.BootTime, &h.IntervalSec, &caps, &h.RemoteAddr,
-			&h.FirstSeen, &h.LastSeen, &metrics, &procs, &h.DisplayName, &h.Group); err != nil {
+			&h.FirstSeen, &h.LastSeen, &metrics, &procs, &h.DisplayName, &h.Group, &updates); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(caps), &h.Capabilities); err != nil {
@@ -214,6 +218,9 @@ FROM hosts ORDER BY CASE display_name WHEN '' THEN hostname ELSE display_name EN
 		}
 		h.Metrics = json.RawMessage(metrics)
 		h.Processes = json.RawMessage(procs)
+		if updates != "null" && json.Unmarshal([]byte(updates), &h.Updates) != nil {
+			h.Updates = nil
+		}
 		hosts = append(hosts, h)
 	}
 	return hosts, rows.Err()

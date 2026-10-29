@@ -10,8 +10,10 @@ const SVC_STATE = {
   starting: ["startet", "warn"], stopping: ["stoppt", "warn"],
 };
 const SVC_FILTERS = [["problems", "Wichtig"], ["running", "Laufend"], ["all", "Alle"]];
-// Startarten, bei denen ein gestoppter Dienst auffällt.
-const SVC_AUTOSTART = ["enabled", "auto", "auto (verzögert)"];
+// Startart, bei der ein gestoppter Dienst auffällt: nur Windows "auto". Unter
+// systemd sind "enabled"-Units nach einem einmaligen Lauf ganz normal inaktiv,
+// und verzögert startende Windows-Dienste beenden sich oft von selbst.
+const SVC_AUTOSTART = ["auto"];
 const SVC_ACTIONS = [
   ["service.start", "Start", s => s.state !== "running", "starten"],
   ["service.stop", "Stopp", s => s.state === "running", "stoppen"],

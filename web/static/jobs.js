@@ -9,6 +9,9 @@ const ACTION_LABELS = {
   "service.start": "Dienst starten",
   "service.stop": "Dienst stoppen",
   "service.restart": "Dienst neu starten",
+  "packages.refresh": "Paketlisten holen",
+  "packages.upgrade": "Updates installieren",
+  "system.reboot": "Neustart",
 };
 
 // Aktionen mit Knopf in den Host-Details; jede braucht ihre Fähigkeit.

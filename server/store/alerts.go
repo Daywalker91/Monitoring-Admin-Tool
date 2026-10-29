@@ -73,6 +73,9 @@ var migrations = []struct{ table, column, def, fill string }{
 	// Letzte Dienstliste (M7, JSON) und wann sie kam.
 	{"hosts", "last_services", "TEXT", ""},
 	{"hosts", "last_services_at", "INTEGER", ""},
+	// Update-Stand (M7): vollständige Nachricht und Zusammenfassung für die Host-Liste (JSON).
+	{"hosts", "last_updates", "TEXT", ""},
+	{"hosts", "updates_summary", "TEXT", ""},
 }
 
 // AlertRule ist der Schwellwert eines Regeltyps.

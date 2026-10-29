@@ -38,7 +38,14 @@ const (
 	// Dienste: jede Minute prüfen, bei Änderung senden, sonst alle 5 Minuten.
 	servicesCheck = time.Minute
 	servicesFull  = 5 * time.Minute
+	// Update-Stand: alle 5 Minuten abfragen (apt läuft im Checker seltener),
+	// bei Änderung senden, sonst stündlich.
+	updatesCheck = 5 * time.Minute
+	updatesFull  = time.Hour
 )
+
+// UpdateChecker liefert den Update-Stand des Hosts.
+type UpdateChecker func(ctx context.Context) proto.Updates
 
 // ServiceLister liest die Dienste des Hosts.
 type ServiceLister func(ctx context.Context) ([]proto.Service, error)
@@ -61,6 +68,8 @@ type Client struct {
 
 	services ServiceLister      // nil = keine Dienstliste
 	svcNow   chan struct{}      // Dienstliste sofort prüfen (nach einem Dienst-Job)
+	updates  UpdateChecker      // nil = kein Update-Stand
+	updNow   chan struct{}      // Update-Stand sofort prüfen (nach einem Paket-Job)
 	jobs     map[string]JobFunc // erlaubte Aktionen; nur mit gemeldeter Fähigkeit
 	busy     atomic.Bool        // es läuft immer höchstens ein Job
 	onStable func()
@@ -78,7 +87,7 @@ type Client struct {
 // New erzeugt einen Client. Ein Fehler entsteht nur bei ungültiger TLS-Konfiguration.
 func New(cfg config.Config, hello proto.Hello, col *collector.Collector, log *slog.Logger) (*Client, error) {
 	c := &Client{cfg: cfg, hello: hello, col: col, log: log, restart: make(chan struct{}),
-		svcNow: make(chan struct{}, 1)}
+		svcNow: make(chan struct{}, 1), updNow: make(chan struct{}, 1)}
 	tlsCfg, err := cfg.TLSConfig()
 	if err != nil {
 		return nil, err
@@ -104,6 +113,9 @@ func (c *Client) HandleJob(action string, fn JobFunc) {
 
 // WithServices sendet die Dienstliste des Hosts.
 func (c *Client) WithServices(fn ServiceLister) { c.services = fn }
+
+// WithUpdates sendet den Update-Stand des Hosts.
+func (c *Client) WithUpdates(fn UpdateChecker) { c.updates = fn }
 
 // OnStable wird einmal aufgerufen, sobald eine Verbindung stableAfter gehalten hat.
 func (c *Client) OnStable(fn func()) { c.onStable = fn }
@@ -212,6 +224,9 @@ func (c *Client) session(ctx context.Context) (connected bool, err error) {
 	svcTick := time.NewTicker(servicesCheck)
 	defer svcTick.Stop()
 	var svc serviceState
+	updTick := time.NewTicker(updatesCheck)
+	defer updTick.Stop()
+	var upd updateState
 
 	// Direkt nach dem Verbinden einen vollständigen Stand senden.
 	if err := c.sendMetrics(sessCtx, conn); err != nil {
@@ -221,6 +236,9 @@ func (c *Client) session(ctx context.Context) (connected bool, err error) {
 		return fail(err)
 	}
 	if err := c.sendServices(sessCtx, conn, &svc); err != nil {
+		return fail(err)
+	}
+	if err := c.sendUpdates(sessCtx, conn, &upd); err != nil {
 		return fail(err)
 	}
 
@@ -255,6 +273,14 @@ func (c *Client) session(ctx context.Context) (connected bool, err error) {
 			}
 		case <-c.svcNow:
 			if err := c.sendServices(sessCtx, conn, &svc); err != nil {
+				return fail(err)
+			}
+		case <-updTick.C:
+			if err := c.sendUpdates(sessCtx, conn, &upd); err != nil {
+				return fail(err)
+			}
+		case <-c.updNow:
+			if err := c.sendUpdates(sessCtx, conn, &upd); err != nil {
 				return fail(err)
 			}
 		}
@@ -309,11 +335,11 @@ func (c *Client) handleMessage(runCtx, ctx context.Context, conn *websocket.Conn
 			c.log.Info("job erledigt", "job_id", job.JobID, "action", job.Action)
 		}
 		c.deliver(res)
-		if proto.ActionCapability[job.Action] == proto.CapServices {
-			select {
-			case c.svcNow <- struct{}{}:
-			default:
-			}
+		switch proto.ActionCapability[job.Action] {
+		case proto.CapServices:
+			trigger(c.svcNow)
+		case proto.CapPackages:
+			trigger(c.updNow)
 		}
 		// Auch ohne zugestelltes Ergebnis neu starten: das hello der neuen
 		// Version zeigt dem Server, dass es geklappt hat.
@@ -321,6 +347,14 @@ func (c *Client) handleMessage(runCtx, ctx context.Context, conn *websocket.Conn
 			c.restartOnce.Do(func() { close(c.restart) })
 		}
 	}()
+}
+
+// trigger stößt eine sofortige Prüfung an, ohne zu blockieren.
+func trigger(ch chan struct{}) {
+	select {
+	case ch <- struct{}{}:
+	default:
+	}
 }
 
 // attach macht conn zur aktuellen Verbindung und schickt wartende Ergebnisse nach.
@@ -415,6 +449,36 @@ func (c *Client) sendServices(ctx context.Context, conn *websocket.Conn, st *ser
 	}
 	st.last, st.at = list, now
 	return nil
+}
+
+// updateState merkt sich den zuletzt gesendeten Update-Stand einer Sitzung.
+type updateState struct {
+	last proto.Updates
+	at   time.Time
+}
+
+// sendUpdates schickt den Update-Stand, wenn er sich geändert hat oder
+// updatesFull vergangen ist.
+func (c *Client) sendUpdates(ctx context.Context, conn *websocket.Conn, st *updateState) error {
+	if c.updates == nil {
+		return nil
+	}
+	u := c.updates(ctx)
+	now := time.Now()
+	if !st.at.IsZero() && sameUpdates(u, st.last) && now.Sub(st.at) < updatesFull {
+		return nil
+	}
+	if err := c.send(ctx, conn, proto.TypeUpdates, u); err != nil {
+		return err
+	}
+	st.last, st.at = u, now
+	return nil
+}
+
+// sameUpdates vergleicht zwei Stände ohne den Zeitstempel.
+func sameUpdates(a, b proto.Updates) bool {
+	return a.Manager == b.Manager && a.Upgradable == b.Upgradable && a.Security == b.Security &&
+		a.RebootRequired == b.RebootRequired && a.Error == b.Error && slices.Equal(a.Packages, b.Packages)
 }
 
 func (c *Client) send(ctx context.Context, conn *websocket.Conn, typ string, payload any) error {

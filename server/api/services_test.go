@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -156,5 +157,50 @@ func TestServicesReevaluate(t *testing.T) {
 	alerts, _ := st.Alerts(ctx, true, time.Time{}, 10)
 	if len(alerts) != 1 || alerts[0].Hostname != "pi" || alerts[0].Target != "backup" {
 		t.Fatalf("alarm: %+v", alerts)
+	}
+}
+
+func TestUpdatesAPI(t *testing.T) {
+	ts, _ := newAlertTestServer(t)
+	c := login(t, ts)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conn := fakeAgentCaps(t, ctx, ts, "v1.2.0", "", proto.CapMetrics, proto.CapPackages)
+	var got *proto.Updates
+	if getJSON(t, c, ts.URL+"/api/hosts/a1/updates", &got); got != nil {
+		t.Fatalf("vor der ersten meldung: %+v", got)
+	}
+
+	bad, _ := proto.Encode(proto.TypeUpdates, proto.Updates{Upgradable: -1})
+	conn.Write(ctx, websocket.MessageText, bad)
+	u := proto.Updates{Time: time.Now(), Manager: "apt", Upgradable: 2, Security: 1, RebootRequired: true,
+		Packages: []proto.Package{{Name: "bash", From: "1", To: "2"}, {Name: "libssl3", From: "3.0.1", To: "3.0.2", Security: true}}}
+	data, _ := proto.Encode(proto.TypeUpdates, u)
+	conn.Write(ctx, websocket.MessageText, data)
+
+	h := waitHost(t, c, ts, "update-stand", func(h hostView) bool { return h.Updates != nil })
+	if s := h.Updates; s.Manager != "apt" || s.Upgradable != 2 || s.Security != 1 || !s.RebootRequired || s.At == 0 {
+		t.Fatalf("zusammenfassung: %+v", s)
+	}
+	getJSON(t, c, ts.URL+"/api/hosts/a1/updates", &got)
+	if got == nil || len(got.Packages) != 2 || !got.Packages[1].Security {
+		t.Fatalf("pakete: %+v", got)
+	}
+	if code := getJSON(t, c, ts.URL+"/api/hosts/fehlt/updates", &got); code != http.StatusNotFound {
+		t.Errorf("unbekannter host: %d", code)
+	}
+
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/metrics", nil)
+	req.Header.Set("Authorization", "Bearer metrics-token-1234")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	for _, want := range []string{`mat_updates_pending{host="a1"} 2`, `mat_updates_security_pending{host="a1"} 1`, `mat_reboot_required{host="a1"} 1`} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("/metrics ohne %s", want)
+		}
 	}
 }

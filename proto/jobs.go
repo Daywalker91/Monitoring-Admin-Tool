@@ -21,9 +21,9 @@ type Capability string
 const (
 	CapMetrics  Capability = "metrics"  // Metriken erfassen (M1)
 	CapUpdate   Capability = "update"   // Self-Update (M5), nur als Dienst bzw. unter systemd
-	CapPackages Capability = "packages" // Pakete auflisten/aktualisieren (später)
+	CapPackages Capability = "packages" // Paketlisten holen, Updates installieren (M7, apt)
 	CapUsers    Capability = "users"    // Benutzer verwalten (später)
-	CapReboot   Capability = "reboot"   // Neustart auslösen (später)
+	CapReboot   Capability = "reboot"   // Neustart auslösen (M7)
 	CapServices Capability = "services" // Dienste starten/stoppen/neu starten (M7)
 )
 

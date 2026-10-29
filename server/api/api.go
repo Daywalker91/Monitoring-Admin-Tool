@@ -107,6 +107,7 @@ func (s *Server) Handler() http.Handler {
 	private.HandleFunc("POST /api/hosts/{id}/jobs", s.handleCreateJob)
 	private.HandleFunc("GET /api/jobs/{job}", s.handleJob)
 	private.HandleFunc("GET /api/hosts/{id}/services", s.handleServices)
+	private.HandleFunc("GET /api/hosts/{id}/updates", s.handleUpdates)
 	private.HandleFunc("POST /api/hosts/{id}/services/watch", s.handleServiceWatch)
 	if s.checks != nil {
 		private.HandleFunc("GET /api/checks", s.handleChecks)
@@ -273,6 +274,19 @@ func (s *Server) readLoop(ctx context.Context, conn *websocket.Conn, hello proto
 				continue
 			}
 			s.observeServices(ctx, id, hello.Hostname, svcs, env.Data, now)
+		case proto.TypeUpdates:
+			var u proto.Updates
+			if err := json.Unmarshal(env.Data, &u); err != nil {
+				log.Warn("ungültige updates-nachricht", "err", err)
+				continue
+			}
+			if err := u.Validate(); err != nil {
+				log.Warn("updates abgelehnt", "err", err)
+				continue
+			}
+			if err := s.store.SaveUpdates(ctx, id, u, env.Data, now); err != nil {
+				log.Error("update-stand speichern", "err", err)
+			}
 		case proto.TypeJobResult:
 			var res proto.JobResult
 			if err := json.Unmarshal(env.Data, &res); err != nil {

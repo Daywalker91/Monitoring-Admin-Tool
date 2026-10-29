@@ -142,6 +142,7 @@ function hostRow(h) {
   if (h.muted_until) host.append(el("span", "🔕 stumm", "pill host-alerts"));
   const svcPill = hostServicesPill(h);
   if (svcPill) host.append(svcPill);
+  host.append(...hostPackagePills(h));
   if (h.k8s_node) host.append(k8sPill(h.k8s_node));
   const upd = hostUpdatePill(h);
   if (upd) host.append(upd);
@@ -341,6 +342,7 @@ function detailRow(h) {
   tr.querySelector(".host-update-slot").replaceWith(hostUpdateSection(h));
   tr.querySelector(".host-jobs-slot").replaceWith(hostJobSection(h));
   tr.querySelector(".host-services-slot").replaceWith(hostServiceSection(h));
+  tr.querySelector(".host-packages-slot").replaceWith(hostPackageSection(h));
 
   const cores = tr.querySelector(".cores");
   (m.cpu?.per_core || []).forEach((v, i) => {
@@ -405,6 +407,7 @@ async function deleteHost(h) {
     metaViews.delete(h.id);
     jobViews.delete(h.id);
     serviceViews.delete(h.id);
+    pkgViews.delete(h.id);
     saveOpenHosts();
     await refresh();
   } catch (e) {

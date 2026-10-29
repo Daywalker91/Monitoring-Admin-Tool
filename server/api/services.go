@@ -178,3 +178,24 @@ func (s *Server) handleServiceWatch(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// handleUpdates liefert den letzten Update-Stand eines Hosts samt Paketliste
+// (null = noch keiner).
+func (s *Server) handleUpdates(w http.ResponseWriter, r *http.Request) {
+	raw, err := s.store.Updates(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		http.Error(w, "host nicht gefunden", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		s.log.Error("update-stand lesen", "err", err)
+		http.Error(w, "interner fehler", http.StatusInternalServerError)
+		return
+	}
+	if raw == nil {
+		raw = json.RawMessage("null")
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Write(raw)
+}

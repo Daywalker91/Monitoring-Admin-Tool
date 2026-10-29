@@ -125,6 +125,17 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 			"host", h.ID, "hostname", h.Hostname, "name", h.Name(), "group", h.Group, "os", h.OS, "platform", h.Platform,
 			"platform_version", h.PlatformVersion, "arch", h.Arch, "agent_version", h.AgentVersion)
 		mw.add("mat_host_last_seen_timestamp_seconds", "gauge", "Zeitpunkt der letzten Nachricht.", float64(h.LastSeen), host...)
+		if u := h.Updates; u != nil {
+			if u.Manager != "" && u.Error == "" {
+				mw.add("mat_updates_pending", "gauge", "Offene Paket-Updates.", float64(u.Upgradable), host...)
+				mw.add("mat_updates_security_pending", "gauge", "Offene Sicherheitsupdates.", float64(u.Security), host...)
+			}
+			reboot := 0.0
+			if u.RebootRequired {
+				reboot = 1
+			}
+			mw.add("mat_reboot_required", "gauge", "1, wenn der Host einen Neustart verlangt.", reboot, host...)
+		}
 
 		// Messwerte nur für verbundene Hosts, sonst blieben veraltete Werte in Grafana stehen.
 		if !online || len(h.Metrics) == 0 || string(h.Metrics) == "null" {
