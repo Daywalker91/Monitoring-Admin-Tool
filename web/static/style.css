@@ -272,8 +272,8 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; padding
       "host   host   status"
       "system system system"
       "cpu    mem    swap"
-      "load   disk   seen"
-      "net    net    net";
+      "load   disk   temp"
+      "net    net    seen";
     gap: 8px 12px;
     margin-top: 10px;
     padding: 12px;
@@ -308,6 +308,7 @@ body.login-page { display: grid; place-items: center; min-height: 100vh; padding
   #hosts .c-load   { grid-area: load; }
   #hosts .c-disk   { grid-area: disk; }
   #hosts .c-seen   { grid-area: seen; }
+  #hosts .c-temp   { grid-area: temp; }
   #hosts .c-net    { grid-area: net; }
 
   #hosts > tbody > tr.detail { display: block; }

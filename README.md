@@ -158,9 +158,14 @@ Der Server prüft feste Regeltypen; Schwelle und Mindestdauer lassen sich in der
 | RAM     | 90 % für 5 min         | Arbeitsspeicher belegt                      |
 | Swap    | 80 % für 10 min        | Swap belegt (nur Hosts mit Swap)            |
 | Disk    | 90 % für 1 min         | Belegung je Mountpoint                      |
+| CPU-Temperatur | 80 °C für 5 min | höchster CPU-Sensor (nur Linux-Hosts mit Sensor) |
 
 Ein Alarm löst aus, wenn der Wert die Mindestdauer lang ununterbrochen über der Schwelle liegt, und endet,
-wenn er 5 Prozentpunkte unter die Schwelle fällt. Pro Alarm gibt es genau zwei Nachrichten: beim Auslösen
+wenn er 5 Prozentpunkte (Temperatur: 5 °C) unter die Schwelle fällt.
+
+Die **CPU-Temperatur** liest der Agent unter Linux aus `/sys/class/thermal` (Raspberry Pi, Rockchip,
+`x86_pkg_temp`) und aus den hwmon-Treibern `coretemp`, `k10temp` und `zenpower`. VMs und Windows-Hosts
+haben keinen Wert (in der GUI „–“). In den Host-Details stehen alle gefundenen Sensoren. Pro Alarm gibt es genau zwei Nachrichten: beim Auslösen
 und beim Ende. Aktive Alarme stehen oben in der GUI und unter „Alarme“, zusammen mit dem Verlauf der letzten 7 Tage.
 
 In den Host-Details unter „Alarme für diesen Host“:
@@ -288,6 +293,6 @@ scrape_configs:
 Metriken (Präfix `mat_`): `alerts_firing` (je Host und Regel), `host_up`, `host_info`, `host_last_seen_timestamp_seconds`, `host_boot_time_seconds`,
 `cpu_usage_percent`, `cpu_core_usage_percent`, `load1/5/15` (nicht unter Windows), `memory_total/used_bytes`,
 `swap_total/used_bytes`, `network_{receive,transmit}_{bytes,packets}_per_second`, `network_{receive,transmit}_errors_total`,
-`filesystem_size/used_bytes`.
+`filesystem_size/used_bytes`, `cpu_temperature_celsius` und `sensor_temperature_celsius` (je Sensor, nur Linux-Hosts mit Sensor).
 
 Architektur, Zielplattformen und Sicherheitsregeln: siehe [CLAUDE.md](CLAUDE.md).

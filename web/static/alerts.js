@@ -3,14 +3,24 @@
 // erst beim Aufruf. Werte werden ausschließlich per textContent gesetzt.
 "use strict";
 
-const ALERT_LABELS = { offline: "Offline", cpu: "CPU", mem: "RAM", swap: "Swap", disk: "Disk" };
+const ALERT_LABELS = { offline: "Offline", cpu: "CPU", mem: "RAM", swap: "Swap", disk: "Disk", temp: "CPU-Temperatur" };
 const RULE_HELP = {
   offline: "Agent nicht verbunden",
   cpu: "CPU-Auslastung gesamt",
   mem: "Arbeitsspeicher belegt",
   swap: "Swap belegt (nur Hosts mit Swap)",
   disk: "Belegung je Mountpoint",
+  temp: "CPU-Temperatur in °C (nur Linux-Hosts mit Sensor)",
 };
+
+// Schwelle je Regeltyp: Einheit und erlaubter Bereich (wie im Server geprüft).
+function ruleUnit(kind) {
+  return kind === "temp" ? { unit: " °C", min: 30, max: 120, aria: "in Grad Celsius" }
+    : { unit: " %", min: 10, max: 100, aria: "in Prozent" };
+}
+
+// Messwert eines Alarms in der Einheit seines Regeltyps.
+function fmtAlertNum(kind, v) { return kind === "temp" ? fmtTemp(v) : fmtPct(v); }
 const CHANNEL_LABELS = { ntfy: "ntfy", email: "E-Mail" };
 
 let activeAlerts = []; // aktive Alarme, für Markierung und Host-Liste
@@ -33,7 +43,7 @@ function fmtDateTime(unix) {
 }
 
 // Wert eines Alarms: Prozent, bei "offline" die Zeit ohne Verbindung (in Minuten gespeichert).
-function alertValue(a, v) { return a.kind === "offline" ? fmtDuration(v * 60) : fmtPct(v); }
+function alertValue(a, v) { return a.kind === "offline" ? fmtDuration(v * 60) : fmtAlertNum(a.kind, v); }
 
 function alertCountFor(hostId) { return activeAlerts.filter(a => a.host_id === hostId).length; }
 
@@ -63,9 +73,9 @@ function alertRow(a) {
   tr.append(cell("rule", "Regel", alertSubject(a)));
 
   let value = alertValue(a, a.value);
-  if (a.kind !== "offline" && fmtPct(a.peak) !== fmtPct(a.value)) value += " (Spitze " + fmtPct(a.peak) + ")";
+  if (a.kind !== "offline" && alertValue(a, a.peak) !== value) value += " (Spitze " + alertValue(a, a.peak) + ")";
   tr.append(cell("value", "Wert", value, "num"));
-  tr.append(cell("threshold", "Schwelle", a.kind === "offline" ? "–" : fmtPct(a.threshold), "num hide-sm"));
+  tr.append(cell("threshold", "Schwelle", a.kind === "offline" ? "–" : fmtAlertNum(a.kind, a.threshold), "num hide-sm"));
   tr.append(cell("start", "Beginn", fmtDateTime(a.started_at)));
   const end = active ? Date.now() / 1000 : a.resolved_at;
   tr.append(cell("dur", "Dauer", fmtDuration(end - a.started_at), "num"));
@@ -139,7 +149,8 @@ function renderRules() {
     if (r.kind === "offline") {
       thr.append(el("span", "–", "muted"));
     } else {
-      thr.append(numberInput(r.threshold, 10, 100, 1, label + " Schwelle in Prozent"), el("span", " %", "unit"));
+      const u = ruleUnit(r.kind);
+      thr.append(numberInput(r.threshold, u.min, u.max, 1, label + " Schwelle " + u.aria), el("span", u.unit, "unit"));
       thr.querySelector("input").className = "rule-threshold";
     }
     tr.append(thr);
@@ -157,7 +168,8 @@ function renderRules() {
   document.getElementById("reminder-hours").value = rulesState.reminder_hours;
   document.getElementById("rules-hint").textContent =
     "Ein Alarm löst aus, wenn der Wert die Mindestdauer lang ununterbrochen über der Schwelle liegt, " +
-    "und endet, wenn er " + rulesState.hysteresis + " Prozentpunkte unter die Schwelle fällt.";
+    "und endet, wenn er " + rulesState.hysteresis + " Prozentpunkte (bei der Temperatur " + rulesState.hysteresis +
+    " °C) unter die Schwelle fällt.";
 
   const chans = rulesState.channels.map(c => CHANNEL_LABELS[c] || c);
   document.getElementById("channels").textContent = chans.length
@@ -244,7 +256,7 @@ function hostAlertSection(h) {
 function ruleSummary(r) {
   if (!r.enabled) return "aus";
   const dur = Math.round(r.for_sec / 60 * 100) / 100 + " min";
-  return r.kind === "offline" ? "nach " + dur : r.threshold + " % · " + dur;
+  return r.kind === "offline" ? "nach " + dur : r.threshold + ruleUnit(r.kind).unit + " · " + dur;
 }
 
 function createHostAlertView(h) {
@@ -351,9 +363,10 @@ function renderHostRules(v) {
     const tdThr = el("td", null, "num");
     if (d.kind === "offline") tdThr.append(el("span", "–", "muted"));
     else {
-      const i = numberInput(r.threshold, 10, 100, 1, label + " Schwelle in Prozent");
+      const u = ruleUnit(d.kind);
+      const i = numberInput(r.threshold, u.min, u.max, 1, label + " Schwelle " + u.aria);
       i.className = "rule-threshold";
-      tdThr.append(i, el("span", " %", "unit"));
+      tdThr.append(i, el("span", u.unit, "unit"));
     }
     const tdDur = el("td", null, "num");
     const di = numberInput(Math.round(r.for_sec / 60 * 100) / 100, d.kind === "offline" ? 0.5 : 0, 1440, "any",

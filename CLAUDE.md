@@ -80,9 +80,9 @@ Datenfluss M1:
 3. Server speichert den letzten Stand pro Host sowie eine kompakte Historie (Retention 7 Tage) in SQLite
    und zeigt eine Host-Liste mit aktuellen Werten in der Web-GUI.
 
-Alarme (M3): feste Regeltypen (`offline`, `cpu`, `mem`, `swap`, `disk` je Mountpoint), keine frei
-formulierbaren Ausdrücke. Auswertung im Server bei jeder Metrik-Nachricht, Offline-Prüfung alle 30 s.
-Auslösen nach ununterbrochener Mindestdauer, Ende mit 5 Prozentpunkten Hysterese, je Alarm genau
+Alarme (M3): feste Regeltypen (`offline`, `cpu`, `mem`, `swap`, `disk` je Mountpoint, `temp` in °C seit M6),
+keine frei formulierbaren Ausdrücke. Auswertung im Server bei jeder Metrik-Nachricht, Offline-Prüfung alle 30 s.
+Auslösen nach ununterbrochener Mindestdauer, Ende mit 5 Prozentpunkten (bzw. 5 °C) Hysterese, je Alarm genau
 eine Nachricht beim Auslösen und eine beim Ende. Offene Alarme stehen in SQLite und überstehen Neustarts.
 
 Vorbereitet für später (nicht umsetzen, solange nicht beauftragt):

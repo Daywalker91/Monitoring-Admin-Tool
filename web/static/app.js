@@ -81,6 +81,16 @@ function pctCell(col, label, v) {
   return td;
 }
 
+function fmtTemp(v) { return v == null ? "–" : v.toFixed(1) + " °C"; }
+
+// CPU-Temperatur; ohne Sensor (Windows, VM) "–".
+function tempCell(v) {
+  const td = cell("temp", "Temp", fmtTemp(v), "num");
+  if (v >= 80) td.classList.add("lvl-crit");
+  else if (v >= 70) td.classList.add("lvl-warn");
+  return td;
+}
+
 function hostRow(h) {
   const m = h.metrics || {};
   const tr = el("tr", null, "host");
@@ -105,7 +115,7 @@ function hostRow(h) {
   tr.append(cell("system", null, [h.platform || h.os, h.platform_version, h.arch].filter(Boolean).join(" · ")));
 
   if (!h.metrics) {
-    for (const [col, label] of [["cpu", "CPU"], ["load", "Load"], ["mem", "RAM"], ["swap", "Swap"], ["net", "Netz ↓ / ↑"], ["disk", "Disk max"]]) {
+    for (const [col, label] of [["cpu", "CPU"], ["load", "Load"], ["mem", "RAM"], ["swap", "Swap"], ["net", "Netz ↓ / ↑"], ["disk", "Disk max"], ["temp", "Temp"]]) {
       tr.append(cell(col, label, "–", "num"));
     }
   } else {
@@ -118,6 +128,7 @@ function hostRow(h) {
     tr.append(cell("net", "Netz ↓ / ↑", fmtRate(rx) + " / " + fmtRate(tx), "num"));
     const diskMax = Math.max(0, ...(m.disks || []).map(d => d.used_pct));
     tr.append(pctCell("disk", "Disk max", diskMax));
+    tr.append(tempCell(m.cpu_temp));
   }
   tr.append(cell("seen", "Zuletzt", fmtAgo(h.last_seen)));
 
@@ -179,6 +190,11 @@ function createHistoryView(h) {
     Charts.lineChart({ title: "Netz", scale: "bytes", format: fmtRateShort,
       series: [{ key: "net_rx_bps", name: "↓ empfangen", cls: "s1" }, { key: "net_tx_bps", name: "↑ gesendet", cls: "s2" }] }),
   ];
+  v.hasTemp = h.metrics?.cpu_temp != null;
+  if (v.hasTemp) {
+    v.charts.push(Charts.lineChart({ title: "CPU-Temperatur", format: (n, axis) => axis ? n.toFixed(0) + "°" : fmtTemp(n),
+      series: [{ key: "cpu_temp", name: "Temperatur", cls: "s1" }] }));
+  }
   const grid = el("div", null, "chart-grid");
   for (const c of v.charts) grid.append(c.el);
   sec.append(grid);
@@ -189,7 +205,9 @@ function createHistoryView(h) {
   const table = el("table", null, "mini");
   const thead = el("thead");
   const hr = el("tr");
-  for (const [t, c] of [["Zeit"], ["CPU", "num"], ["RAM", "num"], ["↓", "num"], ["↑", "num"]]) hr.append(el("th", t, c));
+  const cols = [["Zeit"], ["CPU", "num"], ["RAM", "num"], ["↓", "num"], ["↑", "num"]];
+  if (v.hasTemp) cols.push(["Temp", "num"]);
+  for (const [t, c] of cols) hr.append(el("th", t, c));
   thead.append(hr);
   table.append(thead, el("tbody"));
   details.append(table);
@@ -210,6 +228,7 @@ function fillHistoryTable(v) {
     [new Date(p.ts * 1000).toLocaleString("de-DE", opts)],
     [fmtPct(p.cpu_pct), "num"], [fmtPct(p.mem_pct), "num"],
     [fmtRate(p.net_rx_bps), "num"], [fmtRate(p.net_tx_bps), "num"],
+    ...(v.hasTemp ? [[fmtTemp(p.cpu_temp), "num"]] : []),
   ]);
   const tbody = v.table.querySelector("tbody");
   tbody.replaceChildren();
@@ -314,6 +333,7 @@ function detailRow(h) {
   add("Kerne", String(h.cpu_cores));
   add("RAM", m.mem ? fmtBytes(m.mem.used) + " / " + fmtBytes(m.mem.total) : "");
   add("Uptime", fmtUptime(h.boot_time));
+  if (m.temps?.length) add("Sensoren", m.temps.map(t => t.name + " " + fmtTemp(t.celsius)).join(", "));
   if (hasLoad(h)) {
     add("Load 1/5/15", m.cpu ? [m.cpu.load1, m.cpu.load5, m.cpu.load15].map(x => x.toFixed(2)).join(" / ") : "");
   }

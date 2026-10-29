@@ -165,6 +165,13 @@ const Charts = (() => {
         let cur = [];
         let prevTs = null;
         for (const p of points) {
+          // Fehlender Wert (z. B. Temperatur ohne Sensor) unterbricht die Linie.
+          if (p[s.key] == null) {
+            if (cur.length) segments.push(cur);
+            cur = [];
+            prevTs = null;
+            continue;
+          }
           if (prevTs !== null && p.ts - prevTs > gap) { segments.push(cur); cur = []; }
           cur.push(p);
           prevTs = p.ts;
@@ -207,7 +214,9 @@ const Charts = (() => {
       cross.setAttribute("x2", px);
       hover.querySelectorAll(".dot").forEach((dot, i) => {
         dot.setAttribute("cx", px);
-        dot.setAttribute("cy", geom.y(p[opts.series[i].key]));
+        const v = p[opts.series[i].key];
+        dot.setAttribute("cy", geom.y(v ?? 0));
+        dot.setAttribute("visibility", v == null ? "hidden" : "visible");
       });
       hover.setAttribute("visibility", "visible");
 
