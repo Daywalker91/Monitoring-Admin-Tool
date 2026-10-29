@@ -14,6 +14,7 @@
   <script src="packages.js" defer></script>
   <script src="logs.js" defer></script>
   <script src="smart.js" defer></script>
+  <script src="maintenance.js" defer></script>
   <script src="install.js" defer></script>
   <script src="checks.js" defer></script>
   <script src="cluster.js" defer></script>
@@ -224,6 +225,49 @@
           <span id="rules-status" role="status"></span>
         </div>
       </form>
+      <div class="panel" id="maint-panel">
+        <h2>Wartungsfenster</h2>
+        <p class="muted small">Während eines Wartungsfensters werden Alarme erfasst, aber nicht gemeldet.
+          Was danach noch aktiv ist, wird nachgemeldet. Wöchentliche Fenster gelten in der Zeitzone des Servers.</p>
+        <div class="table-wrap" id="maint-table" hidden>
+          <table id="maint-list" class="mini">
+            <thead><tr><th>Name</th><th>Bereich</th><th>Zeit</th><th>Status</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <form id="maint-form" autocomplete="off">
+          <h3 id="maint-form-title">Neues Wartungsfenster</h3>
+          <div class="form-grid">
+            <label>Name <input name="name" required maxlength="64" placeholder="z. B. Patchday"></label>
+            <label>Bereich
+              <select name="scope">
+                <option value="all">alle Hosts, Checks, Cluster</option>
+                <option value="group">Gruppe</option>
+                <option value="host">Host</option>
+              </select>
+            </label>
+            <label class="maint-target">Ziel <select name="target"></select></label>
+            <label>Art
+              <select name="kind">
+                <option value="once">einmalig</option>
+                <option value="weekly">wöchentlich</option>
+              </select>
+            </label>
+            <label class="maint-once">Beginn <input name="start" type="datetime-local"></label>
+            <fieldset class="maint-weekly wide weekday-set">
+              <legend>Wochentage</legend>
+            </fieldset>
+            <label class="maint-weekly">Uhrzeit <input name="time" type="time" value="03:00"></label>
+            <label>Dauer (min) <input name="duration" type="number" min="1" max="10080" step="1" value="60" required inputmode="numeric"></label>
+            <label class="check-label"><input name="enabled" type="checkbox" checked> aktiv</label>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="primary">Speichern</button>
+            <button type="button" id="maint-cancel" class="secondary" hidden>Abbrechen</button>
+            <span id="maint-status" class="small" role="status"></span>
+          </div>
+        </form>
+      </div>
       <div class="panel">
         <h2>Benachrichtigungen</h2>
         <p id="channels" class="muted"></p>

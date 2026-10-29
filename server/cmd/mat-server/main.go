@@ -31,6 +31,7 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+	_ "time/tzdata" // Zeitzonen für Wartungsfenster (TZ), auch ohne zoneinfo im Image
 
 	"github.com/Daywalker91/Monitoring-Admin-Tool/internal/winsvc"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/alert"
@@ -192,6 +193,9 @@ func run(ctx context.Context, listen, dbPath string, retention time.Duration, to
 		WithVersion(version).
 		WithUpdates(updates).
 		WithChecks(checkRunner)
+	if err := apiSrv.LoadMaintenance(ctx); err != nil {
+		return fmt.Errorf("wartungsfenster laden: %w", err)
+	}
 	if kc, err := k8s.FromEnv(); err != nil {
 		log.Warn("k3s-ansicht abgeschaltet", "err", err)
 	} else if kc != nil {

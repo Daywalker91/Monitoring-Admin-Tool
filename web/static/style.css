@@ -613,6 +613,20 @@ h1.logo b { font-weight: 700; }
 .form-grid label.check-label { display: flex; align-items: center; gap: 8px; color: var(--text); }
 .form-grid label.check-label input { width: 18px; height: 18px; }
 #check-form .form-grid > [hidden], #check-form [hidden] { display: none; }
+#maint-form [hidden] { display: none; }
+#maint-form h3 { margin-top: 12px; }
+.weekday-set { display: flex; flex-wrap: wrap; gap: 6px 14px; border: 1px solid var(--border); border-radius: 6px;
+  padding: 6px 10px; margin: 0; font-size: 13px; color: var(--muted); }
+.weekday-set label { display: flex; align-items: center; gap: 4px; color: var(--text); }
+#maint-list td.actions { white-space: nowrap; text-align: right; }
+@media (max-width: 600px) {
+  #maint-list thead { display: none; }
+  #maint-list tr { display: block; padding: 6px 0; border-top: 1px solid var(--border); }
+  #maint-list td { display: block; padding: 1px 6px; white-space: normal; }
+  #maint-list td.name { font-weight: 600; }
+  #maint-list td.actions { text-align: left; padding-top: 4px; }
+  #maint-list td.actions button.small-btn { margin: 0 6px 0 0; }
+}
 
 /* Cluster */
 .pills { display: flex; flex-wrap: wrap; gap: 6px; }

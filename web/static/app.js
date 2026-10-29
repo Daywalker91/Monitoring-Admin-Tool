@@ -142,6 +142,8 @@ function hostRow(h) {
   if (h.muted_until) host.append(el("span", "🔕 stumm", "pill host-alerts"));
   const svcPill = hostServicesPill(h);
   if (svcPill) host.append(svcPill);
+  const maintPill = hostMaintenancePill(h);
+  if (maintPill) host.append(maintPill);
   host.append(...hostPackagePills(h));
   if (h.k8s_node) host.append(k8sPill(h.k8s_node));
   const upd = hostUpdatePill(h);
@@ -585,6 +587,7 @@ async function refresh() {
     if (currentView === "rules") {
       renderUpdatePanel(hosts);
       renderInstallPanel();
+      await loadMaintenance();
     }
     if (currentView === "checks") await loadChecks();
     if (currentView === "cluster") await loadCluster();

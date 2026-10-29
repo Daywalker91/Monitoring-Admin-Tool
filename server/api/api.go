@@ -57,11 +57,15 @@ type Server struct {
 	certNotAfter    time.Time // Ablauf des TLS-Zertifikats, null = kein TLS
 	certFingerprint string    // SHA-256 des TLS-Zertifikats (hex)
 
-	mu     sync.Mutex
-	conns  map[string]agentConn // aktuell verbundene Agenten je ID
-	names  map[string]string    // Anzeigenamen verbundener Agenten (für Alarme)
-	svcs   map[string]svcState  // letzte Dienstliste je Host
-	nowFor func() time.Time
+	mu    sync.Mutex
+	conns map[string]agentConn // aktuell verbundene Agenten je ID
+	names map[string]string    // Anzeigenamen verbundener Agenten (für Alarme)
+	svcs  map[string]svcState  // letzte Dienstliste je Host
+
+	maintMu sync.Mutex          // eigene Sperre: quiet läuft unter der Sperre der Alarm-Engine
+	maint   []store.Maintenance // Wartungsfenster
+	loc     *time.Location      // Zeitzone für wöchentliche Wartungsfenster
+	nowFor  func() time.Time
 }
 
 // New erzeugt einen Server. token ist das gemeinsame Agent-Token, gui die
@@ -69,7 +73,7 @@ type Server struct {
 func New(st *store.Store, am *auth.Manager, token string, gui fs.FS, log *slog.Logger) *Server {
 	return &Server{store: st, auth: am, token: []byte(token), gui: gui, log: log,
 		conns: make(map[string]agentConn), names: make(map[string]string), svcs: make(map[string]svcState),
-		nowFor: time.Now}
+		nowFor: time.Now, loc: time.Local}
 }
 
 // WithVersion setzt die angezeigte Server-Version.
@@ -96,6 +100,10 @@ func (s *Server) Handler() http.Handler {
 	private.HandleFunc("POST /api/alerts/test", s.handleTestAlert)
 	private.HandleFunc("POST /api/alerts/{id}/ack", s.handleAck)
 	private.HandleFunc("DELETE /api/alerts/{id}/ack", s.handleAck)
+	private.HandleFunc("GET /api/maintenance", s.handleMaintenanceList)
+	private.HandleFunc("POST /api/maintenance", s.handleMaintenanceSave)
+	private.HandleFunc("PUT /api/maintenance/{id}", s.handleMaintenanceSave)
+	private.HandleFunc("DELETE /api/maintenance/{id}", s.handleMaintenanceDelete)
 	private.HandleFunc("GET /api/alert-rules", s.handleGetAlertRules)
 	private.HandleFunc("POST /api/alert-rules", s.handleSetAlertRules)
 	private.HandleFunc("GET /api/hosts/{id}/alert-rules", s.handleGetHostRules)
@@ -435,6 +443,7 @@ type hostView struct {
 	UpdateNote      string      `json:"update_note,omitempty"`
 	K8sNode         *nodeLink   `json:"k8s_node,omitempty"` // Host ist ein k3s-Node
 	Services        *svcSummary `json:"services,omitempty"`
+	Maintenance     string      `json:"maintenance,omitempty"` // aktives Wartungsfenster
 }
 
 func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
@@ -449,7 +458,7 @@ func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 	for i, h := range hosts {
 		out[i] = hostView{Host: h, Online: s.online(h.ID), UpdateAvailable: s.updateAvailable(h),
 			Update: s.hostUpdateState(h.ID), UpdateNote: s.updateNote(h.ID), K8sNode: matchNode(nodes, h),
-			Services: s.servicesSummary(h.ID)}
+			Services: s.servicesSummary(h.ID), Maintenance: s.maintenanceFor(h.ID, s.nowFor())}
 		if s.alerts != nil {
 			if until, muted := s.alerts.MutedUntil(h.ID, s.nowFor()); muted {
 				ts := until.Unix()

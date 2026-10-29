@@ -25,6 +25,7 @@ const (
 func (s *Server) WithAlerts(ev *alert.Evaluator, d *notify.Dispatcher) *Server {
 	s.alerts = ev
 	s.notifier = d
+	ev.SetQuiet(s.quiet)
 	return s
 }
 

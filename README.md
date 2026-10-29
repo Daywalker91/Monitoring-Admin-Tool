@@ -12,7 +12,7 @@ M5 fertig – Self-Update der Agenten aus signierten GitHub-Releases, Warnung vo
 M6 – CPU-Temperatur, externe Checks (HTTP(S), Ping, TCP), k3s-Ansicht; Hosts umbenennen (Anzeigename,
 auch in Alarmen) und in Gruppen ordnen – intern bleibt die Agent-ID die Kennung.
 M7 (in Arbeit) – Admin-Aktionen als Jobs mit Verlauf, Dienste überwachen und steuern,
-offene Updates (apt) und Neustart, neue k3s-Versionen im Tab „Cluster“, freigegebene Logs lesen, SMART der Datenträger.
+offene Updates (apt) und Neustart, neue k3s-Versionen im Tab „Cluster“, freigegebene Logs lesen, SMART der Datenträger; Alarme quittieren, Wartungsfenster.
 
 ## Schnellstart (lokal)
 
@@ -189,6 +189,9 @@ Alle `/api/*`-Endpunkte außer Login/Logout erfordern eine Session.
 | `GET /api/alert-rules`          | Regeln und konfigurierte Kanäle            |
 | `POST /api/alert-rules`         | Regeln speichern (`{"rules":[…]}`)         |
 | `POST /api/alerts/test`         | Testnachricht an alle Kanäle               |
+| `POST/DELETE /api/alerts/{id}/ack` | Alarm quittieren (`{"comment":"…"}`) / Quittierung aufheben |
+| `GET/POST /api/maintenance`     | Wartungsfenster / anlegen                  |
+| `PUT/DELETE /api/maintenance/{id}` | Wartungsfenster ändern / löschen        |
 | `GET/POST /api/hosts/{id}/alert-rules` | abweichende Regeln eines Hosts (leer = Standard) |
 | `POST/DELETE /api/hosts/{id}/mute`     | stummschalten (`{"minutes": N}`, 0 = unbefristet) / aufheben |
 | `GET /api/update`               | Release-Status, Server-Version, Zertifikatsablauf |
@@ -244,6 +247,13 @@ In den Host-Details unter „Alarme für diesen Host“:
 
 Unter „Regeln“ lässt sich eine **Erinnerung** einstellen: Alarme, die nach N Stunden noch aktiv sind,
 werden erneut gemeldet (0 = aus).
+
+**Quittieren:** Aktive Alarme lassen sich in der Alarmansicht mit Kommentar quittieren. Danach
+gibt es keine Erinnerungen mehr; das Ende wird trotzdem gemeldet.
+
+**Wartungsfenster** (Einstellungen): einmalig oder wöchentlich, für alle, eine Gruppe oder einen
+Host. Alarme werden erfasst, aber nicht gemeldet; was am Ende noch aktiv ist, wird nachgemeldet.
+Wöchentliche Fenster gelten in der Zeitzone des Servers (`TZ`, im k3s-Manifest `Europe/Berlin`).
 
 ### Benachrichtigungen
 
