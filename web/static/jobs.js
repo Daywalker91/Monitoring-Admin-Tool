@@ -62,9 +62,7 @@ function createJobView(h) {
   v.tbody = el("tbody");
   table.append(thead, v.tbody);
   v.empty = el("p", "Noch keine Aktionen.", "muted small");
-  v.output = el("pre", "", "log-text job-output");
-  v.output.hidden = true;
-  v.el.append(v.buttons, v.hint, v.status, table, v.empty, v.output);
+  v.el.append(v.buttons, v.hint, v.status, table, v.empty);
   v.el.addEventListener("click", ev => ev.stopPropagation());
   return v;
 }
@@ -86,8 +84,8 @@ function renderJobButtons(v, h) {
   v.hint.hidden = !v.hint.textContent;
 }
 
-// startJob schickt einen Job an den Host und zeigt ihn im Verlauf (mit show
-// aufgeklappt).
+// startJob schickt einen Job an den Host, zeigt ihn im Verlauf und mit show
+// gleich im Ausgabe-Fenster.
 async function startJob(hostID, action, params = {}, show = true) {
   const resp = await fetch("api/hosts/" + encodeURIComponent(hostID) + "/jobs", {
     method: "POST", headers: { "Content-Type": "application/json" },
@@ -98,8 +96,8 @@ async function startJob(hostID, action, params = {}, show = true) {
   const j = await resp.json();
   const v = jobViews.get(hostID);
   if (v) {
-    if (show) v.openJob = j.id;
     loadJobs(v);
+    if (show) openJobDialog(v, j);
   }
   return j;
 }
@@ -139,31 +137,86 @@ function renderJobs(v) {
   v.tbody.replaceChildren(...v.jobs.map(j => {
     const tr = el("tr", null, "job-row" + (j.id === v.openJob ? " open" : ""));
     const [text, cls] = jobState(j);
-    tr.append(el("td", fmtDateTime(j.created_at), "num"), el("td", jobLabel(j), "name"),
-      el("td", j.user || "–", "hide-sm"), el("td", text, cls));
+    tr.append(el("td", fmtDateTime(j.created_at), "num nowrap"), el("td", jobLabel(j), "name"),
+      el("td", j.user || "–", "hide-sm nowrap"), el("td", text, cls));
     tr.title = "Ausgabe anzeigen";
-    tr.addEventListener("click", () => {
-      v.openJob = v.openJob === j.id ? null : j.id;
-      renderJobs(v);
-      if (v.openJob) loadJobOutput(v, j.id);
-      else v.output.hidden = true;
-    });
+    tr.addEventListener("click", () => openJobDialog(v, j));
     return tr;
   }));
 }
 
+// --- Ausgabe-Fenster ----------------------------------------------------------
+// Ein gemeinsames <dialog> für alle Hosts. Es liegt außerhalb der Host-Liste und
+// übersteht so jedes Neuzeichnen; laufende Jobs aktualisiert loadJobs.
+
+let jobDialog = null;
+
+function getJobDialog() {
+  if (jobDialog) return jobDialog;
+  const d = { el: el("dialog", null, "job-dialog"), jobID: null };
+  const head = el("div", null, "job-dialog-head");
+  d.title = el("h2", "");
+  const close = el("button", "Schließen", "secondary");
+  close.type = "button";
+  close.addEventListener("click", () => d.el.close());
+  head.append(d.title, close);
+  d.meta = el("p", "", "small");
+  d.output = el("pre", "", "log-text job-dialog-output");
+  d.el.append(head, d.meta, d.output);
+  // Klick auf den abgedunkelten Hintergrund schließt ebenfalls (Esc macht der Browser).
+  d.el.addEventListener("click", ev => { if (ev.target === d.el) d.el.close(); });
+  d.el.addEventListener("close", () => {
+    for (const v of jobViews.values()) {
+      if (v.openJob === d.jobID) {
+        v.openJob = null;
+        if (v.jobs) renderJobs(v);
+      }
+    }
+    d.jobID = null;
+  });
+  document.body.append(d.el);
+  jobDialog = d;
+  return d;
+}
+
+function openJobDialog(v, j) {
+  const d = getJobDialog();
+  d.jobID = j.id;
+  v.openJob = j.id;
+  const h = lastHosts.find(x => x.id === v.id);
+  d.title.textContent = jobLabel(j) + " · " + (h ? hostName(h) : v.id);
+  d.output.textContent = "lade …";
+  fillJobMeta(d, j);
+  if (!d.el.open) d.el.showModal();
+  renderJobs(v);
+  loadJobOutput(v, j.id);
+}
+
+function fillJobMeta(d, j) {
+  const [text, cls] = jobState(j);
+  d.meta.className = "small " + cls;
+  d.meta.textContent = fmtDateTime(j.created_at) + " · " + (j.user || "–") + " · " + text;
+}
+
+// loadJobOutput holt die Ausgabe des Jobs im Fenster. Wer ans Ende gescrollt
+// ist, bleibt dort; wer hochgescrollt hat, wird nicht weggerissen.
 async function loadJobOutput(v, id) {
+  const d = jobDialog;
+  if (!d || d.jobID !== id) return;
   try {
     const j = await fetchJSON("api/jobs/" + encodeURIComponent(id));
-    if (v.openJob !== id) return;
+    if (d.jobID !== id) return;
+    const o = d.output;
+    const atEnd = o.scrollHeight - o.scrollTop - o.clientHeight < 40;
     const parts = [];
     if (j.output) parts.push(j.output);
     if (j.error) parts.push("Fehler: " + j.error);
     if (!parts.length) parts.push(j.finished_at === null ? "läuft noch …" : "(keine Ausgabe)");
-    v.output.textContent = parts.join("\n");
-    v.output.hidden = false;
+    const text = parts.join("\n");
+    if (o.textContent !== text) o.textContent = text;
+    fillJobMeta(d, j);
+    if (atEnd) o.scrollTop = o.scrollHeight;
   } catch (e) {
-    v.output.textContent = "Ausgabe: " + e.message;
-    v.output.hidden = false;
+    if (d.jobID === id) d.output.textContent = "Ausgabe: " + e.message;
   }
 }

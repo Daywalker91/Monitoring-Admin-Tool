@@ -422,6 +422,8 @@ table.alerts tbody tr:hover { background: var(--bg); }
 
 #rules td { vertical-align: middle; border-top: 1px solid var(--border); }
 #rules .rule-help { display: block; font-weight: 400; }
+/* Regel-Spalte darf umbrechen, sonst sprengen lange Beschreibungen das Panel. */
+#rules td:nth-child(2) { white-space: normal; }
 #rules input[type="number"] {
   width: 5.5em;
   padding: 6px;
@@ -671,7 +673,30 @@ button.small-btn { padding: 2px 8px; font-size: 12px; margin-left: 4px; }
 .job-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 table.job-list tr.job-row { cursor: pointer; }
 table.job-list tr.job-row:hover, table.job-list tr.job-row.open { background: var(--bg); }
-pre.job-output { margin-top: 8px; max-height: 320px; }
+.detail-grid section.host-jobs { grid-column: 1 / -1; }
+table.job-list td.nowrap { white-space: nowrap; }
+dialog.job-dialog {
+  width: min(1100px, calc(100vw - 32px));
+  max-width: none;
+  height: min(85vh, 900px);
+  max-height: none;
+  padding: 12px 14px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  flex-direction: column;
+  gap: 6px;
+}
+dialog.job-dialog[open] { display: flex; }
+dialog.job-dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
+.job-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.job-dialog-head h2 { margin: 0; font-size: 15px; overflow-wrap: anywhere; }
+.job-dialog p { margin: 0; }
+dialog.job-dialog pre.job-dialog-output { flex: 1; min-height: 0; max-height: none; }
+@media (max-width: 600px) {
+  dialog.job-dialog { width: 100vw; height: 100dvh; margin: 0; border: 0; border-radius: 0; }
+}
 .log-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 pre.log-text {
   margin: 0;

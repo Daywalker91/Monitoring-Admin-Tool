@@ -9,7 +9,7 @@ let clusterRendered = ""; // Schlüssel des zuletzt gezeichneten Stands
 let clusterIgnore = [];
 const clusterFilter = { ns: "", problems: true, search: "" };
 const openPods = new Set();
-const logViews = new Map(); // "ns/pod" → Log-Ansicht (überlebt das Neuzeichnen)
+const podLogViews = new Map(); // "ns/pod" → Log-Ansicht (überlebt das Neuzeichnen)
 
 // Alter kompakt: "45s", "12m", "5h", "23d".
 function fmtAge(unix) {
@@ -302,10 +302,10 @@ function renderPods(list) {
 
 function logRow(p) {
   const id = p.namespace + "/" + p.name;
-  let v = logViews.get(id);
+  let v = podLogViews.get(id);
   if (!v) {
     v = createLogView(p);
-    logViews.set(id, v);
+    podLogViews.set(id, v);
     loadLogs(v);
   }
   const tr = el("tr", null, "detail");
