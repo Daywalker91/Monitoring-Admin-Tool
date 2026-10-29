@@ -4,9 +4,11 @@
 "use strict";
 
 const ALERT_LABELS = { offline: "Offline", cpu: "CPU", mem: "RAM", swap: "Swap", disk: "Disk", temp: "CPU-Temperatur",
-  check_down: "Check", check_cert: "Zertifikat" };
+  check_down: "Check", check_cert: "Zertifikat", k8s_node: "Node", k8s_workload: "Workload", argocd: "ArgoCD" };
 // Regeltypen ohne Schwelle (nur Mindestdauer).
-const NO_THRESHOLD = ["offline", "check_down"];
+const NO_THRESHOLD = ["offline", "check_down", "k8s_node", "k8s_workload", "argocd"];
+// Regeltypen, deren Alarmwert die Zusatzinfo (detail) ist.
+const DETAIL_VALUE = ["check_down", "k8s_node", "k8s_workload", "argocd"];
 const RULE_HELP = {
   offline: "Agent nicht verbunden",
   cpu: "CPU-Auslastung gesamt",
@@ -16,6 +18,9 @@ const RULE_HELP = {
   temp: "CPU-Temperatur in °C (nur Linux-Hosts mit Sensor)",
   check_down: "Externer Check schlägt fehl",
   check_cert: "Zertifikat eines HTTPS-Checks läuft in weniger als … Tagen ab",
+  k8s_node: "Kubernetes-Node nicht bereit",
+  k8s_workload: "Deployment/StatefulSet/DaemonSet nicht bereit oder Pod im Fehlerzustand (CrashLoopBackOff …)",
+  argocd: "ArgoCD-App Degraded, Missing oder OutOfSync",
 };
 
 // Schwelle je Regeltyp: Einheit und erlaubter Bereich (wie im Server geprüft).
@@ -55,7 +60,7 @@ function fmtDateTime(unix) {
 // Wert eines Alarms: Prozent, bei "offline" die Zeit ohne Verbindung (in Minuten gespeichert).
 function alertValue(a, v) {
   if (a.kind === "offline") return fmtDuration(v * 60);
-  if (a.kind === "check_down") return a.detail || "fehlgeschlagen";
+  if (DETAIL_VALUE.includes(a.kind)) return a.detail || "–";
   return fmtAlertNum(a.kind, v);
 }
 
@@ -99,6 +104,7 @@ function alertRow(a) {
   tr.title = "Host anzeigen";
   tr.addEventListener("click", () => {
     if (a.host_id.startsWith("check:")) return showView("checks");
+    if (a.host_id === "k8s") return showView("cluster");
     openHosts.add(a.host_id);
     showView("hosts");
   });

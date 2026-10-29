@@ -48,6 +48,20 @@ Installationsbefehl mit Fingerabdruck zeigt die GUI unter Einstellungen → Agen
 sudo sh install-agent.sh --server wss://192.168.100.50/ws/agent --fingerprint <sha256>
 ```
 
+## k3s-Ansicht (Tab „Cluster“)
+
+`rbac.yaml` legt den ServiceAccount `mat-server` und die ClusterRole `mat-server-read` an: nur
+lesend auf Nodes, Pods (samt `pods/log`), Deployments/StatefulSets/DaemonSets, Node-Metriken
+(metrics-server) und ArgoCD-Applications – keine Secrets, nichts Schreibendes. Das Deployment
+nutzt den ServiceAccount mit `automountServiceAccountToken: true`. Ohne Token läuft der Server
+weiter, nur der Tab „Cluster“ fehlt; `MAT_K8S=off` schaltet die Ansicht bewusst ab.
+
+Prüfen, was der ServiceAccount darf:
+
+```powershell
+kubectl auth can-i --list --as=system:serviceaccount:monitoring:mat-server
+```
+
 ## Versionen
 
 Neben `:main` gibt es zu jedem Release-Tag ein festes Image (`v0.5.1` → `:0.5.1`). Mit festem Tag rollt

@@ -11,6 +11,7 @@
   <script src="updates.js" defer></script>
   <script src="install.js" defer></script>
   <script src="checks.js" defer></script>
+  <script src="cluster.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -19,6 +20,7 @@
     <nav id="tabs" class="segmented" aria-label="Ansicht">
       <button type="button" data-view="hosts">Hosts</button>
       <button type="button" data-view="checks">Checks</button>
+      <button type="button" data-view="cluster">Cluster</button>
       <button type="button" data-view="alerts">Alarme<span class="count"></span></button>
       <button type="button" data-view="rules">Einstellungen</button>
     </nav>
@@ -109,6 +111,75 @@
           <tbody></tbody>
         </table>
       </div>
+    </section>
+
+    <section id="view-cluster" class="view" hidden>
+      <p id="cluster-error" class="banner warn" hidden></p>
+      <div class="view-head">
+        <div id="cluster-summary" class="pills"></div>
+        <span id="cluster-fetched" class="muted small"></span>
+      </div>
+
+      <h2>Nodes</h2>
+      <div class="table-wrap">
+        <table id="k8s-nodes" class="k8s">
+          <thead><tr><th>Status</th><th>Name</th><th class="hide-sm">Rollen</th><th class="hide-sm">Version</th>
+            <th class="hide-sm">IP</th><th class="num">CPU</th><th class="num">RAM</th><th class="num">Pods</th>
+            <th class="num hide-sm">Alter</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div id="k8s-apps-section" hidden>
+        <h2>ArgoCD-Apps</h2>
+        <div class="table-wrap">
+          <table id="k8s-apps" class="k8s">
+            <thead><tr><th>Name</th><th class="hide-sm">Projekt</th><th class="hide-sm">Ziel</th><th>Sync</th>
+              <th>Health</th><th class="hide-sm">Revision</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="filter-bar">
+        <select id="cluster-ns" aria-label="Namespace"></select>
+        <input id="cluster-search" type="search" placeholder="Name suchen" aria-label="Name suchen">
+        <label class="check-label"><input id="cluster-problems" type="checkbox" checked> nur Probleme</label>
+      </div>
+
+      <h2>Workloads</h2>
+      <p id="k8s-workloads-empty" class="muted" hidden>Keine passenden Workloads.</p>
+      <div class="table-wrap">
+        <table id="k8s-workloads" class="k8s">
+          <thead><tr><th>Namespace</th><th class="hide-sm">Art</th><th>Name</th><th class="num">Bereit</th>
+            <th class="num hide-sm">Alter</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p id="k8s-workloads-hidden" class="muted small" hidden></p>
+
+      <h2>Pods <span class="muted small">(anklicken für Logs)</span></h2>
+      <p id="k8s-pods-empty" class="muted" hidden>Keine passenden Pods.</p>
+      <div class="table-wrap">
+        <table id="k8s-pods" class="k8s">
+          <thead><tr><th>Namespace</th><th>Name</th><th>Status</th><th class="num">Bereit</th><th class="num">Neustarts</th>
+            <th class="hide-sm">Node</th><th class="num hide-sm">Alter</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p id="k8s-pods-hidden" class="muted small" hidden></p>
+
+      <form id="cluster-ignore-form" class="panel">
+        <h2>Ausnahmen für Cluster-Alarme</h2>
+        <p class="muted small">Ein Muster je Zeile in der Form <code>namespace/name</code>, mit <code>*</code> und
+          <code>?</code> als Platzhalter (z. B. <code>kube-system/svclb-*</code>). Passende Workloads, Pods und
+          ArgoCD-Apps (<code>argocd/app-name</code>) werden weiter angezeigt, lösen aber keine Alarme aus.</p>
+        <textarea id="cluster-ignore" rows="4" spellcheck="false" aria-label="Ausnahmen"></textarea>
+        <div class="form-actions">
+          <button type="submit" class="primary">Speichern</button>
+          <span id="cluster-ignore-status" class="small" role="status"></span>
+        </div>
+      </form>
     </section>
 
     <section id="view-alerts" class="view" hidden>

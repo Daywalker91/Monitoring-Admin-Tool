@@ -1,0 +1,41 @@
+# Leserechte für die k3s-Ansicht (seit M6): Nodes, Pods samt Logs, Workloads,
+# Node-Metriken (metrics-server) und ArgoCD-Applications. Keine Secrets, nichts
+# Schreibendes. Ohne diese Datei (bzw. mit MAT_K8S=off) fehlt nur der Tab „Cluster“.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mat-server
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: mat-server-read
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets"]
+    verbs: ["list"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["nodes"]
+    verbs: ["list"]
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: mat-server-read
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mat-server-read
+subjects:
+  - kind: ServiceAccount
+    name: mat-server
+    namespace: monitoring

@@ -136,6 +136,8 @@ func (c *Client) get(ctx context.Context, path string, limit int64) ([]byte, err
 		return nil, ErrNotFound
 	case resp.StatusCode == http.StatusForbidden:
 		return nil, fmt.Errorf("%s: keine berechtigung (clusterrole prüfen)", path)
+	case resp.StatusCode == http.StatusNoContent:
+		return nil, nil // z. B. Logs eines Containers, der noch nicht lief
 	case resp.StatusCode != http.StatusOK:
 		return nil, fmt.Errorf("%s: status %d", path, resp.StatusCode)
 	}

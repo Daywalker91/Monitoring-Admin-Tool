@@ -10,6 +10,7 @@ labels:
       app.kubernetes.io/part-of: monitoring-admin-tool
 resources:
   - namespace.yaml
+  - rbac.yaml
   - pvc.yaml
   - deployment.yaml
   - service.yaml

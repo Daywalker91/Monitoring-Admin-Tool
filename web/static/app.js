@@ -4,7 +4,7 @@
 "use strict";
 
 const REFRESH_MS = 5000;
-const VIEWS = ["hosts", "checks", "alerts", "rules"];
+const VIEWS = ["hosts", "checks", "cluster", "alerts", "rules"];
 // Ansicht und aufgeklappte Hosts stehen im URL-Hash (#view=alerts&open=a,b),
 // damit sie einen Reload überstehen.
 const hashParams = new URLSearchParams(location.hash.slice(1));
@@ -27,6 +27,7 @@ function showView(view) {
   }
   saveOpenHosts();
   if (view === "rules") loadRules(); // nur beim Öffnen laden, damit Eingaben erhalten bleiben
+  if (view === "cluster") loadClusterIgnore();
   refresh();
 }
 
@@ -409,6 +410,7 @@ async function refresh() {
       renderInstallPanel();
     }
     if (currentView === "checks") await loadChecks();
+    if (currentView === "cluster") await loadCluster();
     errBox.hidden = true;
     document.getElementById("updated").textContent = "aktualisiert " + new Date().toLocaleTimeString("de-DE");
   } catch (e) {

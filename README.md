@@ -146,6 +146,9 @@ Alle `/api/*`-Endpunkte außer Login/Logout erfordern eine Session.
 | `GET/POST /api/checks`          | externe Checks mit letztem Ergebnis / Check anlegen |
 | `PUT/DELETE /api/checks/{id}`   | Check ändern / samt Verlauf löschen        |
 | `GET /api/checks/{id}/history`  | Antwortzeit und Verfügbarkeit, `?hours=1..168`, `?points=` |
+| `GET /api/cluster`              | k3s-Stand: Nodes, Workloads, Pods, ArgoCD-Apps |
+| `GET /api/cluster/logs`         | Pod-Logs als Text, `?ns=&pod=&container=&lines=1..5000&previous=1` |
+| `GET/POST /api/cluster/ignore`  | Ausnahmen für Cluster-Alarme (`{"patterns":["ns/name*"]}`) |
 | `GET /agent/update/{version}/{datei}` | Release-Dateien für Agenten (Agent-Token) |
 | `GET /healthz`                  | Health-Check                               |
 | `GET /metrics`                  | Prometheus-Format (eigenes Bearer-Token)   |
@@ -164,6 +167,9 @@ Der Server prüft feste Regeltypen; Schwelle und Mindestdauer lassen sich in der
 | CPU-Temperatur | 80 °C für 5 min | höchster CPU-Sensor (nur Linux-Hosts mit Sensor) |
 | Check   | 2 min                  | externer Check schlägt ununterbrochen fehl  |
 | Zertifikat | < 14 Tage           | Zertifikat eines HTTPS-Checks läuft bald ab |
+| Node    | 2 min                  | Kubernetes-Node nicht bereit                |
+| Workload | 5 min                 | Deployment/StatefulSet/DaemonSet nicht bereit, Pod in CrashLoopBackOff u. ä. |
+| ArgoCD  | 10 min                 | App Degraded, Missing oder OutOfSync        |
 
 Ein Alarm löst aus, wenn der Wert die Mindestdauer lang ununterbrochen über der Schwelle liegt, und endet,
 wenn er 5 Prozentpunkte (Temperatur: 5 °C) unter die Schwelle fällt.
@@ -229,6 +235,19 @@ Intervall 30–3600 s (Standard 60 s), Timeout 1–30 s. Die GUI zeigt letztes E
 Restlaufzeit des Zertifikats, Verfügbarkeit der letzten 24 h und ein Diagramm der Antwortzeit. Die
 Ergebnisse werden wie die Host-Historie 7 Tage aufbewahrt. Alarme: „Check“ (schlägt die Mindestdauer
 lang fehl) und „Zertifikat“ (läuft in weniger als N Tagen ab) unter Einstellungen.
+
+## k3s-Ansicht
+
+Läuft der Server im Cluster (mit `deploy/k8s/rbac.yaml`), zeigt der Tab „Cluster“ alle 30 s den
+Stand: Nodes mit CPU/RAM (metrics-server), ArgoCD-Apps mit Sync- und Health-Status, Workloads
+und Pods (Filter nach Namespace, Suche, „nur Probleme“). Ein Klick auf einen Pod zeigt seine
+letzten Log-Zeilen, auch die des vorherigen Containers nach einem Absturz. Alles nur lesend; die
+API wird ohne client-go per HTTP angesprochen.
+
+Alarme gibt es für Nodes, Workloads/Pods und ArgoCD-Apps. **Ausnahmen** (Muster `namespace/name`,
+z. B. `kube-system/svclb-*`, voreingestellt für den k3s-ServiceLB neben MetalLB) werden weiter
+angezeigt, lösen aber nichts aus. Zum Testen außerhalb des Clusters: `kubectl proxy` starten und
+den Server mit `MAT_K8S_API=http://127.0.0.1:8001` aufrufen.
 
 ## HTTPS / wss
 

@@ -59,7 +59,8 @@ oder direkt als Binary. Agenten laufen immer direkt auf den Hosts (Windows-Diens
 /agent    Agent: Collector (Metriken) und später Executor (Jobs)
 /server   Server: API, WebSocket-Endpunkt, SQLite-Speicher, liefert die GUI aus;
           server/alert wertet Alarmregeln aus, server/notify verschickt Nachrichten (ntfy, SMTP),
-          server/checks führt externe Checks aus (HTTP(S), Ping, TCP)
+          server/checks führt externe Checks aus (HTTP(S), Ping, TCP),
+          server/k8s liest den k3s-Cluster (nur lesend, REST ohne client-go)
 /web      Frontend-Dateien (werden per go:embed eingebettet)
 /proto    gemeinsame Nachrichtentypen (JSON) zwischen Agent und Server
 /internal kleine gemeinsame Hilfspakete ohne schwere Abhängigkeiten (winsvc: Windows-Dienst, logfile,
