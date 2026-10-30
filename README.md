@@ -393,7 +393,9 @@ k3s-Hosts mit freigeschaltetem Neustart „Neu starten mit drain“. Der Server 
 (Annotation `mat/cordoned-by`), verdrängt alle Pods außer DaemonSets über die Eviction-API –
 PodDisruptionBudgets (z. B. Longhorn) gelten, höchstens 10 Minuten –, startet den Host über den
 Agenten neu, wartet auf neue Boot-Zeit und Node `Ready` (höchstens 15 Minuten) und gibt ihn wieder
-frei. Klappt der drain nicht, wird der Node freigegeben und nicht neu gestartet; kommt der Host
+frei. Der eigene Pod geht zuletzt und setzt auf dem neuen Node fort; sind 1 Minute lang nur noch
+PDB-blockierte Pods übrig, zieht er vorher um (sein Longhorn-Volume kann selbst der Grund sein).
+Klappt der drain nicht, wird der Node freigegeben und nicht neu gestartet; kommt der Host
 nicht zurück, bleibt der Node abgesperrt (Nachricht). Währenddessen bleiben Alarme des Hosts und
 seines Nodes still. Der Stand steht in der Datenbank: Muss der MAT-Server selbst umziehen, setzt
 er nach dem Start fort. Freigegeben wird nur, was MAT selbst abgesperrt hat; ein schon

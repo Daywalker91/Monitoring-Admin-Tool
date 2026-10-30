@@ -28,6 +28,10 @@ var (
 	returnTimeout = 15 * time.Minute // Neustart bis Agent und Node wieder da sind
 	drainPoll     = 5 * time.Second
 	canDrainEvery = time.Hour
+	// selfMoveWait: So lange dürfen nur PDB-blockierte Pods übrig sein, bevor der
+	// eigene Pod vorzeitig umzieht. Hängt der Server an einem Longhorn-Volume, hält
+	// dessen Engine das PDB des Instance-Managers – ohne Umzug wartet beides aufeinander.
+	selfMoveWait = time.Minute
 )
 
 // drainAPI sind die Cluster-Zugriffe des Ablaufs (*k8s.Client).
@@ -249,6 +253,7 @@ func (s *Server) drainNode(ctx context.Context, run *drainRun) error {
 	}
 
 	evicted, blocked := map[string]bool{}, map[string]bool{}
+	var stuckSince time.Time // seit wann nur noch PDB-blockierte Pods übrig sind
 	for {
 		pods, err := s.drain.api.PodsToEvict(ctx, op.Node)
 		if err != nil {
@@ -258,7 +263,7 @@ func (s *Server) drainNode(ctx context.Context, run *drainRun) error {
 			return nil
 		} else {
 			var self *k8s.EvictPod
-			others := 0
+			others, stuck := 0, 0
 			for i, p := range pods {
 				if p.Name == s.drain.selfPod {
 					self = &pods[i]
@@ -276,6 +281,7 @@ func (s *Server) drainNode(ctx context.Context, run *drainRun) error {
 						s.drainLog(run, "Pod %s verdrängt", key)
 					}
 				case errors.Is(err, k8s.ErrBlocked):
+					stuck++
 					if !blocked[key] {
 						blocked[key] = true
 						s.drainLog(run, "Pod %s wartet auf PodDisruptionBudget", key)
@@ -286,8 +292,15 @@ func (s *Server) drainNode(ctx context.Context, run *drainRun) error {
 					s.log.Warn("drain: pod verdrängen", "pod", key, "err", err)
 				}
 			}
-			// Der eigene Pod geht zuletzt; danach setzt der neue Pod fort.
-			if self != nil && others == 0 && !self.Terminating {
+			if others == 0 || stuck < others {
+				stuckSince = time.Time{}
+			} else if stuckSince.IsZero() {
+				stuckSince = s.nowFor()
+			}
+			moveEarly := !stuckSince.IsZero() && s.nowFor().Sub(stuckSince) >= selfMoveWait
+			// Der eigene Pod geht zuletzt, oder wenn nur noch blockierte Pods übrig
+			// sind (siehe selfMoveWait); danach setzt der neue Pod fort.
+			if self != nil && (others == 0 || moveEarly) && !self.Terminating {
 				s.drainLog(run, "MAT-Server zieht auf einen anderen Node um und setzt dort fort")
 				if err := s.drain.api.Evict(ctx, *self); err != nil && !errors.Is(err, k8s.ErrBlocked) {
 					return fmt.Errorf("eigenen pod verdrängen: %w", err)

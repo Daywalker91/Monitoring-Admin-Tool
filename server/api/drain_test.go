@@ -29,6 +29,7 @@ type fakeDrain struct {
 	node    k8s.NodeState
 	pods    []k8s.EvictPod
 	blocked map[string]bool // Pod-Name → PDB blockiert
+	unblock string          // verdrängter Pod, der alle PDB-Blockaden löst (Longhorn-Engine)
 	log     []string
 }
 
@@ -79,6 +80,9 @@ func (f *fakeDrain) Evict(_ context.Context, p k8s.EvictPod) error {
 		}
 	}
 	f.log = append(f.log, "evict "+p.Name)
+	if p.Name == f.unblock {
+		f.blocked = nil
+	}
 	return nil
 }
 
@@ -102,9 +106,9 @@ func (f *fakeDrain) events() string {
 
 func newDrainTestServer(t *testing.T, f *fakeDrain, setup ...func(*store.Store)) (*httptest.Server, *Server) {
 	t.Helper()
-	oldPoll, oldDrain, oldReturn := drainPoll, drainTimeout, returnTimeout
-	drainPoll, drainTimeout, returnTimeout = 10*time.Millisecond, 2*time.Second, 3*time.Second
-	t.Cleanup(func() { drainPoll, drainTimeout, returnTimeout = oldPoll, oldDrain, oldReturn })
+	oldPoll, oldDrain, oldReturn, oldMove := drainPoll, drainTimeout, returnTimeout, selfMoveWait
+	drainPoll, drainTimeout, returnTimeout, selfMoveWait = 10*time.Millisecond, 2*time.Second, 3*time.Second, 50*time.Millisecond
+	t.Cleanup(func() { drainPoll, drainTimeout, returnTimeout, selfMoveWait = oldPoll, oldDrain, oldReturn, oldMove })
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -256,6 +260,61 @@ func TestDrainAbort(t *testing.T) {
 	defer rcancel()
 	if _, data, err := conn.Read(rctx); err == nil {
 		t.Fatalf("trotz abbruch an den agenten: %s", data)
+	}
+}
+
+// Der Server liegt auf einem Longhorn-Volume: Dessen Engine hält das PDB des
+// Instance-Managers, bis der Server-Pod weg ist. Der Pod muss deshalb vorziehen.
+func TestDrainSelfMovesWhenBlocked(t *testing.T) {
+	f := &fakeDrain{allowed: true, node: k8s.NodeState{Name: "a1", Ready: true},
+		pods:    []k8s.EvictPod{{Namespace: "longhorn-system", Name: "instance-manager"}, {Namespace: "managment", Name: "mat-server"}},
+		blocked: map[string]bool{"instance-manager": true}, unblock: "mat-server"}
+	ts, srv := newDrainTestServer(t, f)
+	srv.drain.selfPod = "mat-server"
+	c := login(t, ts)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	bootAgent(t, ctx, ts, 100)
+	waitHost(t, c, ts, "online", func(h hostView) bool { return h.Online })
+
+	code, _ := startDrain(t, c, ts)
+	if code != http.StatusAccepted {
+		t.Fatalf("start: %d", code)
+	}
+	waitFor(t, "pods weg", func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return len(f.pods) == 0
+	})
+	if ev := f.events(); !strings.Contains(ev, "evict mat-server,evict instance-manager") {
+		t.Fatalf("ablauf: %s", ev)
+	}
+}
+
+// Solange andere Pods noch verdrängt werden, bleibt der eigene Pod.
+func TestDrainSelfStaysWhileProgress(t *testing.T) {
+	f := &fakeDrain{allowed: true, node: k8s.NodeState{Name: "a1", Ready: true},
+		pods: []k8s.EvictPod{{Namespace: "app", Name: "beendet", Terminating: true},
+			{Namespace: "longhorn-system", Name: "instance-manager"}, {Namespace: "managment", Name: "mat-server"}},
+		blocked: map[string]bool{"instance-manager": true}}
+	ts, srv := newDrainTestServer(t, f)
+	srv.drain.selfPod = "mat-server"
+	drainTimeout = 300 * time.Millisecond
+	c := login(t, ts)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	bootAgent(t, ctx, ts, 100)
+	waitHost(t, c, ts, "online", func(h hostView) bool { return h.Online })
+
+	code, j := startDrain(t, c, ts)
+	if code != http.StatusAccepted {
+		t.Fatalf("start: %d", code)
+	}
+	if done := waitJob(t, c, ts, j.ID); done.OK {
+		t.Fatalf("ergebnis: %+v", done)
+	}
+	if ev := f.events(); strings.Contains(ev, "mat-server") {
+		t.Fatalf("eigener pod trotz laufender verdrängung umgezogen: %s", ev)
 	}
 }
 
