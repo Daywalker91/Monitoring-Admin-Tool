@@ -428,7 +428,9 @@ func TestQuiet(t *testing.T) {
 	ctx := context.Background()
 	f.ev.SetRules(ctx, []store.AlertRule{{Kind: KindCPU, Enabled: true, Threshold: 90, ForSec: 0}}, f.now)
 	quiet := true
-	f.ev.SetQuiet(func(host string, _ time.Time) (string, bool) { return "Wartung „Patchday“", quiet && host == "h1" })
+	f.ev.SetQuiet(func(host, _, _ string, _ time.Time) (string, bool) {
+		return "Wartung „Patchday“", quiet && host == "h1"
+	})
 
 	f.observe(cpu(95), 10*time.Second)
 	if ev := f.take(); len(ev) != 0 {

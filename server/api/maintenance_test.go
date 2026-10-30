@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Daywalker91/Monitoring-Admin-Tool/proto"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/server/alert"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/auth"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/notify"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/store"
@@ -168,14 +169,45 @@ func TestDependencyQuiet(t *testing.T) {
 	st.SetHostDependsOn(ctx, "nas", "host:router")
 
 	s.conns["router"] = agentConn{}
-	if reason, quiet := s.quiet("nas", time.Now()); quiet {
+	if reason, quiet := s.quiet("nas", "", "", time.Now()); quiet {
 		t.Fatalf("router online, trotzdem leise: %q", reason)
 	}
 	delete(s.conns, "router")
-	if reason, quiet := s.quiet("nas", time.Now()); !quiet || reason != "abhängig von Host router (offline)" {
+	if reason, quiet := s.quiet("nas", "", "", time.Now()); !quiet || reason != "abhängig von Host router (offline)" {
 		t.Fatalf("router offline: %q %v", reason, quiet)
 	}
-	if _, quiet := s.quiet("router", time.Now()); quiet {
+	if _, quiet := s.quiet("router", "", "", time.Now()); quiet {
 		t.Fatal("router selbst ist leise")
+	}
+}
+
+// Cluster-Alarme zu einem Node folgen dem Wartungsfenster des gleichnamigen Hosts.
+func TestNodeQuietByHost(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	s := New(st, auth.New(st), "secret", fstest.MapFS{}, log)
+	st.UpsertHost(ctx, proto.Hello{AgentID: "n2", Hostname: "Node2.lan", IntervalSec: 10}, "", time.Now())
+	st.SetHostMeta(ctx, "n2", "", "k3s")
+	if err := st.SaveMaintenance(ctx, &store.Maintenance{Name: "Updates k3s", Scope: store.ScopeGroup, Target: "k3s",
+		Kind: "once", Start: time.Now().Add(-time.Minute).Unix(), DurationMin: 60, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.LoadMaintenance(ctx); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if reason, quiet := s.quiet(alert.ClusterID, alert.KindK8sNode, "node2", now); !quiet || reason != "Wartung „Updates k3s“" {
+		t.Fatalf("node2: %q %v", reason, quiet)
+	}
+	if _, quiet := s.quiet(alert.ClusterID, alert.KindK8sNode, "node3", now); quiet {
+		t.Fatal("node3 ohne host ist leise")
+	}
+	if _, quiet := s.quiet(alert.ClusterID, alert.KindK8sWorkload, "node2", now); quiet {
+		t.Fatal("workload-alarm ist leise")
 	}
 }

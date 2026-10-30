@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Daywalker91/Monitoring-Admin-Tool/server/alert"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/server/k8s"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/store"
 )
 
@@ -59,12 +61,37 @@ func (s *Server) maintenanceFor(id string, now time.Time) string {
 	return ""
 }
 
-// quiet ist der Grund, Alarme von id gerade nicht zu melden (für die Alarm-Engine).
-func (s *Server) quiet(id string, now time.Time) (string, bool) {
+// quiet ist der Grund, einen Alarm von id gerade nicht zu melden (für die
+// Alarm-Engine). Cluster-Alarme zu einem Node gelten zusätzlich als still, wenn
+// der gleichnamige Host in Wartung ist.
+func (s *Server) quiet(id, kind, target string, now time.Time) (string, bool) {
 	if name := s.maintenanceFor(id, now); name != "" {
 		return "Wartung „" + name + "“", true
 	}
+	if id == alert.ClusterID && kind == alert.KindK8sNode {
+		if h, ok := s.hostForNode(target); ok {
+			if name := s.maintenanceFor(h.ID, now); name != "" {
+				return "Wartung „" + name + "“", true
+			}
+		}
+	}
 	return s.dependencyDown(id)
+}
+
+// hostForNode sucht den Host mit Agent, der zum Node gehört (wie matchNode).
+func (s *Server) hostForNode(node string) (store.Host, bool) {
+	hosts, err := s.store.ListHosts(context.Background())
+	if err != nil {
+		s.log.Error("hosts für node lesen", "err", err)
+		return store.Host{}, false
+	}
+	nodes := map[string]*k8s.Node{strings.ToLower(node): {Name: node}}
+	for _, h := range hosts {
+		if matchNode(nodes, h) != nil {
+			return h, true
+		}
+	}
+	return store.Host{}, false
 }
 
 // maintenanceView ergänzt ein Fenster um seinen aktuellen Stand.

@@ -173,9 +173,10 @@ type Evaluator struct {
 	reminder  time.Duration                         // 0 = keine Erinnerungen
 	pending   map[key]*pending
 	firing    map[key]*store.Alert
-	// quiet meldet weitere Gründe, einen Host nicht zu melden (Wartungsfenster,
-	// Abhängigkeit). Wird unter e.mu aufgerufen und darf den Evaluator nicht benutzen.
-	quiet func(hostID string, now time.Time) (reason string, ok bool)
+	// quiet meldet weitere Gründe, einen Alarm nicht zu melden (Wartungsfenster,
+	// Abhängigkeit, drain). Wird unter e.mu aufgerufen und darf den Evaluator
+	// nicht benutzen.
+	quiet QuietFunc
 }
 
 // ErrNotActive meldet, dass ein Alarm nicht (mehr) aktiv ist.
@@ -367,22 +368,27 @@ func (e *Evaluator) mutedUntil(hostID string, now time.Time) (time.Time, bool) {
 	return until, ok && until.After(now)
 }
 
-// SetQuiet setzt die Abfrage weiterer Gründe, einen Host nicht zu melden.
-func (e *Evaluator) SetQuiet(fn func(hostID string, now time.Time) (reason string, ok bool)) {
+// QuietFunc liefert einen Grund, Alarme von hostID gerade nicht zu melden.
+// kind und target erlauben Ausnahmen je Alarm, z. B. für Cluster-Alarme zu
+// einem Node, dessen Host in Wartung ist.
+type QuietFunc func(hostID, kind, target string, now time.Time) (reason string, ok bool)
+
+// SetQuiet setzt die Abfrage weiterer Gründe, einen Alarm nicht zu melden.
+func (e *Evaluator) SetQuiet(fn QuietFunc) {
 	e.mu.Lock()
 	e.quiet = fn
 	e.mu.Unlock()
 }
 
-// silenced meldet, ob Alarme eines Hosts zu now nicht gemeldet werden, und
-// warum. Sie werden trotzdem erfasst; was danach noch aktiv ist, meldet Tick
-// nach. e.mu ist gesperrt.
-func (e *Evaluator) silenced(hostID string, now time.Time) (string, bool) {
-	if _, muted := e.mutedUntil(hostID, now); muted {
+// silenced meldet, ob ein Alarm zu now nicht gemeldet wird, und warum. Er
+// wird trotzdem erfasst; was danach noch aktiv ist, meldet Tick nach. e.mu ist
+// gesperrt.
+func (e *Evaluator) silenced(k key, now time.Time) (string, bool) {
+	if _, muted := e.mutedUntil(k.host, now); muted {
 		return "stummgeschaltet", true
 	}
 	if e.quiet != nil {
-		return e.quiet(hostID, now)
+		return e.quiet(k.host, k.kind, k.target, now)
 	}
 	return "", false
 }
@@ -701,7 +707,7 @@ func (e *Evaluator) fire(ctx context.Context, k key, hostname string, rule store
 func (e *Evaluator) fireDetail(ctx context.Context, k key, hostname, detail string, rule store.AlertRule, v, peak float64, now time.Time) {
 	a := &store.Alert{HostID: k.host, Hostname: hostname, Detail: detail, Kind: k.kind, Target: k.target,
 		Threshold: rule.Threshold, Value: v, Peak: peak, StartedAt: now.Unix()}
-	reason, muted := e.silenced(k.host, now)
+	reason, muted := e.silenced(k, now)
 	if muted {
 		a.Silenced = reason
 	} else {
@@ -734,7 +740,7 @@ func (e *Evaluator) resolve(ctx context.Context, k key, now time.Time) {
 	a.ResolvedAt = &ts
 	e.log.Info("alarm beendet", "host", k.host, "kind", k.kind, "target", k.target)
 	// Ende nur melden, wenn der Beginn gemeldet wurde und der Host nicht stumm ist.
-	if _, muted := e.silenced(k.host, now); a.NotifiedAt != nil && !muted {
+	if _, muted := e.silenced(k, now); a.NotifiedAt != nil && !muted {
 		e.notify(Event{Type: Resolved, Alert: *a, Rule: e.ruleFor(k.host, k.kind), At: now})
 	}
 }
@@ -749,7 +755,7 @@ func (e *Evaluator) Tick(ctx context.Context, now time.Time) {
 		if a.AckedAt != nil {
 			continue
 		}
-		if _, muted := e.silenced(k.host, now); muted {
+		if _, muted := e.silenced(k, now); muted {
 			continue
 		}
 		typ := Firing

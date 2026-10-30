@@ -296,6 +296,8 @@ gibt es keine Erinnerungen mehr; das Ende wird trotzdem gemeldet.
 **Wartungsfenster** (Einstellungen): einmalig oder wöchentlich, für alle, eine Gruppe oder einen
 Host. Alarme werden erfasst, aber nicht gemeldet; was am Ende noch aktiv ist, wird nachgemeldet.
 Wöchentliche Fenster gelten in der Zeitzone des Servers (`TZ`, im k3s-Manifest `Europe/Berlin`).
+Checks und Cluster-Alarme erfasst nur „alle“; Ausnahme: „Node nicht bereit“ folgt dem Fenster des
+gleichnamigen Hosts (z. B. Gruppe `k3s`).
 
 **Abhängigkeiten** (Host-Details, „Hängt ab von“): Ein Host kann von einem anderen Host oder einem
 externen Check abhängen, z. B. alles hinter dem Router. Ist das Ziel ausgefallen (Host offline bzw.
