@@ -71,6 +71,9 @@ func TestJobs(t *testing.T) {
 		`{"server_url":"ws://a/ws","token":"t","log_sources":["journal:sshd","eventlog:System"]}`: true,
 		`{"server_url":"ws://a/ws","token":"t","log_sources":["file:/etc/shadow"]}`:               false,
 		`{"server_url":"ws://a/ws","token":"t","log_sources":["journal","journal"]}`:              false,
+		`{"server_url":"ws://a/ws","token":"t","commands":{"backup":{"argv":[` + absProg + `]}}}`: true,
+		`{"server_url":"ws://a/ws","token":"t","commands":{"backup":{"argv":["backup.sh"]}}}`:     false,
+		`{"server_url":"ws://a/ws","token":"t","commands":{"Backup":{"argv":[` + absProg + `]}}}`: false,
 	} {
 		os.WriteFile(path, []byte(body), 0o600)
 		if _, err := Load([]string{"-config", path}); (err == nil) != ok {
@@ -123,3 +126,11 @@ func TestDefaultPath(t *testing.T) {
 		t.Fatal("token aus standarddatei trotz -server übernommen")
 	}
 }
+
+// absProg ist ein absoluter Programmpfad für die Plattform (als JSON-String).
+var absProg = func() string {
+	if runtime.GOOS == "windows" {
+		return `"C:\\Tools\\backup.exe"`
+	}
+	return `"/opt/backup.sh"`
+}()

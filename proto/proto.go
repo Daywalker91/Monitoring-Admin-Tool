@@ -63,6 +63,8 @@ type Hello struct {
 	UpdateNote string `json:"update_note,omitempty"`
 	// LogSources sind die Log-Quellen, die der Agent lesen darf (agent.json).
 	LogSources []string `json:"log_sources,omitempty"`
+	// Commands sind die freigegebenen Befehle (agent.json, ohne Befehlszeile).
+	Commands []CommandInfo `json:"commands,omitempty"`
 }
 
 // Validate prüft die Pflichtfelder einer Hello-Nachricht.
@@ -81,6 +83,9 @@ func (h *Hello) Validate() error {
 	}
 	if !ValidLogSources(h.LogSources) {
 		return fmt.Errorf("ungültige log_sources")
+	}
+	if !ValidCommands(h.Commands) {
+		return fmt.Errorf("ungültige commands")
 	}
 	return nil
 }

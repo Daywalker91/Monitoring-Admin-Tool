@@ -19,10 +19,12 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"syscall"
 
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/client"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/collector"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/commands"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/config"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/logs"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/packages"
@@ -161,6 +163,11 @@ func runAgent(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if hello.LogSources = logReader.Sources(); len(hello.LogSources) > 0 {
 		hello.Capabilities = append(hello.Capabilities, proto.CapLogs)
 	}
+	// Eigene Befehle nur aus der commands-Liste in agent.json.
+	cmds := commands.New(cfg.Commands)
+	if hello.Commands = cmds.Infos(); len(hello.Commands) > 0 {
+		hello.Capabilities = append(hello.Capabilities, proto.CapCommands)
+	}
 	if err := hello.Validate(); err != nil {
 		return fmt.Errorf("ungültige agent-angaben: %w", err)
 	}
@@ -202,6 +209,7 @@ func runAgent(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	cl.HandleJob(proto.ActionPackagesUpgrade, pkgs.Upgrade)
 	cl.HandleJob(proto.ActionReboot, power.Job(log))
 	cl.HandleJob(proto.ActionLogRead, logReader.Job)
+	cl.HandleJob(proto.ActionCommandRun, cmds.Run)
 	col.Prime(ctx)
 	if err := cl.Run(ctx); errors.Is(err, client.ErrRestart) {
 		log.Info("agent startet für das update neu")
@@ -243,7 +251,8 @@ func runCheck(args []string) error {
 	if id == "" {
 		id = "(hostname)"
 	}
-	fmt.Printf("ok: server=%s agent_id=%s interval=%ds ca_file=%q jobs=%v\n", cfg.ServerURL, id, cfg.IntervalSec, cfg.CAFile, cfg.Jobs)
+	fmt.Printf("ok: server=%s agent_id=%s interval=%ds ca_file=%q jobs=%v commands=%v\n",
+		cfg.ServerURL, id, cfg.IntervalSec, cfg.CAFile, cfg.Jobs, commandNames(cfg))
 	if cfg.Insecure() {
 		fmt.Println("warnung: unverschlüsselte verbindung (ws://) zu entferntem server")
 	}
@@ -260,4 +269,14 @@ func parseLevel(s string) slog.Level {
 		return slog.LevelInfo
 	}
 	return l
+}
+
+// commandNames liefert die Namen der freigegebenen Befehle, sortiert.
+func commandNames(cfg config.Config) []string {
+	names := make([]string, 0, len(cfg.Commands))
+	for n := range cfg.Commands {
+		names = append(names, n)
+	}
+	slices.Sort(names)
+	return names
 }

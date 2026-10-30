@@ -121,6 +121,8 @@ Der Agent läuft als root bzw. SYSTEM, deshalb gilt:
   nie per Server, GUI oder normalem Start-Flag. Logs nur aus `"log_sources"`. Ohne Eintrag meldet der Agent die
   Fähigkeit nicht. Dienste: nur aus der eigenen Liste, nie der Agent selbst, unter Linux nur `<name>.service`.
   Geräte für smartctl nur aus dessen Scan. Programme mit festem Pfad (`System32\…`) bzw. fester Argumentliste.
+  Eigene Befehle nur aus `"commands"` (feste Argumentliste, absoluter Pfad, keine Shell außer PowerShell
+  `-File <Skript>`); der Server wählt nur den Namen, Parameter aus der GUI gibt es nicht.
 - Der Agent öffnet **keine eingehenden Ports**; er verbindet sich nur ausgehend zum Server.
 - Agenten authentifizieren sich mit einem Token (`Authorization: Bearer …`). Ohne konfiguriertes Token startet der Server nicht.
   Außerhalb von localhost/LAN-Tests ist `wss://` (TLS) Pflicht. Selbst signierte Zertifikate (`mat-server gen-cert`)

@@ -177,3 +177,31 @@ func TestLogReadSources(t *testing.T) {
 		t.Fatalf("beim agenten: %s %v", data, err)
 	}
 }
+
+func TestCommandJobs(t *testing.T) {
+	ts := newUpdateTestServer(t)
+	c := login(t, ts)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, wsURL(ts), &websocket.DialOptions{HTTPHeader: http.Header{"Authorization": {"Bearer secret"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.CloseNow()
+	hello, _ := proto.Encode(proto.TypeHello, proto.Hello{AgentID: "a1", Hostname: "a1", IntervalSec: 10, OS: "linux",
+		Capabilities: []proto.Capability{proto.CapMetrics, proto.CapCommands},
+		Commands:     []proto.CommandInfo{{Name: "backup", Description: "Sicherung"}}})
+	conn.Write(ctx, websocket.MessageText, hello)
+	h := waitHost(t, c, ts, "online", func(h hostView) bool { return h.Online })
+	if len(h.Commands) != 1 || h.Commands[0].Name != "backup" || h.Commands[0].Description != "Sicherung" {
+		t.Fatalf("befehle: %+v", h.Commands)
+	}
+
+	url := ts.URL + "/api/hosts/a1/jobs"
+	for name, want := range map[string]int{"fremd": http.StatusBadRequest, "Böse;rm": http.StatusBadRequest, "backup": http.StatusAccepted} {
+		resp := postJSON(t, c, url, ts.URL, jobRequest{Action: proto.ActionCommandRun, Params: map[string]string{"name": name}})
+		if resp.StatusCode != want {
+			t.Errorf("%s: %d, erwartet %d", name, resp.StatusCode, want)
+		}
+	}
+}

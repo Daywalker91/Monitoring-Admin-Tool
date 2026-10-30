@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/commands"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/proto"
 )
 
@@ -39,6 +40,10 @@ type Config struct {
 	// LogSources gibt Logs zum Lesen frei, z. B. ["journal:sshd", "journal:kernel",
 	// "eventlog:System"]. Ohne Eintrag kann der Server keine Logs lesen.
 	LogSources []string `json:"log_sources"`
+	// Commands gibt eigene Befehle mit fester Argumentliste frei, z. B.
+	// {"backup": {"argv": ["/opt/backup.sh"], "timeout_sec": 600}}. Der Eintrag
+	// selbst ist die Freischaltung; der Server wählt nur den Namen.
+	Commands map[string]commands.Spec `json:"commands"`
 }
 
 // jobCapabilities sind die Fähigkeiten, die sich über Jobs freischalten lassen.
@@ -143,6 +148,14 @@ func (c *Config) Validate() error {
 	}
 	if !proto.ValidLogSources(c.LogSources) {
 		return errors.New(`log_sources: ungültige oder doppelte quelle (erlaubt: "journal", "journal:<unit>", "journal:kernel", "eventlog:<name>")`)
+	}
+	if len(c.Commands) > proto.MaxCommands {
+		return fmt.Errorf("commands: höchstens %d befehle", proto.MaxCommands)
+	}
+	for name, s := range c.Commands {
+		if err := commands.Check(name, s, runtime.GOOS); err != nil {
+			return fmt.Errorf("commands: %w", err)
+		}
 	}
 	return nil
 }

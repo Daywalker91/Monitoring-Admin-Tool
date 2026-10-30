@@ -13,6 +13,7 @@ const ACTION_LABELS = {
   "packages.upgrade": "Updates installieren",
   "system.reboot": "Neustart",
   "log.read": "Log gelesen",
+  "command.run": "Befehl",
 };
 
 // Aktionen mit Knopf in den Host-Details; jede braucht ihre Fähigkeit.
@@ -24,6 +25,7 @@ const JOB_RELOAD_MS = 15000; // Verlauf neu laden; mit laufendem Job bei jedem R
 const jobViews = new Map();
 
 function jobLabel(j) {
+  if (j.action === "command.run") return "Befehl " + (j.params?.name || "");
   const params = Object.entries(j.params || {}).map(([k, v]) => k + "=" + v).join(", ");
   return (ACTION_LABELS[j.action] || j.action) + (params ? " (" + params + ")" : "");
 }
@@ -70,15 +72,27 @@ function createJobView(h) {
 function renderJobButtons(v, h) {
   const caps = h.capabilities || [];
   const avail = HOST_ACTIONS.filter(a => caps.includes(a.cap));
-  v.buttons.replaceChildren(...avail.map(a => {
-    const b = el("button", a.label, "secondary");
-    b.type = "button";
-    b.disabled = !h.online;
-    b.addEventListener("click", () => runJob(v, h, a, b));
-    return b;
-  }));
-  v.buttons.hidden = avail.length === 0;
-  const admin = caps.some(c => ["services", "packages", "reboot"].includes(c));
+  // Eigene Befehle aus der commands-Liste des Hosts (agent.json).
+  const cmds = caps.includes("commands") ? (h.commands || []).map(c => ({
+    action: "command.run", params: { name: c.name }, label: c.description || c.name, title: "Befehl " + c.name,
+    confirm: x => "Befehl „" + c.name + "“" + (c.description ? " (" + c.description + ")" : "") +
+      " auf " + hostName(x) + " ausführen?",
+  })) : [];
+  // Nur neu aufbauen, wenn sich etwas geändert hat (sonst verliert ein Knopf den Fokus).
+  const key = JSON.stringify([avail.map(a => a.action), cmds.map(c => [c.params.name, c.label]), h.online]);
+  if (key !== v.buttonsKey) {
+    v.buttonsKey = key;
+    v.buttons.replaceChildren(...[...avail, ...cmds].map(a => {
+      const b = el("button", a.label, "secondary");
+      b.type = "button";
+      if (a.title) b.title = a.title;
+      b.disabled = !h.online;
+      b.addEventListener("click", () => runJob(v, h.id, a, b));
+      return b;
+    }));
+  }
+  v.buttons.hidden = avail.length + cmds.length === 0;
+  const admin = caps.some(c => ["services", "packages", "reboot", "commands"].includes(c));
   v.hint.textContent = !admin ? "Admin-Aktionen sind für diesen Host nicht freigeschaltet (\"jobs\" in agent.json)."
     : avail.length && !h.online ? "Host ist offline." : "";
   v.hint.hidden = !v.hint.textContent;
@@ -102,13 +116,16 @@ async function startJob(hostID, action, params = {}, show = true) {
   return j;
 }
 
-async function runJob(v, h, a, btn) {
-  if (!confirm(a.confirm(h))) return;
+// runJob fragt nach und startet die Aktion; den Host holt es frisch aus der
+// letzten Liste, weil die Knöpfe Neuzeichnungen überdauern.
+async function runJob(v, hostID, a, btn) {
+  const h = lastHosts.find(x => x.id === hostID);
+  if (!h || !confirm(a.confirm(h))) return;
   btn.disabled = true;
   v.status.className = "small muted";
   v.status.textContent = a.label + " wird gestartet …";
   try {
-    await startJob(h.id, a.action);
+    await startJob(h.id, a.action, a.params || {});
     v.status.textContent = "";
   } catch (e) {
     v.status.className = "small error-text";

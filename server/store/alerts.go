@@ -88,6 +88,8 @@ var migrations = []struct{ table, column, def, fill string }{
 	{"alerts", "ack_comment", "TEXT NOT NULL DEFAULT ''", ""},
 	// Abhängigkeit eines Hosts (M7): "host:<id>" oder "check:<id>".
 	{"hosts", "depends_on", "TEXT NOT NULL DEFAULT ''", ""},
+	// Freigegebene eigene Befehle aus dem hello (M8, JSON-Liste ohne Befehlszeile).
+	{"hosts", "commands", "TEXT NOT NULL DEFAULT '[]'", ""},
 }
 
 // AlertRule ist der Schwellwert eines Regeltyps.

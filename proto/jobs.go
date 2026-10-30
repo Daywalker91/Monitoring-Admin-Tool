@@ -27,6 +27,7 @@ const (
 	CapReboot   Capability = "reboot"   // Neustart auslösen (M7)
 	CapServices Capability = "services" // Dienste starten/stoppen/neu starten (M7)
 	CapLogs     Capability = "logs"     // freigegebene Logs lesen (M7)
+	CapCommands Capability = "commands" // Befehle aus der commands-Whitelist in agent.json ausführen (M8)
 )
 
 // Nachrichtentypen für Jobs.

@@ -58,6 +58,11 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "log-quelle ist auf diesem host nicht freigegeben", http.StatusBadRequest)
 		return
 	}
+	if job.Action == proto.ActionCommandRun &&
+		!slices.ContainsFunc(h.Commands, func(c proto.CommandInfo) bool { return c.Name == job.Params["name"] }) {
+		http.Error(w, "befehl ist auf diesem host nicht freigegeben", http.StatusBadRequest)
+		return
+	}
 	if !s.online(h.ID) {
 		http.Error(w, "host ist offline", http.StatusConflict)
 		return

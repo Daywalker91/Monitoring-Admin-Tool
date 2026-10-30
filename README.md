@@ -99,6 +99,29 @@ Unter Windows gibt es nur den Neustart-Hinweis, keine Liste offener Windows-Upda
 1000 Zeilen bzw. Ereignisse, auch während ein Upgrade läuft. Wer welches Log gelesen hat, steht im
 Verlauf; den Inhalt löscht der Server nach einem Tag.
 
+**Eigene Befehle** (ab Agent v1.4.0) stehen mit fester Argumentliste in `commands`; die GUI zeigt
+sie als Knöpfe unter „Aktionen“, die Ausgabe läuft live mit. Der Server wählt nur den Namen, Parameter
+aus der GUI gibt es nicht – eine Variante ist ein weiterer Eintrag:
+
+```json
+"commands": {
+  "amp-backup":  { "argv": ["/opt/amp/backup.sh", "--all"], "timeout_sec": 600, "description": "AMP-Backup" },
+  "amp-restart": { "argv": ["/usr/bin/systemctl", "restart", "ampinstmgr"], "description": "AMP neu starten" },
+  "aufraeumen":  { "argv": ["C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                            "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "C:\\Skripte\\aufraeumen.ps1"] }
+}
+```
+
+- Name: `a-z`, `0-9`, `-`, `_` (höchstens 32 Zeichen), höchstens 32 Befehle; `description` erscheint auf dem Knopf.
+- Das Programm braucht einen absoluten Pfad. Skripte direkt aufrufen (Linux: ausführbar mit Shebang-Zeile;
+  Windows: `.exe`, `.bat`, `.cmd`).
+- Shells als Programm lehnt der Agent ab (`sh`, `bash`, `cmd.exe`, `powershell` …). Einzige Ausnahme ist
+  PowerShell mit `-File <absoluter Pfad>`; davor sind nur `-NoProfile`, `-NonInteractive`, `-NoLogo` und
+  `-ExecutionPolicy Bypass|RemoteSigned|AllSigned` erlaubt.
+- `timeout_sec`: Standard 300, höchstens 3600. Bei Überschreitung beendet der Agent den Befehl (unter Linux
+  samt Kindprozessen). Arbeitsverzeichnis ist der Ordner des Programms; es läuft als root bzw. SYSTEM.
+- Nach einer Änderung den Dienst neu starten; `mat-agent check -config …` zeigt die erkannten Befehle.
+
 **SMART:** Ist smartmontools installiert (`apt install smartmontools`, Windows: smartmontools.org),
 meldet der Agent alle 30 min die Werte aller Datenträger aus `smartctl --scan-open` (`-n standby`
 weckt keine schlafenden Platten). SD-Karten und eMMC liefern meist keine Werte.
