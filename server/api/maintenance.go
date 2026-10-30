@@ -68,7 +68,13 @@ func (s *Server) quiet(id, kind, target string, now time.Time) (string, bool) {
 	if name := s.maintenanceFor(id, now); name != "" {
 		return "Wartung „" + name + "“", true
 	}
+	if s.draining(id, "") != "" {
+		return "Neustart mit drain läuft", true
+	}
 	if id == alert.ClusterID && kind == alert.KindK8sNode {
+		if s.draining("", target) != "" {
+			return "Neustart mit drain läuft", true
+		}
 		if h, ok := s.hostForNode(target); ok {
 			if name := s.maintenanceFor(h.ID, now); name != "" {
 				return "Wartung „" + name + "“", true

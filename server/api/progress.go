@@ -69,3 +69,12 @@ func (s *Server) liveOutput(jobID string) string {
 	}
 	return ""
 }
+
+// liveSet ersetzt die Zwischenausgabe eines laufenden Jobs (Abläufe im Server).
+func (s *Server) liveSet(jobID, out string) {
+	s.liveMu.Lock()
+	defer s.liveMu.Unlock()
+	if l, ok := s.live[jobID]; ok {
+		l.out = []byte(out)
+	}
+}

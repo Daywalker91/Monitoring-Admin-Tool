@@ -37,6 +37,10 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "ungültige anfrage", http.StatusBadRequest)
 		return
 	}
+	if req.Action == actionDrainReboot {
+		s.handleDrainReboot(w, r)
+		return
+	}
 	if req.Action == proto.ActionAgentUpdate {
 		http.Error(w, "agent-update bitte über die update-funktion starten", http.StatusBadRequest)
 		return
@@ -133,6 +137,7 @@ func (s *Server) failJob(hostID, jobID string, cause error) {
 // jobResult verarbeitet die Rückmeldung eines Agenten.
 func (s *Server) jobResult(id string, res proto.JobResult) {
 	s.liveEnd(res.JobID)
+	s.drainResult(res)
 	found, err := s.store.FinishJob(context.Background(), res.JobID, id, s.nowFor(), res.OK, res.ExitCode, res.Output, res.Error)
 	if err != nil {
 		s.log.Error("job-ergebnis speichern", "err", err)

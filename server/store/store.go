@@ -85,7 +85,7 @@ func Open(path string) (*Store, error) {
 	}
 	// SQLite verträgt nur einen Schreiber; eine Verbindung vermeidet SQLITE_BUSY.
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(schema + usersSchema + alertsSchema + checksSchema + jobsSchema + servicesSchema + maintenanceSchema + disksSchema); err != nil {
+	if _, err := db.Exec(schema + usersSchema + alertsSchema + checksSchema + jobsSchema + servicesSchema + maintenanceSchema + disksSchema + nodeOpsSchema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("schema anlegen: %w", err)
 	}

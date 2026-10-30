@@ -202,6 +202,9 @@ func run(ctx context.Context, listen, dbPath string, retention time.Duration, to
 		watcher := k8s.NewWatcher(kc, log, apiSrv.ClusterSnapshot)
 		apiSrv.WithCluster(watcher)
 		go watcher.Run(ctx)
+		// Neustart mit drain nur, wenn die ClusterRole mat-server-drain gebunden ist.
+		apiSrv.WithDrain(kc)
+		go apiSrv.RunDrain(ctx)
 		// Neueste k3s-Versionen nur anzeigen (MAT_K3S_CHANNELS=off schaltet ab).
 		if u := os.Getenv("MAT_K3S_CHANNELS"); u != "off" {
 			releases := k8s.NewReleases(u, log)

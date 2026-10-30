@@ -52,6 +52,7 @@ type Server struct {
 	checks      *checks.Runner     // nil = keine externen Checks
 	cluster     *k8s.Watcher       // nil = keine k3s-Ansicht
 	k3sReleases *k8s.Releases      // nil = keine Anzeige neuer k3s-Versionen
+	drain       *drainState        // nil = kein Neustart mit drain
 	version     string             // Server-Version (Anzeige)
 
 	certNotAfter    time.Time // Ablauf des TLS-Zertifikats, null = kein TLS
@@ -460,7 +461,9 @@ type hostView struct {
 	UpdateAvailable string      `json:"update_available,omitempty"`
 	Update          *hostUpdate `json:"update,omitempty"`
 	UpdateNote      string      `json:"update_note,omitempty"`
-	K8sNode         *nodeLink   `json:"k8s_node,omitempty"` // Host ist ein k3s-Node
+	K8sNode         *nodeLink   `json:"k8s_node,omitempty"`  // Host ist ein k3s-Node
+	K8sDrain        bool        `json:"k8s_drain,omitempty"` // Neustart mit drain möglich
+	Draining        string      `json:"draining,omitempty"`  // Job-ID eines laufenden Neustarts mit drain
 	Services        *svcSummary `json:"services,omitempty"`
 	Maintenance     string      `json:"maintenance,omitempty"`     // aktives Wartungsfenster
 	DependencyDown  string      `json:"dependency_down,omitempty"` // Ziel der Abhängigkeit ausgefallen
@@ -481,7 +484,8 @@ func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 		out[i] = hostView{Host: h, Online: s.online(h.ID), UpdateAvailable: s.updateAvailable(h),
 			Update: s.hostUpdateState(h.ID), UpdateNote: s.updateNote(h.ID), K8sNode: matchNode(nodes, h),
 			Services: s.servicesSummary(h.ID), Maintenance: s.maintenanceFor(h.ID, s.nowFor()),
-			DiskForecast: s.diskForecast(h.ID)}
+			DiskForecast: s.diskForecast(h.ID), Draining: s.draining(h.ID, "")}
+		out[i].K8sDrain = out[i].K8sNode != nil && s.canDrain()
 		if h.DependsOn != "" {
 			out[i].DependencyDown, _ = s.dependencyDown(h.ID)
 		}
