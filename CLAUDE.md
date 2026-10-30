@@ -24,6 +24,8 @@ Es wird in Meilensteinen gearbeitet. Alles, was zu keinem beauftragten Meilenste
 - **M8 (fertig):** Prognose „Platte voll“ (Tabelle `disk_history`, Trend über 7 Tage, Alarmtyp `disk_forecast`),
   `commands`-Whitelist in `agent.json` (feste Argumentliste, keine Parameter aus der GUI, keine Shell,
   Job `command.run`)
+- **M9 (fertig):** Neustart mit drain für k3s-Hosts (Aktion `k3s.drain_reboot` im Server, Tabelle `node_ops`,
+  optionale ClusterRole `mat-server-drain`); „Node nicht bereit“ folgt dem Wartungsfenster des gleichnamigen Hosts
 - **Später:** Playbooks (Abläufe über mehrere Hosts) – vorher gemeinsam einen genauen Plan erarbeiten
 
 ## Tech-Stack
@@ -69,7 +71,8 @@ oder direkt als Binary. Agenten laufen immer direkt auf den Hosts (Windows-Diens
 /server   Server: API, WebSocket-Endpunkt, SQLite-Speicher, liefert die GUI aus;
           server/alert wertet Alarmregeln aus, server/notify verschickt Nachrichten (ntfy, SMTP),
           server/checks führt externe Checks aus (HTTP(S), Ping, TCP),
-          server/k8s liest den k3s-Cluster (nur lesend, REST ohne client-go) und die k3s-Release-Kanäle,
+          server/k8s liest den k3s-Cluster (REST ohne client-go) und die k3s-Release-Kanäle; schreibend nur
+          cordon/uncordon und Eviction für den Neustart mit drain,
           server/forecast schätzt aus der Disk-Historie, wann ein Mountpoint voll ist
 /web      Frontend-Dateien (werden per go:embed eingebettet)
 /proto    gemeinsame Nachrichtentypen (JSON) zwischen Agent und Server
@@ -126,6 +129,10 @@ Der Agent läuft als root bzw. SYSTEM, deshalb gilt:
   Eigene Befehle nur aus `"commands"` (feste Argumentliste, absoluter Pfad, keine Shell außer PowerShell
   `-File <Skript>`); der Server wählt nur den Namen, Parameter aus der GUI gibt es nicht.
 - Der Agent öffnet **keine eingehenden Ports**; er verbindet sich nur ausgehend zum Server.
+- **Cluster-Zugriff des Servers:** lesend (ClusterRole `mat-server-read`); schreibend nur Node absperren/freigeben
+  (`patch` auf Nodes) und Pods über die Eviction-API verdrängen – mit eigener, optionaler ClusterRole
+  `mat-server-drain`, nur für den Neustart mit drain. Kein Löschen von Pods, keine Secrets. Freigegeben wird nur ein
+  Node mit MATs eigener Annotation (`mat/cordoned-by` = Job-ID).
 - Agenten authentifizieren sich mit einem Token (`Authorization: Bearer …`). Ohne konfiguriertes Token startet der Server nicht.
   Außerhalb von localhost/LAN-Tests ist `wss://` (TLS) Pflicht. Selbst signierte Zertifikate (`mat-server gen-cert`)
   werden im Agenten per `ca_file` gepinnt — `InsecureSkipVerify` ist verboten. TLS mindestens 1.2.

@@ -14,6 +14,7 @@ auch in Alarmen) und in Gruppen ordnen – intern bleibt die Agent-ID die Kennun
 M7 fertig – Admin-Aktionen als Jobs mit Verlauf, Dienste überwachen und steuern,
 offene Updates (apt) und Neustart, neue k3s-Versionen im Tab „Cluster“, freigegebene Logs lesen, SMART der Datenträger; Alarme quittieren, Wartungsfenster, Abhängigkeiten.
 M8 fertig – Prognose „Platte voll“ je Mountpoint (mit Alarm), eigene Befehle mit fester Befehlszeile aus `agent.json`; Live-Ausgabe laufender Jobs.
+M9 fertig – Neustart von k3s-Hosts mit drain (absperren, Pods verdrängen, Neustart, freigeben); „Node nicht bereit“ folgt dem Wartungsfenster des Hosts.
 
 ## Schnellstart (lokal)
 
@@ -355,12 +356,26 @@ lang fehl) und „Zertifikat“ (läuft in weniger als N Tagen ab) unter Einstel
 Läuft der Server im Cluster (mit `deploy/k8s/rbac.yaml`), zeigt der Tab „Cluster“ alle 30 s den
 Stand: Nodes mit CPU/RAM (metrics-server), ArgoCD-Apps mit Sync- und Health-Status, Workloads
 und Pods (Filter nach Namespace, Suche, „nur Probleme“). Ein Klick auf einen Pod zeigt seine
-letzten Log-Zeilen, auch die des vorherigen Containers nach einem Absturz. Alles nur lesend; die
-API wird ohne client-go per HTTP angesprochen.
+letzten Log-Zeilen, auch die des vorherigen Containers nach einem Absturz. Die Ansicht ist nur
+lesend; die API wird ohne client-go per HTTP angesprochen. Schreibend ist allein der optionale
+Neustart mit drain (siehe unten).
 
 Läuft auf einem Node zusätzlich ein Agent (systemd, wie auf jedem anderen Host), ordnet der Server
 ihn über den Hostnamen (oder die Agent-ID) dem Node zu: Der Tab „Cluster“ zeigt dann CPU, RAM und
 Temperatur vom Agenten, die Host-Liste markiert den Host mit „k3s“ samt Ready-Status.
+
+**Neustart mit drain** (optional, `deploy/k8s/rbac-drain.yaml`): Mit der ClusterRole
+`mat-server-drain` (nur `patch` auf Nodes und `create` auf `pods/eviction`) zeigt die GUI bei
+k3s-Hosts mit freigeschaltetem Neustart „Neu starten mit drain“. Der Server sperrt den Node ab
+(Annotation `mat/cordoned-by`), verdrängt alle Pods außer DaemonSets über die Eviction-API –
+PodDisruptionBudgets (z. B. Longhorn) gelten, höchstens 10 Minuten –, startet den Host über den
+Agenten neu, wartet auf neue Boot-Zeit und Node `Ready` (höchstens 15 Minuten) und gibt ihn wieder
+frei. Klappt der drain nicht, wird der Node freigegeben und nicht neu gestartet; kommt der Host
+nicht zurück, bleibt der Node abgesperrt (Nachricht). Währenddessen bleiben Alarme des Hosts und
+seines Nodes still. Der Stand steht in der Datenbank: Muss der MAT-Server selbst umziehen, setzt
+er nach dem Start fort. Freigegeben wird nur, was MAT selbst abgesperrt hat; ein schon
+abgesperrter Node (z. B. durch den system-upgrade-controller) wird abgelehnt. Ob die Rechte da
+sind, prüft der Server beim Start und stündlich (SelfSubjectAccessReview).
 
 Alarme gibt es für Nodes, Workloads/Pods und ArgoCD-Apps. **Ausnahmen** (Muster `namespace/name`,
 z. B. `kube-system/svclb-*`, voreingestellt für den k3s-ServiceLB neben MetalLB) werden weiter

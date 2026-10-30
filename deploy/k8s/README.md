@@ -56,6 +56,10 @@ lesend auf Nodes, Pods (samt `pods/log`), Deployments/StatefulSets/DaemonSets, N
 nutzt den ServiceAccount mit `automountServiceAccountToken: true`. Ohne Token läuft der Server
 weiter, nur der Tab „Cluster“ fehlt; `MAT_K8S=off` schaltet die Ansicht bewusst ab.
 
+Optional `rbac-drain.yaml` (in `kustomization.yaml` einkommentieren): ClusterRole
+`mat-server-drain` mit `patch` auf Nodes und `create` auf `pods/eviction` für den Neustart mit
+drain. Ohne sie startet MAT k3s-Hosts nur normal neu.
+
 Prüfen, was der ServiceAccount darf:
 
 ```powershell
