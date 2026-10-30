@@ -73,7 +73,8 @@ oder direkt als Binary. Agenten laufen immer direkt auf den Hosts (Windows-Diens
           server/checks führt externe Checks aus (HTTP(S), Ping, TCP),
           server/k8s liest den k3s-Cluster (REST ohne client-go) und die k3s-Release-Kanäle; schreibend nur
           cordon/uncordon und Eviction für den Neustart mit drain,
-          server/forecast schätzt aus der Disk-Historie, wann ein Mountpoint voll ist
+          server/forecast schätzt aus der Disk-Historie, wann ein Mountpoint voll ist,
+          server/heartbeat meldet einem externen Wächter regelmäßig ein Lebenszeichen
 /web      Frontend-Dateien (werden per go:embed eingebettet)
 /proto    gemeinsame Nachrichtentypen (JSON) zwischen Agent und Server
 /internal kleine gemeinsame Hilfspakete ohne schwere Abhängigkeiten (winsvc: Windows-Dienst, logfile,
@@ -145,7 +146,8 @@ Der Agent läuft als root bzw. SYSTEM, deshalb gilt:
   Cookie `HttpOnly`, `SameSite=Strict`, `Secure` bei TLS; 7 Tage gültig; 5 Fehlversuche → 5 Minuten Sperre pro IP.
   Benutzer werden nur per CLI angelegt (`mat-server user add`), nie über die GUI oder Umgebungsvariablen.
 - Ändernde Anfragen (POST/DELETE) prüfen zusätzlich den `Origin`-Header (Same-Origin).
-- Benachrichtigungskanäle (`MAT_NTFY_*`, `MAT_SMTP_*`) nur über Umgebungsvariablen, nie über GUI oder DB.
+- Benachrichtigungskanäle (`MAT_NTFY_*`, `MAT_SMTP_*`) und der Heartbeat (`MAT_HEARTBEAT_*`) nur über
+  Umgebungsvariablen, nie über GUI oder DB. Heartbeat-URL und -Token nie loggen; der Status-Text enthält keine Hostnamen.
   SMTP nur mit STARTTLS/TLS (Klartext nur zu localhost). Texte in Nachrichten stammen teils von Agenten
   (Hostname, Mountpoint): Steuerzeichen werden entfernt, Betreff RFC-2047-kodiert (keine Header-Injection).
 - **Self-Update:** Releases sind mit ed25519 signiert (`release.json` + `.sig`); der öffentliche Schlüssel

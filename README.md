@@ -333,6 +333,27 @@ $env:MAT_SMTP_TO   = "ich@example.com,du@example.com"
 
 Fehlgeschlagene Sendungen werden nach 10 s, 1 min und 5 min erneut versucht.
 
+### Heartbeat (externer Wächter)
+
+Fällt der Router, das Internet oder der Server selbst aus, kann MAT nichts mehr melden. Dafür
+schickt der Server regelmäßig ein Lebenszeichen an einen externen Dienst (z. B. Push-Healthcheck
+bei [ipv64.net](https://ipv64.net/healthcheck_updater_api) oder healthchecks.io). Bleibt es aus,
+alarmiert dieser Dienst von außen – Benachrichtigung dort über Mail o. Ä. einrichten, nicht über
+einen Kanal hinter dem eigenen Router.
+
+```powershell
+$env:MAT_HEARTBEAT_URL      = "https://ipv64.net/health.php"
+$env:MAT_HEARTBEAT_TOKEN    = "..."     # optional, als Authorization: Bearer (statt ?token= in der URL)
+$env:MAT_HEARTBEAT_INTERVAL = "3m"      # Standard 3m, mindestens 30s
+$env:MAT_HEARTBEAT_PAYLOAD  = "off"     # optional: nur GET ohne Status
+```
+
+Standard ist ein POST mit dem Feld `payload`, z. B. „MAT 1.5.0 · 5/6 Hosts online · 2 Alarme“
+(keine Hostnamen); ipv64 zeigt ihn im Event-Log. Ist die Datenbank nicht lesbar, bleibt das
+Lebenszeichen aus. URL und Token werden nie geloggt. Kontingent beachten: bei ipv64 zählt jeder
+Ping (3m = 480/Tag); beim Wächter Zeitraum und Karenzzeit größer als das Intervall wählen
+(z. B. 5 + 5 min).
+
 ## Externe Checks
 
 Unter „Checks“ legt man Prüfungen an, die der Server selbst ausführt (der Agent bleibt dabei außen vor):
