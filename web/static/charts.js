@@ -144,11 +144,16 @@ const Charts = (() => {
 
       // Raster und Achsen (Haarlinien, zurückhaltend)
       const grid = svgEl("g", {}, "grid");
+      let lastLabel = null;
       for (let v = 0; v <= sc.max + 1e-9; v += sc.step) {
         const yy = Math.round(y(v)) + 0.5;
         grid.append(svgEl("line", { x1: M.left, x2: M.left + iw, y1: yy, y2: yy }));
+        // Ohne Daten nur die Nulllinie beschriften; gerundet gleiche Werte nicht doppelt.
+        const label = opts.format(v, true);
+        if (label === lastLabel || (maxVal === 0 && v > 0)) continue;
+        lastLabel = label;
         const t = svgEl("text", { x: M.left - 6, y: yy, "dominant-baseline": "middle", "text-anchor": "end" }, "axis-label");
-        t.textContent = opts.format(v, true);
+        t.textContent = label;
         grid.append(t);
       }
       const { ticks, step } = timeTicks(start, end, iw);

@@ -91,22 +91,32 @@ function renderPackageView(v) {
         "Geänderte Konfigurationsdateien bleiben erhalten." + k3sWarning(h)]);
     }
   }
+  if (caps.includes("reboot") && h.k8s_drain) {
+    actions.push(["k3s.drain_reboot", "Neu starten mit drain", "„" + hostName(h) + "“ mit drain neu starten?\n" +
+      "Node „" + h.k8s_node.name + "“ wird abgesperrt, die Pods ziehen auf andere Nodes um, dann startet " +
+      "der Host neu. Ist er wieder da, wird der Node freigegeben. Klappt der drain nicht, " +
+      "bleibt der Host an und der Node wird wieder freigegeben."]);
+  }
   if (caps.includes("reboot")) {
-    actions.push(["system.reboot", "Neu starten", "„" + hostName(h) + "“ jetzt neu starten?\n" +
+    actions.push(["system.reboot", h.k8s_drain ? "Neu starten ohne drain" : "Neu starten",
+      "„" + hostName(h) + "“ jetzt neu starten?\n" +
       "Der Host ist danach einige Minuten nicht erreichbar." + k3sWarning(h)]);
   }
   v.buttons.replaceChildren(...actions.map(([action, label, question]) => {
-    const b = el("button", label, action === "system.reboot" ? "danger" : "secondary");
+    const main = action === "k3s.drain_reboot" || (action === "system.reboot" && !h.k8s_drain);
+    const b = el("button", label, main ? "danger" : "secondary");
     b.type = "button";
-    b.disabled = !h.online;
+    b.disabled = !h.online || !!h.draining;
     b.addEventListener("click", () => packageJob(v, action, label, question, b));
     return b;
   }));
   v.buttons.hidden = actions.length === 0;
-  v.k3sHint.textContent = h.k8s_node && actions.length
-    ? "k3s-Node: vor Upgrade oder Neustart am besten erst „kubectl drain " + h.k8s_node.name +
-      " --ignore-daemonsets“, danach „kubectl uncordon“. Immer nur einen Node gleichzeitig."
-    : "";
+  if (h.draining) v.k3sHint.textContent = "Neustart mit drain läuft – Fortschritt unter „Aktionen“.";
+  else if (h.k8s_drain) v.k3sHint.textContent = "k3s-Node „" + h.k8s_node.name + "“: „Neu starten mit drain“ " +
+    "sperrt ab, verdrängt die Pods, startet neu und gibt danach frei. Immer nur ein Node gleichzeitig.";
+  else if (h.k8s_node && actions.length) v.k3sHint.textContent = "k3s-Node: vor Upgrade oder Neustart am besten erst " +
+    "„kubectl drain " + h.k8s_node.name + " --ignore-daemonsets“, danach „kubectl uncordon“. Immer nur einen Node gleichzeitig.";
+  else v.k3sHint.textContent = "";
   v.k3sHint.hidden = !v.k3sHint.textContent;
 }
 
@@ -142,7 +152,7 @@ async function packageJob(v, action, label, question, btn) {
   v.status.className = "small muted";
   v.status.textContent = label + " … (Ergebnis unter „Aktionen“)";
   try {
-    await startJob(v.id, action);
+    await startJob(v.id, action, {}, action === "k3s.drain_reboot");
   } catch (e) {
     v.status.className = "small error-text";
     v.status.textContent = e.message;

@@ -12,6 +12,7 @@ const ACTION_LABELS = {
   "packages.refresh": "Paketlisten holen",
   "packages.upgrade": "Updates installieren",
   "system.reboot": "Neustart",
+  "k3s.drain_reboot": "Neustart mit drain",
   "log.read": "Log gelesen",
   "command.run": "Befehl",
 };
