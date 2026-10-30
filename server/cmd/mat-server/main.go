@@ -38,6 +38,7 @@ import (
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/api"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/auth"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/checks"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/server/heartbeat"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/k8s"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/notify"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/store"
@@ -132,6 +133,15 @@ func serve(ctx context.Context, args []string, out io.Writer) int {
 		log.Warn(w)
 	}
 
+	// Heartbeat an einen externen Wächter (meldet Ausfälle, die MAT selbst nicht melden kann).
+	beat, warnings, err := heartbeat.FromEnv(os.Getenv, log)
+	if err != nil {
+		return fail("heartbeat:", err)
+	}
+	for _, w := range warnings {
+		log.Warn(w)
+	}
+
 	trusted, err := api.ParseTrustedProxies(*proxies)
 	if err != nil {
 		return fail("-trusted-proxies:", err)
@@ -151,7 +161,7 @@ func serve(ctx context.Context, args []string, out io.Writer) int {
 	updates := update.New(os.Getenv("MAT_UPDATE_REPO"), os.Getenv("MAT_UPDATE_API"),
 		filepath.Join(filepath.Dir(*dbPath), "updates"), log)
 
-	if err := run(ctx, *listen, *dbPath, *retention, token, metricsToken, tlsCfg, chans, trusted, updates, log); err != nil {
+	if err := run(ctx, *listen, *dbPath, *retention, token, metricsToken, tlsCfg, chans, trusted, updates, beat, log); err != nil {
 		log.Error("server beendet mit fehler", "err", err)
 		return 1
 	}
@@ -159,7 +169,7 @@ func serve(ctx context.Context, args []string, out io.Writer) int {
 }
 
 func run(ctx context.Context, listen, dbPath string, retention time.Duration, token, metricsToken string, tlsCfg *tls.Config,
-	chans []notify.Channel, trusted []netip.Prefix, updates *update.Checker, log *slog.Logger) error {
+	chans []notify.Channel, trusted []netip.Prefix, updates *update.Checker, beat *heartbeat.Pinger, log *slog.Logger) error {
 
 	st, err := store.Open(dbPath)
 	if err != nil {
@@ -220,6 +230,10 @@ func run(ctx context.Context, listen, dbPath string, retention time.Duration, to
 	go apiSrv.RunCertCheck(ctx)
 	go updates.Run(ctx)
 	go checkRunner.Run(ctx)
+	if beat != nil {
+		go beat.Run(ctx, apiSrv.HeartbeatStatus)
+		log.Info("heartbeat aktiv", "host", beat.Host(), "interval", beat.Interval())
+	}
 
 	srv := &http.Server{
 		Addr:              listen,
