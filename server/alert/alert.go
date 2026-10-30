@@ -22,12 +22,13 @@ import (
 
 // Regeltypen. Die Liste ist fest; frei formulierbare Ausdrücke gibt es nicht.
 const (
-	KindOffline = "offline" // Host nicht verbunden
-	KindCPU     = "cpu"     // CPU-Auslastung gesamt
-	KindMem     = "mem"     // RAM belegt
-	KindSwap    = "swap"    // Swap belegt
-	KindDisk    = "disk"    // Speicher je Mountpoint
-	KindTemp    = "temp"    // CPU-Temperatur in °C
+	KindOffline      = "offline"       // Host nicht verbunden
+	KindCPU          = "cpu"           // CPU-Auslastung gesamt
+	KindMem          = "mem"           // RAM belegt
+	KindSwap         = "swap"          // Swap belegt
+	KindDisk         = "disk"          // Speicher je Mountpoint
+	KindTemp         = "temp"          // CPU-Temperatur in °C
+	KindDiskForecast = "disk_forecast" // Mountpoint bei gleichem Trend in weniger als Threshold Tagen voll
 
 	KindCheckDown = "check_down" // externer Check schlägt fehl
 	KindCheckCert = "check_cert" // Zertifikat eines HTTPS-Checks läuft in weniger als Threshold Tagen ab
@@ -45,7 +46,7 @@ const (
 const ClusterID = "k8s"
 
 // HostKinds sind die Regeltypen, die sich je Host anpassen lassen.
-var HostKinds = []string{KindOffline, KindCPU, KindMem, KindSwap, KindDisk, KindTemp, KindService, KindUnitFailed, KindSmart}
+var HostKinds = []string{KindOffline, KindCPU, KindMem, KindSwap, KindDisk, KindDiskForecast, KindTemp, KindService, KindUnitFailed, KindSmart}
 
 const (
 	// Hysteresis in Prozentpunkten (bei "temp" in °C): ein Alarm endet erst
@@ -66,6 +67,7 @@ var DefaultRules = []store.AlertRule{
 	{Kind: KindMem, Enabled: true, Threshold: 90, ForSec: 300},
 	{Kind: KindSwap, Enabled: true, Threshold: 80, ForSec: 600},
 	{Kind: KindDisk, Enabled: true, Threshold: 90, ForSec: 60},
+	{Kind: KindDiskForecast, Enabled: true, Threshold: 7},
 	{Kind: KindTemp, Enabled: true, Threshold: 80, ForSec: 300},
 	{Kind: KindCheckDown, Enabled: true, ForSec: 120},
 	{Kind: KindCheckCert, Enabled: true, Threshold: 14},
@@ -93,9 +95,9 @@ func ValidateRule(r store.AlertRule) error {
 		return nil
 	case KindCheckDown, KindK8sNode, KindK8sWorkload, KindArgoCD, KindService, KindUnitFailed, KindSmart:
 		return nil
-	case KindCheckCert:
+	case KindCheckCert, KindDiskForecast:
 		if r.Threshold < 1 || r.Threshold > 365 {
-			return fmt.Errorf("check_cert: schwelle muss zwischen 1 und 365 tagen liegen")
+			return fmt.Errorf("%s: schwelle muss zwischen 1 und 365 tagen liegen", r.Kind)
 		}
 		return nil
 	}
@@ -516,6 +518,40 @@ func (e *Evaluator) ObserveCheck(ctx context.Context, id, name string, ok bool, 
 	}
 	if rule := e.ruleFor(id, KindCheckCert); rule.Enabled && certDays != nil {
 		e.condition(ctx, key{id, KindCheckCert, ""}, name, "", rule, *certDays < rule.Threshold, *certDays, now)
+	}
+}
+
+// forecastHysteresis: Ein Prognose-Alarm endet erst, wenn die Prognose über
+// Schwelle × forecastHysteresis steigt (sonst flackert er mit dem Trend).
+const forecastHysteresis = 1.5
+
+// ObserveForecast wertet die Prognose „Platte voll“ eines Hosts aus. days
+// enthält je Mountpoint die Tage bis voll; fehlt ein Mountpoint (wächst nicht,
+// zu wenig Daten oder entfernt), endet sein Alarm.
+func (e *Evaluator) ObserveForecast(ctx context.Context, hostID, hostname string, days map[string]float64, now time.Time) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	rule := e.ruleFor(hostID, KindDiskForecast)
+	if !rule.Enabled {
+		return
+	}
+	for mount, d := range days {
+		k := key{hostID, KindDiskForecast, mount}
+		limit := rule.Threshold
+		if e.firing[k] != nil {
+			limit *= forecastHysteresis
+		}
+		e.condition(ctx, k, hostname, "", rule, d < limit, d, now)
+	}
+	for k := range e.pending {
+		if _, ok := days[k.target]; !ok && k.host == hostID && k.kind == KindDiskForecast {
+			delete(e.pending, k)
+		}
+	}
+	for k := range e.firing {
+		if _, ok := days[k.target]; !ok && k.host == hostID && k.kind == KindDiskForecast {
+			e.resolve(ctx, k, now)
+		}
 	}
 }
 

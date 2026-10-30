@@ -171,10 +171,14 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 			mw.add("mat_network_receive_errors_total", "counter", "Empfangsfehler seit Systemstart.", float64(n.RxErrors), l...)
 			mw.add("mat_network_transmit_errors_total", "counter", "Sendefehler seit Systemstart.", float64(n.TxErrors), l...)
 		}
+		fc := s.diskForecast(h.ID)
 		for _, d := range m.Disks {
 			l := []string{"host", h.ID, "mountpoint", d.Mount, "fstype", d.FSType}
 			mw.add("mat_filesystem_size_bytes", "gauge", "Größe des Dateisystems.", float64(d.Total), l...)
 			mw.add("mat_filesystem_used_bytes", "gauge", "Belegter Platz im Dateisystem.", float64(d.Used), l...)
+			if days, ok := fc[d.Mount]; ok {
+				mw.add("mat_filesystem_full_in_days", "gauge", "Prognose: Tage bis das Dateisystem voll ist (nur wenn es wächst).", days, l...)
+			}
 		}
 		if m.CPUTemp != nil {
 			mw.add("mat_cpu_temperature_celsius", "gauge", "CPU-Temperatur in °C.", *m.CPUTemp, host...)

@@ -84,7 +84,7 @@ func Open(path string) (*Store, error) {
 	}
 	// SQLite verträgt nur einen Schreiber; eine Verbindung vermeidet SQLITE_BUSY.
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(schema + usersSchema + alertsSchema + checksSchema + jobsSchema + servicesSchema + maintenanceSchema); err != nil {
+	if _, err := db.Exec(schema + usersSchema + alertsSchema + checksSchema + jobsSchema + servicesSchema + maintenanceSchema + disksSchema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("schema anlegen: %w", err)
 	}
@@ -333,7 +333,7 @@ func (s *Store) DeleteHost(ctx context.Context, hostID string) (found bool, err 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM metrics_history WHERE host_id = ?`, hostID); err != nil {
 		return false, fmt.Errorf("historie löschen: %w", err)
 	}
-	for _, table := range []string{"alerts", "alert_overrides", "host_mutes", "jobs", "service_watches"} { // feste Liste
+	for _, table := range []string{"alerts", "alert_overrides", "host_mutes", "jobs", "service_watches", "disk_history"} { // feste Liste
 		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE host_id = ?`, hostID); err != nil {
 			return false, fmt.Errorf("%s löschen: %w", table, err)
 		}

@@ -328,6 +328,17 @@ function fillTable(tbody, rows) {
   }));
 }
 
+// fmtFullIn zeigt die Prognose „Platte voll“ als Tabellenzelle [Text, Klasse];
+// ohne Prognose (wächst nicht oder zu wenig Daten) ein Strich.
+function fmtFullIn(days) {
+  if (days === undefined) return ["–", "num muted"];
+  const cls = days < 7 ? "num lvl-crit" : days < 30 ? "num lvl-warn" : "num";
+  if (days < 1) return ["< 1 Tag", cls];
+  if (days > 365) return ["> 1 Jahr", cls];
+  const n = Math.floor(days);
+  return ["~" + n + (n === 1 ? " Tag" : " Tage"), cls];
+}
+
 function procRows(list) {
   return (list || []).map(p => [
     [String(p.pid), "hide-sm"], [p.name, "name"], [p.cpu_pct.toFixed(1) + " %", "num"], [fmtBytes(p.rss), "num"],
@@ -394,6 +405,7 @@ function fillDetail(tr, h) {
 
   fillTable(tr.querySelector(".disks tbody"), (m.disks || []).map(d => [
     [d.mount, "name"], [d.fstype, "hide-sm"], [fmtPct(d.used_pct), "num"], [fmtBytes(d.total), "num"],
+    fmtFullIn(h.disk_forecast?.[d.mount]),
   ]));
   fillTable(tr.querySelector(".ifaces tbody"), (m.net || []).map(n => [
     [n.name, "name"], [fmtRate(n.rx_bps), "num"], [fmtRate(n.tx_bps), "num"],

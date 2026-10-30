@@ -4,7 +4,7 @@
 "use strict";
 
 const ALERT_LABELS = { offline: "Offline", cpu: "CPU", mem: "RAM", swap: "Swap", disk: "Disk", temp: "CPU-Temperatur",
-  check_down: "Check", check_cert: "Zertifikat", k8s_node: "Node", k8s_workload: "Workload", argocd: "ArgoCD",
+  disk_forecast: "Disk-Prognose", check_down: "Check", check_cert: "Zertifikat", k8s_node: "Node", k8s_workload: "Workload", argocd: "ArgoCD",
   service: "Dienst", unit_failed: "Unit", smart: "SMART" };
 // Regeltypen ohne Schwelle (nur Mindestdauer).
 const NO_THRESHOLD = ["offline", "check_down", "k8s_node", "k8s_workload", "argocd", "service", "unit_failed", "smart"];
@@ -16,6 +16,7 @@ const RULE_HELP = {
   mem: "Arbeitsspeicher belegt",
   swap: "Swap belegt (nur Hosts mit Swap)",
   disk: "Belegung je Mountpoint",
+  disk_forecast: "Mountpoint ist bei gleichem Trend (letzte 7 Tage) in weniger als … Tagen voll",
   temp: "CPU-Temperatur in °C (nur Linux-Hosts mit Sensor)",
   check_down: "Externer Check schlägt fehl",
   check_cert: "Zertifikat eines HTTPS-Checks läuft in weniger als … Tagen ab",
@@ -30,14 +31,14 @@ const RULE_HELP = {
 // Schwelle je Regeltyp: Einheit und erlaubter Bereich (wie im Server geprüft).
 function ruleUnit(kind) {
   if (kind === "temp") return { unit: " °C", min: 30, max: 120, aria: "in Grad Celsius" };
-  if (kind === "check_cert") return { unit: " Tage", min: 1, max: 365, aria: "in Tagen" };
+  if (kind === "check_cert" || kind === "disk_forecast") return { unit: " Tage", min: 1, max: 365, aria: "in Tagen" };
   return { unit: " %", min: 10, max: 100, aria: "in Prozent" };
 }
 
 // Messwert eines Alarms in der Einheit seines Regeltyps.
 function fmtAlertNum(kind, v) {
   if (kind === "temp") return fmtTemp(v);
-  if (kind === "check_cert") return Math.floor(v) + " Tage";
+  if (kind === "check_cert" || kind === "disk_forecast") return Math.floor(v) + " Tage";
   return fmtPct(v);
 }
 const CHANNEL_LABELS = { ntfy: "ntfy", email: "E-Mail" };
@@ -111,7 +112,7 @@ function alertRow(a) {
   tr.append(cell("rule", "Regel", alertSubject(a)));
 
   let value = alertValue(a, a.value);
-  if (!NO_THRESHOLD.includes(a.kind) && a.kind !== "check_cert" && alertValue(a, a.peak) !== value) {
+  if (!NO_THRESHOLD.includes(a.kind) && !["check_cert", "disk_forecast"].includes(a.kind) && alertValue(a, a.peak) !== value) {
     value += " (Spitze " + alertValue(a, a.peak) + ")";
   }
   tr.append(cell("value", "Wert", value, "num"));

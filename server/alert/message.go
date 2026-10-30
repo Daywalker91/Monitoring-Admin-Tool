@@ -20,6 +20,8 @@ func Label(kind string) string {
 		return "Swap"
 	case KindDisk:
 		return "Disk"
+	case KindDiskForecast:
+		return "Disk-Prognose"
 	case KindTemp:
 		return "CPU-Temperatur"
 	case KindCheckDown:
@@ -100,6 +102,11 @@ func (e Event) Title() string {
 			return host + ": Datenträger " + e.Alert.Target + " – " + e.Alert.Detail
 		}
 		return host + ": Datenträger " + e.Alert.Target + " wieder in Ordnung"
+	case KindDiskForecast:
+		if e.Firing() {
+			return host + ": Disk " + e.Alert.Target + " " + fullIn(e.Alert.Value)
+		}
+		return host + ": Disk " + e.Alert.Target + " – Prognose wieder unkritisch"
 	case KindCheckCert:
 		if !e.Firing() {
 			return host + ": Zertifikat erneuert"
@@ -144,6 +151,11 @@ func (e Event) Body() string {
 			days(a.Value), days(a.Threshold))
 	case a.Kind == KindCheckCert:
 		fmt.Fprintf(&b, "Das Zertifikat wurde erneuert.\n")
+	case a.Kind == KindDiskForecast && e.Type != Resolved:
+		fmt.Fprintf(&b, "Bei gleichem Trend wie in den letzten 7 Tagen: %s %s (Warnschwelle %s).\n",
+			a.Target, fullIn(a.Value), days(a.Threshold))
+	case a.Kind == KindDiskForecast:
+		fmt.Fprintf(&b, "Die Belegung von %s wächst nicht mehr so schnell; Prognose wieder unkritisch.\n", a.Target)
 	case strings.HasPrefix(a.Kind, "k8s_") || a.Kind == KindArgoCD || a.Kind == KindService || a.Kind == KindUnitFailed || a.Kind == KindSmart:
 		if e.Type != Resolved {
 			fmt.Fprintf(&b, "%s %s", Label(a.Kind), a.Target)
@@ -189,6 +201,20 @@ func (e Event) value(v float64) string {
 		return strings.Replace(fmt.Sprintf("%.1f °C", v), ".", ",", 1)
 	}
 	return pct(v)
+}
+
+// fullIn formuliert die Prognose: "in weniger als 1 Tag voll", "in ~12 Tagen voll".
+func fullIn(v float64) string {
+	switch n := int(math.Floor(v)); {
+	case v <= 0:
+		return "ist voll"
+	case n < 1:
+		return "in weniger als 1 Tag voll"
+	case n == 1:
+		return "in ~1 Tag voll"
+	default:
+		return fmt.Sprintf("in ~%d Tagen voll", n)
+	}
 }
 
 // days formatiert eine Anzahl Tage (abgerundet): "1 Tag", "12 Tage".

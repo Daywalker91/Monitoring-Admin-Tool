@@ -485,3 +485,50 @@ func TestAck(t *testing.T) {
 		t.Fatalf("ende: %+v", ev)
 	}
 }
+
+func TestDiskForecast(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	obs := func(days map[string]float64) []Event {
+		f.ev.ObserveForecast(ctx, "h1", "host-1", days, f.now)
+		f.now = f.now.Add(time.Hour)
+		return f.take()
+	}
+
+	// Standard: unter 7 Tagen sofort.
+	if ev := obs(map[string]float64{"/": 30, "/var": 8}); len(ev) != 0 {
+		t.Fatalf("zu früh: %+v", ev)
+	}
+	ev := obs(map[string]float64{"/": 30, "/var": 5.4})
+	if len(ev) != 1 || ev[0].Alert.Target != "/var" || ev[0].Title() != "host-1: Disk /var in ~5 Tagen voll" ||
+		!strings.Contains(ev[0].Body(), "Warnschwelle 7 Tage") {
+		t.Fatalf("auslösen: %+v", ev)
+	}
+	// Hysterese: endet erst über 7 × 1,5 = 10,5 Tagen.
+	if ev := obs(map[string]float64{"/": 30, "/var": 9}); len(ev) != 0 {
+		t.Fatalf("flackert: %+v", ev)
+	}
+	if ev := obs(map[string]float64{"/": 30, "/var": 11}); len(ev) != 1 || ev[0].Type != Resolved ||
+		ev[0].Title() != "host-1: Disk /var – Prognose wieder unkritisch" {
+		t.Fatalf("ende: %+v", ev)
+	}
+	// Wächst ein Mountpoint nicht mehr (fehlt in der Prognose), endet sein Alarm.
+	obs(map[string]float64{"/": 0.5})
+	if ev := obs(map[string]float64{}); len(ev) != 1 || ev[0].Type != Resolved || ev[0].Alert.Target != "/" {
+		t.Fatalf("ohne prognose: %+v", ev)
+	}
+
+	// Je Host anpassbar, Schwelle in Tagen.
+	if err := f.ev.SetHostRules(ctx, "h1", []store.AlertRule{{Kind: KindDiskForecast, Enabled: true, Threshold: 30}}, f.now); err != nil {
+		t.Fatal(err)
+	}
+	if ev := obs(map[string]float64{"/": 20}); len(ev) != 1 || ev[0].Alert.Threshold != 30 {
+		t.Fatalf("host-schwelle: %+v", ev)
+	}
+	if ValidateRule(store.AlertRule{Kind: KindDiskForecast, Threshold: 400}) == nil {
+		t.Error("schwelle 400 tage akzeptiert")
+	}
+	if fullIn(0) != "ist voll" || fullIn(0.3) != "in weniger als 1 Tag voll" || fullIn(1.9) != "in ~1 Tag voll" {
+		t.Error("fullIn")
+	}
+}

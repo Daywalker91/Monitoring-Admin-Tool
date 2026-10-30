@@ -65,6 +65,10 @@ type Server struct {
 	liveMu sync.Mutex
 	live   map[string]*liveJob // Zwischenausgabe laufender Jobs (nur im Speicher)
 
+	diskMu    sync.Mutex
+	diskAt    map[string]time.Time          // letzter Messpunkt der Disk-Historie je Host
+	forecasts map[string]map[string]float64 // Prognose: Tage bis voll je Host und Mountpoint
+
 	maintMu sync.Mutex          // eigene Sperre: quiet läuft unter der Sperre der Alarm-Engine
 	maint   []store.Maintenance // Wartungsfenster
 	loc     *time.Location      // Zeitzone für wöchentliche Wartungsfenster
@@ -265,6 +269,7 @@ func (s *Server) readLoop(ctx context.Context, conn *websocket.Conn, hello proto
 			if s.alerts != nil {
 				s.alerts.Observe(ctx, id, s.hostName(id, hello.Hostname), m, now)
 			}
+			s.observeDisks(ctx, id, s.hostName(id, hello.Hostname), m.Disks, now)
 		case proto.TypeProcesses:
 			var p proto.Processes
 			if err := json.Unmarshal(env.Data, &p); err != nil {
@@ -459,6 +464,8 @@ type hostView struct {
 	Services        *svcSummary `json:"services,omitempty"`
 	Maintenance     string      `json:"maintenance,omitempty"`     // aktives Wartungsfenster
 	DependencyDown  string      `json:"dependency_down,omitempty"` // Ziel der Abhängigkeit ausgefallen
+	// Prognose „Platte voll“: Tage bis voll je Mountpoint (nur wachsende).
+	DiskForecast map[string]float64 `json:"disk_forecast,omitempty"`
 }
 
 func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
@@ -473,7 +480,8 @@ func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 	for i, h := range hosts {
 		out[i] = hostView{Host: h, Online: s.online(h.ID), UpdateAvailable: s.updateAvailable(h),
 			Update: s.hostUpdateState(h.ID), UpdateNote: s.updateNote(h.ID), K8sNode: matchNode(nodes, h),
-			Services: s.servicesSummary(h.ID), Maintenance: s.maintenanceFor(h.ID, s.nowFor())}
+			Services: s.servicesSummary(h.ID), Maintenance: s.maintenanceFor(h.ID, s.nowFor()),
+			DiskForecast: s.diskForecast(h.ID)}
 		if h.DependsOn != "" {
 			out[i].DependencyDown, _ = s.dependencyDown(h.ID)
 		}
@@ -555,6 +563,10 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	delete(s.svcs, id)
 	s.mu.Unlock()
+	s.diskMu.Lock()
+	delete(s.diskAt, id)
+	delete(s.forecasts, id)
+	s.diskMu.Unlock()
 	s.log.Info("host gelöscht", "agent_id", id, "remote", r.RemoteAddr)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -592,6 +604,9 @@ func RunRetention(ctx context.Context, st *store.Store, retention time.Duration,
 			log.Error("retention", "err", err)
 		} else if n > 0 {
 			log.Info("alte historie gelöscht", "rows", n)
+		}
+		if _, err := st.PruneDiskHistory(ctx, time.Now().Add(-DiskRetention)); err != nil {
+			log.Error("disk-historie bereinigen", "err", err)
 		}
 		if _, err := st.PruneSessions(ctx, time.Now()); err != nil {
 			log.Error("sessions bereinigen", "err", err)

@@ -21,8 +21,10 @@ Es wird in Meilensteinen gearbeitet. Alles, was zu keinem beauftragten Meilenste
 - **M6 (fertig):** CPU-Temperatur, externe Checks (HTTP(S), Ping, TCP), k3s-Ansicht (nur lesend), Anzeigename/Gruppe je Host
 - **M7 (fertig):** Admin-Jobs mit Audit-Log (Dienste, apt-Updates, Neustart, Logs lesen), Dienstüberwachung,
   Update-Status, SMART, k3s-Versionen; Alarme quittieren, Wartungsfenster, Abhängigkeiten
-- **M8:** geplant: Playbooks (Abläufe über mehrere Hosts), `commands`-Whitelist am Host, Prognose „Platte voll“ –
-  vorher gemeinsam einen genauen Plan erarbeiten
+- **M8 (geplant):** Prognose „Platte voll“ (Tabelle `disk_history`, Trend über 7 Tage, Alarmtyp `disk_forecast`),
+  danach `commands`-Whitelist in `agent.json` (feste Argumentliste, keine Parameter aus der GUI, keine Shell,
+  Job `command.run`)
+- **Später:** Playbooks (Abläufe über mehrere Hosts) – vorher gemeinsam einen genauen Plan erarbeiten
 
 ## Tech-Stack
 
@@ -89,7 +91,7 @@ Datenfluss M1:
    und zeigt eine Host-Liste mit aktuellen Werten in der Web-GUI.
 
 Alarme (M3): feste Regeltypen (`offline`, `cpu`, `mem`, `swap`, `disk` je Mountpoint, `temp` in °C seit M6;
-seit M7 `service`, `unit_failed`, `smart`; dazu Checks und Cluster),
+seit M7 `service`, `unit_failed`, `smart`; seit M8 `disk_forecast` aus `disk_history`, stündlich; dazu Checks und Cluster),
 keine frei formulierbaren Ausdrücke. Auswertung im Server bei jeder Metrik-Nachricht, Offline-Prüfung alle 30 s.
 Auslösen nach ununterbrochener Mindestdauer, Ende mit 5 Prozentpunkten (bzw. 5 °C) Hysterese, je Alarm genau
 eine Nachricht beim Auslösen und eine beim Ende. Offene Alarme stehen in SQLite und überstehen Neustarts.

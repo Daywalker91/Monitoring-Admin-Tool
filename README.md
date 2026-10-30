@@ -236,6 +236,7 @@ Der Server prüft feste Regeltypen; Schwelle und Mindestdauer lassen sich in der
 | RAM     | 90 % für 5 min         | Arbeitsspeicher belegt                      |
 | Swap    | 80 % für 10 min        | Swap belegt (nur Hosts mit Swap)            |
 | Disk    | 90 % für 1 min         | Belegung je Mountpoint                      |
+| Disk-Prognose | < 7 Tage         | Mountpoint ist bei gleichem Trend (lineare Regression der letzten 7 Tage, stündliche Messpunkte, mind. 24 h) bald voll; endet erst über dem 1,5-Fachen der Schwelle |
 | CPU-Temperatur | 80 °C für 5 min | höchster CPU-Sensor (nur Linux-Hosts mit Sensor) |
 | Check   | 2 min                  | externer Check schlägt ununterbrochen fehl  |
 | Zertifikat | < 14 Tage           | Zertifikat eines HTTPS-Checks läuft bald ab |
@@ -430,7 +431,7 @@ scrape_configs:
 Metriken (Präfix `mat_`): `alerts_firing` (je Host und Regel), `host_up`, `host_info`, `host_last_seen_timestamp_seconds`, `host_boot_time_seconds`,
 `cpu_usage_percent`, `cpu_core_usage_percent`, `load1/5/15` (nicht unter Windows), `memory_total/used_bytes`,
 `swap_total/used_bytes`, `network_{receive,transmit}_{bytes,packets}_per_second`, `network_{receive,transmit}_errors_total`,
-`filesystem_size/used_bytes`, `cpu_temperature_celsius` und `sensor_temperature_celsius` (je Sensor, nur Linux-Hosts mit Sensor).
+`filesystem_size/used_bytes`, `filesystem_full_in_days` (Prognose, nur wachsende Mountpoints), `cpu_temperature_celsius` und `sensor_temperature_celsius` (je Sensor, nur Linux-Hosts mit Sensor).
 Updates (M7): `updates_pending`, `updates_security_pending` (nur Hosts mit apt) und `reboot_required`.
 SMART (Labels `device`, `model`): `smart_healthy`, `smart_temperature_celsius`, `smart_power_on_hours`,
 `smart_reallocated_sectors`, `smart_pending_sectors`, `smart_percentage_used`, `smart_media_errors`.
