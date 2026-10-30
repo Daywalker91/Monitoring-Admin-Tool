@@ -80,6 +80,7 @@ func newPinger(t *testing.T, url string, extra map[string]string, out io.Writer)
 	if err != nil {
 		t.Fatal(err)
 	}
+	p.delay = 0
 	return p
 }
 
@@ -169,5 +170,18 @@ func TestNoSecretsInLog(t *testing.T) {
 func TestTruncate(t *testing.T) {
 	if got := truncate("aä", 2); got != "a" {
 		t.Fatalf("truncate: %q", got)
+	}
+}
+
+// Vor Ablauf der Startverzögerung geht nichts raus (Agenten verbinden sich noch).
+func TestRunWaitsForDelay(t *testing.T) {
+	srv, reqs := fakeGuard(t, http.StatusOK)
+	p := newPinger(t, srv.URL, nil, io.Discard)
+	p.delay = time.Hour
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	p.Run(ctx, okStatus)
+	if n := len(reqs()); n != 0 {
+		t.Fatalf("%d meldungen vor ablauf der verzögerung", n)
 	}
 }

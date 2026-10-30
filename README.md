@@ -348,6 +348,8 @@ $env:MAT_HEARTBEAT_INTERVAL = "3m"      # Standard 3m, mindestens 30s
 $env:MAT_HEARTBEAT_PAYLOAD  = "off"     # optional: nur GET ohne Status
 ```
 
+Die erste Meldung geht 1 min nach dem Start raus, damit die Agenten verbunden sind.
+
 Standard ist ein POST mit dem Feld `payload`, z. B. „MAT 1.5.0 · 5/6 Hosts online · 2 Alarme“
 (keine Hostnamen); ipv64 zeigt ihn im Event-Log. Ist die Datenbank nicht lesbar, bleibt das
 Lebenszeichen aus. URL und Token werden nie geloggt. Kontingent beachten: bei ipv64 zählt jeder

@@ -22,6 +22,9 @@ const (
 	minInterval     = 30 * time.Second
 	timeout         = 10 * time.Second
 	maxPayload      = 200
+	// defaultStartDelay gibt den Agenten nach einem Neustart Zeit zum Verbinden,
+	// sonst meldet die erste Status-Zeile „0/N Hosts online“.
+	defaultStartDelay = time.Minute
 )
 
 // StatusFunc liefert einen kurzen Status für das Event-Log des Wächters. Ein
@@ -33,6 +36,7 @@ type Pinger struct {
 	url      string
 	token    string
 	interval time.Duration
+	delay    time.Duration // Wartezeit vor der ersten Meldung
 	payload  bool
 	client   *http.Client
 	log      *slog.Logger
@@ -82,7 +86,7 @@ func FromEnv(getenv func(string) string, log *slog.Logger) (p *Pinger, warnings 
 		return nil, nil, fmt.Errorf("MAT_HEARTBEAT_PAYLOAD muss on oder off sein")
 	}
 	return &Pinger{
-		url: raw, token: getenv("MAT_HEARTBEAT_TOKEN"), interval: interval, payload: payload,
+		url: raw, token: getenv("MAT_HEARTBEAT_TOKEN"), interval: interval, delay: defaultStartDelay, payload: payload,
 		// Keine Weiterleitungen: Das Token soll nicht an einen anderen Host gehen.
 		client: &http.Client{Timeout: timeout, CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
@@ -102,9 +106,14 @@ func (p *Pinger) Host() string {
 // Interval liefert den Abstand der Meldungen.
 func (p *Pinger) Interval() time.Duration { return p.interval }
 
-// Run meldet sofort und danach im Abstand interval, bis ctx endet. Fehlschläge
-// werden nur geloggt; der nächste Takt ist der neue Versuch.
+// Run meldet nach der Startverzögerung und danach im Abstand interval, bis ctx
+// endet. Fehlschläge werden nur geloggt; der nächste Takt ist der neue Versuch.
 func (p *Pinger) Run(ctx context.Context, status StatusFunc) {
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(p.delay):
+	}
 	t := time.NewTicker(p.interval)
 	defer t.Stop()
 	failing := false
