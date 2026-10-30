@@ -1,9 +1,11 @@
 // Package k8s liest den Zustand des Kubernetes-Clusters (Nodes, Pods,
-// Workloads, ArgoCD-Applications) über die REST-API, ohne client-go. Der
-// Server braucht dafür nur Leserechte (ClusterRole in deploy/k8s).
+// Workloads, ArgoCD-Applications) über die REST-API, ohne client-go. Dafür
+// reichen Leserechte (ClusterRole mat-server-read in deploy/k8s). Schreibend
+// ist nur der drain vor einem Neustart (drain.go, eigene ClusterRole).
 package k8s
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -105,41 +107,59 @@ func (c *Client) bearer() (string, error) {
 	return c.token, nil
 }
 
-// get ruft path (mit Query) ab und liefert den Inhalt bis limit Bytes.
-func (c *Client) get(ctx context.Context, path string, limit int64) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+path, nil)
+// do schickt eine Anfrage (body nil = ohne Inhalt) und liefert Status und
+// Antwort bis limit Bytes.
+func (c *Client) do(ctx context.Context, method, path, ctype string, body []byte, limit int64) (int, []byte, error) {
+	var rd io.Reader
+	if body != nil {
+		rd = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.base+path, rd)
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 	tok, err := c.bearer()
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 	if tok != "" {
 		req.Header.Set("Authorization", "Bearer "+tok)
 	}
 	req.Header.Set("Accept", "application/json")
+	if ctype != "" {
+		req.Header.Set("Content-Type", ctype)
+	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	out, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if err != nil {
+		return 0, nil, err
+	}
+	if int64(len(out)) > limit {
+		return 0, nil, fmt.Errorf("%s: antwort größer als %d bytes", path, limit)
+	}
+	return resp.StatusCode, out, nil
+}
+
+// get ruft path (mit Query) ab und liefert den Inhalt bis limit Bytes.
+func (c *Client) get(ctx context.Context, path string, limit int64) ([]byte, error) {
+	status, body, err := c.do(ctx, http.MethodGet, path, "", nil, limit)
 	if err != nil {
 		return nil, err
 	}
-	if int64(len(body)) > limit {
-		return nil, fmt.Errorf("%s: antwort größer als %d bytes", path, limit)
-	}
-	switch {
-	case resp.StatusCode == http.StatusNotFound:
+	switch status {
+	case http.StatusOK:
+	case http.StatusNotFound:
 		return nil, ErrNotFound
-	case resp.StatusCode == http.StatusForbidden:
+	case http.StatusForbidden:
 		return nil, fmt.Errorf("%s: keine berechtigung (clusterrole prüfen)", path)
-	case resp.StatusCode == http.StatusNoContent:
+	case http.StatusNoContent:
 		return nil, nil // z. B. Logs eines Containers, der noch nicht lief
-	case resp.StatusCode != http.StatusOK:
-		return nil, fmt.Errorf("%s: status %d", path, resp.StatusCode)
+	default:
+		return nil, fmt.Errorf("%s: status %d", path, status)
 	}
 	return body, nil
 }

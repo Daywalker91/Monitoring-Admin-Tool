@@ -1,0 +1,28 @@
+# Optional (seit M9): drain vor dem Neustart eines k3s-Hosts. Nodes absperren
+# und freigeben (patch), Pods über die Eviction-API verdrängen – PodDisruption-
+# Budgets gelten. Kein Löschen von Pods, kein Zugriff auf Secrets. Ohne diese
+# Rolle bietet MAT keinen drain an und startet Hosts normal neu.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: mat-server-drain
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["patch"]
+  - apiGroups: [""]
+    resources: ["pods/eviction"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: mat-server-drain
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mat-server-drain
+subjects:
+  - kind: ServiceAccount
+    name: mat-server
+    namespace: monitoring

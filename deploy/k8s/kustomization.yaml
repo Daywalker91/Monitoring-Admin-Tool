@@ -11,6 +11,7 @@ labels:
 resources:
   - namespace.yaml
   - rbac.yaml
+  # - rbac-drain.yaml  # optional: drain vor dem Neustart (Nodes absperren, Pods verdrängen)
   - pvc.yaml
   - deployment.yaml
   - service.yaml
