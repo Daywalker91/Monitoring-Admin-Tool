@@ -21,8 +21,8 @@ Es wird in Meilensteinen gearbeitet. Alles, was zu keinem beauftragten Meilenste
 - **M6 (fertig):** CPU-Temperatur, externe Checks (HTTP(S), Ping, TCP), k3s-Ansicht (nur lesend), Anzeigename/Gruppe je Host
 - **M7 (fertig):** Admin-Jobs mit Audit-Log (Dienste, apt-Updates, Neustart, Logs lesen), Dienstüberwachung,
   Update-Status, SMART, k3s-Versionen; Alarme quittieren, Wartungsfenster, Abhängigkeiten
-- **M8 (geplant):** Prognose „Platte voll“ (Tabelle `disk_history`, Trend über 7 Tage, Alarmtyp `disk_forecast`),
-  danach `commands`-Whitelist in `agent.json` (feste Argumentliste, keine Parameter aus der GUI, keine Shell,
+- **M8 (fertig):** Prognose „Platte voll“ (Tabelle `disk_history`, Trend über 7 Tage, Alarmtyp `disk_forecast`),
+  `commands`-Whitelist in `agent.json` (feste Argumentliste, keine Parameter aus der GUI, keine Shell,
   Job `command.run`)
 - **Später:** Playbooks (Abläufe über mehrere Hosts) – vorher gemeinsam einen genauen Plan erarbeiten
 
@@ -64,11 +64,13 @@ oder direkt als Binary. Agenten laufen immer direkt auf den Hosts (Windows-Diens
 
 ```
 /agent    Agent: collector (Metriken), client (WebSocket, Jobs), services, packages (apt), power (Neustart),
-          logs (journalctl/wevtutil), smart (smartctl), update (Self-Update)
+          logs (journalctl/wevtutil), smart (smartctl), update (Self-Update), commands (eigene Befehle),
+          progress (Live-Ausgabe von Jobs)
 /server   Server: API, WebSocket-Endpunkt, SQLite-Speicher, liefert die GUI aus;
           server/alert wertet Alarmregeln aus, server/notify verschickt Nachrichten (ntfy, SMTP),
           server/checks führt externe Checks aus (HTTP(S), Ping, TCP),
-          server/k8s liest den k3s-Cluster (nur lesend, REST ohne client-go) und die k3s-Release-Kanäle
+          server/k8s liest den k3s-Cluster (nur lesend, REST ohne client-go) und die k3s-Release-Kanäle,
+          server/forecast schätzt aus der Disk-Historie, wann ein Mountpoint voll ist
 /web      Frontend-Dateien (werden per go:embed eingebettet)
 /proto    gemeinsame Nachrichtentypen (JSON) zwischen Agent und Server
 /internal kleine gemeinsame Hilfspakete ohne schwere Abhängigkeiten (winsvc: Windows-Dienst, logfile,

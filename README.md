@@ -13,6 +13,7 @@ M6 fertig – CPU-Temperatur, externe Checks (HTTP(S), Ping, TCP), k3s-Ansicht; 
 auch in Alarmen) und in Gruppen ordnen – intern bleibt die Agent-ID die Kennung.
 M7 fertig – Admin-Aktionen als Jobs mit Verlauf, Dienste überwachen und steuern,
 offene Updates (apt) und Neustart, neue k3s-Versionen im Tab „Cluster“, freigegebene Logs lesen, SMART der Datenträger; Alarme quittieren, Wartungsfenster, Abhängigkeiten.
+M8 fertig – Prognose „Platte voll“ je Mountpoint (mit Alarm), eigene Befehle mit fester Befehlszeile aus `agent.json`; Live-Ausgabe laufender Jobs.
 
 ## Schnellstart (lokal)
 
