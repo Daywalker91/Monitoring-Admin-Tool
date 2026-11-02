@@ -106,7 +106,29 @@ func (f *fakeHost) run(_ context.Context, _ []string, w io.Writer, path string, 
 	return err
 }
 
+// setCanSetUID legt fest, ob der Agent im Test CAP_SETUID hat. Das Ergebnis darf
+// nicht davon abhängen, unter welchem Benutzer die Tests laufen.
+func setCanSetUID(t *testing.T, v bool) {
+	t.Helper()
+	old := canSetUID
+	canSetUID = func() bool { return v }
+	t.Cleanup(func() { canSetUID = old })
+}
+
+func TestAptWithoutSetUID(t *testing.T) {
+	setCanSetUID(t, false)
+	host := &fakeHost{}
+	c := &Checker{mgr: aptManager(), run: host.run}
+	if _, _, err := c.Refresh(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if want := "/usr/bin/apt-get -o APT::Sandbox::User=root -q update"; host.calls[0] != want {
+		t.Fatalf("aufruf: %s", host.calls[0])
+	}
+}
+
 func TestInstallCommands(t *testing.T) {
+	setCanSetUID(t, true)
 	pkgnames := func(call string) (string, error) {
 		if strings.Contains(call, "pkgnames") {
 			return "nano-tiny\nnano\ng++\ng++-14\nlibc6\n", nil
