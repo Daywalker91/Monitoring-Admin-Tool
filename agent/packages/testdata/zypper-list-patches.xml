@@ -1,0 +1,20 @@
+<?xml version='1.0'?>
+<stream>
+<message type="info">Refreshing service &apos;openSUSE&apos;.</message>
+<message type="info">Loading repository data...</message>
+<message type="info">Reading installed packages...</message>
+<update-status version="0.6">
+<update-list>
+<update kind="patch" name="openSUSE-Leap-16.0-1126" edition="1" arch="noarch" status="needed" category="recommended" severity="moderate" pkgmanager="false" restart="false" interactive="false"><summary>Recommended update for patterns-base</summary><description>This update for patterns-base fixes the following issues:
+
+- make kernel_livepatching pattern visible (bsc#1263084)
+- add fwupd to enhanced base pattern (jsc#PED-15697)
+</description><license/><source url="http://cdn.opensuse.org/distribution/leap/16.0/repo/oss/x86_64" alias="openSUSE:repo-oss"/><issue-date time_t="1782908085" text="2026-07-01T12:14:45Z"/><issue-list><issue type="jira" id="PED-15697"><title>Update Fwupd to the latest version in SLES16 and SLES16.1</title><href>https://jira.suse.com/browse/PED-15697</href></issue><issue type="bugzilla" id="1263084"><title>kernel livepatching pattern is not visible</title><href>https://bugzilla.suse.com/show_bug.cgi?id=1263084</href></issue></issue-list></update><update kind="patch" name="openSUSE-Leap-16.0-500" edition="1" arch="noarch" status="needed" category="recommended" severity="moderate" pkgmanager="false" restart="false" interactive="false"><summary>Recommended update for patterns-base</summary><description>This update for patterns-base fixes the following issues:
+
+Changes in patterns-base:
+
+- Drop biosdevname, this is being replaced by systemd predictable
+  network interface naming (jsc#PED-262).
+</description><license/><source url="http://cdn.opensuse.org/distribution/leap/16.0/repo/oss/x86_64" alias="openSUSE:repo-oss"/><issue-date time_t="1775733261" text="2026-04-09T11:14:21Z"/><issue-list><issue type="jira" id="PED-262"><title>Drop biosdevname and switch to systemd names for Ethernet interfaces</title><href>https://jira.suse.com/browse/PED-262</href></issue></issue-list></update></update-list>
+</update-status>
+</stream>

@@ -59,13 +59,13 @@ func TestTail(t *testing.T) {
 	}
 }
 
-func TestWithoutApt(t *testing.T) {
+func TestWithoutManager(t *testing.T) {
 	c := &Checker{rebootRequired: func() bool { return true }}
 	if c.Supported() {
-		t.Fatal("ohne apt unterstützt")
+		t.Fatal("ohne paketverwaltung unterstützt")
 	}
 	if _, _, err := c.Upgrade(context.Background(), nil); err == nil {
-		t.Fatal("upgrade ohne apt")
+		t.Fatal("upgrade ohne paketverwaltung")
 	}
 	u := c.Status(context.Background())
 	if u.Manager != "" || !u.RebootRequired || u.Time.IsZero() {
