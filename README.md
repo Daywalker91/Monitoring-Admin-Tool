@@ -14,6 +14,7 @@ auch in Alarmen) und in Gruppen ordnen – intern bleibt die Agent-ID die Kennun
 M7 fertig – Admin-Aktionen als Jobs mit Verlauf, Dienste überwachen und steuern,
 offene Updates (apt) und Neustart, neue k3s-Versionen im Tab „Cluster“, freigegebene Logs lesen, SMART der Datenträger; Alarme quittieren, Wartungsfenster, Abhängigkeiten.
 M8 fertig – Prognose „Platte voll“ je Mountpoint (mit Alarm), eigene Befehle mit fester Befehlszeile aus `agent.json`; Live-Ausgabe laufender Jobs.
+M10 fertig – Pakete installieren und Benutzer anlegen, neben apt auch dnf, zypper und apk, unter Windows Installation per winget.
 M9 fertig – Neustart von k3s-Hosts mit drain (absperren, Pods verdrängen, Neustart, freigeben); „Node nicht bereit“ folgt dem Wartungsfenster des Hosts.
 
 ## Schnellstart (lokal)
@@ -68,10 +69,10 @@ Beim Einrichten geht das direkt mit dem Install-Skript (nur zusammen mit `--serv
 `agent.json` von Hand ändern und den Dienst neu starten):
 
 ```sh
-sudo sh install-agent.sh --server wss://… --fingerprint … --jobs services,packages,reboot --log-sources journal:sshd,journal:kernel
+sudo sh install-agent.sh --server wss://… --fingerprint … --jobs services,packages,reboot,users --log-sources journal:sshd,journal:kernel
 ```
 ```powershell
-.\install-agent.ps1 -Server wss://… -Fingerprint … -Jobs services,reboot -LogSources eventlog:System
+.\install-agent.ps1 -Server wss://… -Fingerprint … -Jobs services,packages,reboot,users -LogSources eventlog:System
 ```
 
 Unter Windows ändert `-Jobs`/`-LogSources` auch eine vorhandene Konfiguration (`none` = keine).
@@ -79,8 +80,9 @@ Unter Windows ändert `-Jobs`/`-LogSources` auch eine vorhandene Konfiguration (
 | Eintrag    | erlaubt                                         |
 |------------|-------------------------------------------------|
 | `services` | Dienste starten, stoppen, neu starten (`systemctl` bzw. Windows-Dienst-Manager) |
-| `packages` | Paketlisten holen und Updates installieren (`apt-get update` / `apt-get -y upgrade`) |
+| `packages` | Paketlisten holen, Updates installieren, ein Paket installieren (apt, dnf, zypper, apk; Windows: nur installieren per winget) |
 | `reboot`   | Neustart (`systemctl reboot` bzw. `shutdown.exe /r`) |
+| `users`    | Benutzer anlegen, ohne nutzbares Passwort (`useradd` bzw. BusyBox `adduser`, Windows: `net user`) |
 
 Jede Aktion landet mit Benutzer, Zeit und Ausgabe im Verlauf („Aktionen“ in den Host-Details, 90 Tage). Ein Klick
 auf einen Eintrag öffnet die Ausgabe; bei Paket-Jobs läuft sie ab Agent v1.3.0 live mit.
@@ -88,6 +90,29 @@ Der Agent prüft die Parameter selbst noch einmal, steuert nur Dienste aus seine
 nie sich selbst. Lesend arbeitet er immer: Dienstliste, offene Updates (`apt-get -s upgrade`,
 höchstens alle 30 min) und ob ein Neustart nötig ist (`/var/run/reboot-required` bzw. Registry).
 Unter Windows gibt es nur den Neustart-Hinweis, keine Liste offener Windows-Updates.
+
+**Pakete installieren** (`package.install`, ab M10): genau ein Paket je Job, entfernt wird nichts. Auch wer
+`packages` schon freigeschaltet hat, darf nach dem Agent-Update damit installieren. Erlaubt sind nur
+Paketnamen; Optionen, Pfade, Versionen, Platzhalter und Paketdateien lehnen Server und Agent ab, ebenso einen
+Bindestrich am Ende (`apt-get install foo-` und `zypper install foo-` würden `foo` entfernen). apt schlägt den
+Namen vorher exakt nach, sonst läse es ihn als Regex oder Befehl (`nano+`). Die Paketverwaltung wird an festen
+Pfaden erkannt. Sicherheitsupdates zeigen apt, dnf und (nur als Zahl) zypper an, apk kennt keine. Den
+Neustart-Bedarf melden apt, dnf und zypper; bei apk steht „nicht erkennbar“. Alpine hat kein systemd: Dort gibt
+es nur Paket-Jobs und `user.create`, das Install-Skript, Self-Update, Dienste und Neustart gehen nicht.
+
+**winget** läuft als SYSTEM, ohne den Eintrag im Benutzerprofil: Der Agent nimmt `winget.exe` aus
+`C:\Program Files\WindowsApps\Microsoft.DesktopAppInstaller_*` und meldet die Fähigkeit nur, wenn der Selbsttest
+beim Start klappt. Installiert wird nur mit exakter ID aus der Quelle `winget` (z. B. `Git.Git`) und
+`--scope machine`; Pakete ohne systemweite Installation schlagen fehl. Paketlisten und Updates gibt es dort nicht.
+
+**Benutzer anlegen** (`user.create`, ab M10): Kein Passwort läuft je über Server, GUI oder Verlauf. Unter Linux
+bleibt das Passwort gesperrt; der Benutzer wird per SSH-Key oder `passwd` als root eingerichtet. Mit „sudo“
+kommt er in die Gruppe `sudo` bzw. `wheel`. `/etc/sudoers` ändert MAT nie: sudo fragt nach dem Passwort des
+Benutzers und geht deshalb erst, wenn eines gesetzt ist; ob die Gruppe berechtigt ist, legt der Host fest. Unter
+Windows entsteht ein **deaktiviertes** Konto ohne Passwort und ohne Administratorrechte (höchstens 20 Zeichen).
+Aktivieren muss es ein Administrator am Host; als Notzugang bei verlorenem Admin-Zugang taugt es also nicht.
+Verlangt die Passwort-Richtlinie ein Passwort, schlägt der Job fehl. Reservierte Namen (`root`, `administrator`
+usw.) und vorhandene Benutzer lehnt der Agent ab, vorhandene Konten ändert er nie.
 
 **Logs** gibt der Agent nur aus den Quellen in `log_sources` heraus; die GUI bietet genau diese an
 (Abschnitt „Logs“ in den Host-Details):
@@ -498,7 +523,7 @@ Metriken (Präfix `mat_`): `alerts_firing` (je Host und Regel), `host_up`, `host
 `cpu_usage_percent`, `cpu_core_usage_percent`, `load1/5/15` (nicht unter Windows), `memory_total/used_bytes`,
 `swap_total/used_bytes`, `network_{receive,transmit}_{bytes,packets}_per_second`, `network_{receive,transmit}_errors_total`,
 `filesystem_size/used_bytes`, `filesystem_full_in_days` (Prognose, nur wachsende Mountpoints), `cpu_temperature_celsius` und `sensor_temperature_celsius` (je Sensor, nur Linux-Hosts mit Sensor).
-Updates (M7): `updates_pending`, `updates_security_pending` (nur Hosts mit apt) und `reboot_required`.
+Updates (M7): `updates_pending`, `updates_security_pending` (nur Hosts mit Update-Liste) und `reboot_required`.
 SMART (Labels `device`, `model`): `smart_healthy`, `smart_temperature_celsius`, `smart_power_on_hours`,
 `smart_reallocated_sectors`, `smart_pending_sectors`, `smart_percentage_used`, `smart_media_errors`.
 Externe Checks: `check_up`, `check_latency_seconds`, `check_cert_expiry_timestamp_seconds` (Labels `check`, `name`, `kind`).

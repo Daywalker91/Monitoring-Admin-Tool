@@ -26,6 +26,8 @@ Es wird in Meilensteinen gearbeitet. Alles, was zu keinem beauftragten Meilenste
   Job `command.run`)
 - **M9 (fertig):** Neustart mit drain für k3s-Hosts (Aktion `k3s.drain_reboot` im Server, Tabelle `node_ops`,
   optionale ClusterRole `mat-server-drain`); „Node nicht bereit“ folgt dem Wartungsfenster des gleichnamigen Hosts
+- **M10 (fertig):** Pakete installieren (`package.install`, Fähigkeit `packages`) und Benutzer anlegen (`user.create`,
+  Fähigkeit `users`); Paketverwaltungen apt, dnf, zypper, apk an festen Pfaden, unter Windows nur Installation per winget
 - **Später:** Playbooks (Abläufe über mehrere Hosts) – vorher gemeinsam einen genauen Plan erarbeiten
 
 ## Tech-Stack
@@ -65,7 +67,8 @@ oder direkt als Binary. Agenten laufen immer direkt auf den Hosts (Windows-Diens
 ## Code-Architektur
 
 ```
-/agent    Agent: collector (Metriken), client (WebSocket, Jobs), services, packages (apt), power (Neustart),
+/agent    Agent: collector (Metriken), client (WebSocket, Jobs), services, packages (apt, dnf, zypper, apk, winget),
+          users (Benutzer anlegen), power (Neustart),
           logs (journalctl/wevtutil), smart (smartctl), update (Self-Update), commands (eigene Befehle),
           progress (Live-Ausgabe von Jobs)
 /server   Server: API, WebSocket-Endpunkt, SQLite-Speicher, liefert die GUI aus;
@@ -112,7 +115,6 @@ ihre Ausgabe zusätzlich alle 2 s als `job_progress` (nur im Server-Speicher, f�
 Vorbereitet für später (nicht umsetzen, solange nicht beauftragt):
 
 - weitere Benachrichtigungskanäle (Telegram, Gotify)
-- Fähigkeit `users` (Benutzer verwalten)
 
 ## Sicherheitsregeln
 
@@ -129,6 +131,10 @@ Der Agent läuft als root bzw. SYSTEM, deshalb gilt:
   Geräte für smartctl nur aus dessen Scan. Programme mit festem Pfad (`System32\…`) bzw. fester Argumentliste.
   Eigene Befehle nur aus `"commands"` (feste Argumentliste, absoluter Pfad, keine Shell außer PowerShell
   `-File <Skript>`); der Server wählt nur den Namen, Parameter aus der GUI gibt es nicht.
+- **Pakete und Benutzer:** Parameter prüfen `proto` **und** Agent. Paketnamen ohne führendes oder endendes `-` (`foo-`
+  entfernt bei apt und zypper das Paket!), ohne Pfade, Versionen und Platzhalter; apt schlägt den Namen vorher exakt nach.
+  Es wird nichts entfernt (`--no-remove`, `--no-force-resolution`). Nie ein Passwort über Server, GUI, Job oder Log:
+  Linux-Konten bleiben gesperrt, Windows-Konten deaktiviert. sudo nur über die Gruppe, nie über `/etc/sudoers`.
 - Der Agent öffnet **keine eingehenden Ports**; er verbindet sich nur ausgehend zum Server.
 - **Cluster-Zugriff des Servers:** lesend (ClusterRole `mat-server-read`); schreibend nur Node absperren/freigeben
   (`patch` auf Nodes) und Pods über die Eviction-API verdrängen – mit eigener, optionaler ClusterRole
