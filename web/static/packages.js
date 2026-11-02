@@ -70,12 +70,13 @@ function renderPackageView(v) {
     v.summary.textContent = h.online ? "Noch kein Update-Stand – der Agent meldet ihn ab Version 1.2." : "Kein Update-Stand.";
     for (const e of [v.reboot, v.error, v.list]) e.hidden = true;
   } else {
-    if (!u.manager) v.summary.textContent = "Keine unterstützte Paketverwaltung (nur Neustart-Hinweis) · Stand " + fmtAgo(u.at);
+    if (!u.manager) v.summary.textContent = "Keine Update-Liste auf diesem Host (nur Neustart-Hinweis) · Stand " + fmtAgo(u.at);
     else if (u.upgradable === 0) v.summary.textContent = "✓ Alle Pakete aktuell · Stand " + fmtAgo(u.at);
     else v.summary.textContent = u.upgradable + (u.upgradable === 1 ? " Update" : " Updates") +
       (u.security ? ", davon " + u.security + " Sicherheit" : "") + " · Stand " + fmtAgo(u.at);
-    v.reboot.textContent = "↻ Das System verlangt einen Neustart (z. B. nach einem Kernel-Update).";
-    v.reboot.hidden = !u.reboot_required;
+    v.reboot.textContent = u.reboot_unknown ? "Ob ein Neustart nötig ist, lässt sich hier nicht erkennen."
+      : "↻ Das System verlangt einen Neustart (z. B. nach einem Kernel-Update).";
+    v.reboot.hidden = !u.reboot_required && !u.reboot_unknown;
     v.error.textContent = u.error || "";
     v.error.hidden = !u.error;
     renderPackageList(v);
@@ -83,11 +84,12 @@ function renderPackageView(v) {
 
   const caps = h.capabilities || [];
   const actions = [];
-  if (caps.includes("packages")) {
-    actions.push(["packages.refresh", "Paketlisten holen", "Paketlisten auf „" + hostName(h) + "“ aktualisieren (apt-get update)?"]);
-    if (u?.upgradable > 0) {
+  // Ohne Paketverwaltung mit Update-Liste (Windows) gibt es nur "Paket installieren" unter „Aktionen“.
+  if (caps.includes("packages") && u?.manager) {
+    actions.push(["packages.refresh", "Paketlisten holen", "Paketlisten auf „" + hostName(h) + "“ aktualisieren (" + u.manager + ")?"]);
+    if (u.upgradable > 0) {
       actions.push(["packages.upgrade", "Updates installieren (" + u.upgradable + ")",
-        u.upgradable + " Updates auf „" + hostName(h) + "“ installieren (apt-get upgrade)?\n" +
+        u.upgradable + " Updates auf „" + hostName(h) + "“ installieren (" + u.manager + ")?\n" +
         "Geänderte Konfigurationsdateien bleiben erhalten." + k3sWarning(h)]);
     }
   }

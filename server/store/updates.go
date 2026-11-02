@@ -17,6 +17,7 @@ type UpdateSummary struct {
 	Upgradable     int    `json:"upgradable"`
 	Security       int    `json:"security"`
 	RebootRequired bool   `json:"reboot_required"`
+	RebootUnknown  bool   `json:"reboot_unknown,omitempty"`
 	Error          string `json:"error,omitempty"`
 	At             int64  `json:"at"` // Eingang beim Server
 }
@@ -25,7 +26,7 @@ type UpdateSummary struct {
 // und die vollständige Nachricht (Paketliste) für die Details.
 func (s *Store) SaveUpdates(ctx context.Context, hostID string, u proto.Updates, raw []byte, now time.Time) error {
 	sum, err := json.Marshal(UpdateSummary{Manager: u.Manager, Upgradable: u.Upgradable, Security: u.Security,
-		RebootRequired: u.RebootRequired, Error: u.Error, At: now.Unix()})
+		RebootRequired: u.RebootRequired, RebootUnknown: u.RebootUnknown, Error: u.Error, At: now.Unix()})
 	if err != nil {
 		return err
 	}

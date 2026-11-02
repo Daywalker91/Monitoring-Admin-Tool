@@ -11,6 +11,8 @@ const ACTION_LABELS = {
   "service.restart": "Dienst neu starten",
   "packages.refresh": "Paketlisten holen",
   "packages.upgrade": "Updates installieren",
+  "package.install": "Paket installieren",
+  "user.create": "Benutzer anlegen",
   "system.reboot": "Neustart",
   "k3s.drain_reboot": "Neustart mit drain",
   "log.read": "Log gelesen",
@@ -55,6 +57,7 @@ function createJobView(h) {
   v.el.append(el("h3", "Aktionen"));
   v.buttons = el("div", null, "job-buttons");
   v.hint = el("p", "", "muted small");
+  v.forms = jobForms(v);
   v.status = el("p", "", "small");
   v.status.setAttribute("role", "status");
   const table = el("table", null, "mini job-list");
@@ -65,7 +68,7 @@ function createJobView(h) {
   v.tbody = el("tbody");
   table.append(thead, v.tbody);
   v.empty = el("p", "Noch keine Aktionen.", "muted small");
-  v.el.append(v.buttons, v.hint, v.status, table, v.empty);
+  v.el.append(v.buttons, v.forms.pkg, v.forms.user, v.hint, v.status, table, v.empty);
   v.el.addEventListener("click", ev => ev.stopPropagation());
   return v;
 }
@@ -93,10 +96,98 @@ function renderJobButtons(v, h) {
     }));
   }
   v.buttons.hidden = avail.length + cmds.length === 0;
-  const admin = caps.some(c => ["services", "packages", "reboot", "commands"].includes(c));
+  renderJobForms(v, h, caps);
+  const admin = caps.some(c => ["services", "packages", "reboot", "commands", "users"].includes(c));
   v.hint.textContent = !admin ? "Admin-Aktionen sind für diesen Host nicht freigeschaltet (\"jobs\" in agent.json)."
     : avail.length && !h.online ? "Host ist offline." : "";
   v.hint.hidden = !v.hint.textContent;
+}
+
+// --- Eingaben: Paket installieren, Benutzer anlegen -------------------------------
+// Die Prüfung hier hilft nur beim Tippen; maßgeblich prüfen Server und Agent.
+
+const PACKAGE_NAME = /^[A-Za-z0-9][A-Za-z0-9+._:-]{0,99}$/;
+const USER_NAME = /^[a-z][a-z0-9_-]{0,31}$/;
+
+function validPackageName(s) {
+  return PACKAGE_NAME.test(s) && !/[-.:]$/.test(s) && !/\.(deb|rpm|apk|msi|exe)$/i.test(s);
+}
+
+function jobForm(v, labelText, placeholder, buttonText, submit) {
+  const f = { el: el("form", null, "job-form") };
+  const label = el("label", labelText);
+  f.input = el("input");
+  f.input.type = "text";
+  f.input.placeholder = placeholder;
+  f.input.autocomplete = "off";
+  f.input.spellcheck = false;
+  label.append(f.input);
+  f.button = el("button", buttonText, "secondary");
+  f.button.type = "submit";
+  f.el.append(label, f.button);
+  f.el.addEventListener("submit", ev => {
+    ev.preventDefault();
+    submit();
+  });
+  return f;
+}
+
+function jobForms(v) {
+  const pkg = jobForm(v, "Paket installieren", "Paketname", "Installieren", () => {
+    const name = pkg.input.value.trim();
+    const h = lastHosts.find(x => x.id === v.id);
+    if (!h) return;
+    if (!validPackageName(name)) return formError(v, "Ungültiger Paketname.");
+    if (!confirm("Paket „" + name + "“ auf " + hostName(h) + " installieren?\n" +
+      "Es wird genau dieses Paket samt Abhängigkeiten installiert, entfernt wird nichts." + k3sWarning(h))) return;
+    runForm(v, pkg, h, "package.install", { name });
+  });
+  const user = jobForm(v, "Benutzer anlegen", "Benutzername", "Anlegen", () => {
+    const name = user.input.value.trim();
+    const h = lastHosts.find(x => x.id === v.id);
+    if (!h) return;
+    if (!USER_NAME.test(name)) return formError(v, "Ungültiger Benutzername (klein, beginnt mit einem Buchstaben).");
+    const sudo = h.os !== "windows" && user.sudo.checked;
+    const hint = h.os === "windows"
+      ? "Das Konto wird deaktiviert und ohne Passwort angelegt. Aktivieren muss es ein Administrator am Host."
+      : "Das Passwort bleibt gesperrt: Login per SSH-Key oder nach „passwd“ als root.";
+    const warn = sudo ? "\n\nACHTUNG: Der Benutzer kommt in die sudo-Gruppe und kann damit root werden." : "";
+    if (!confirm("Benutzer „" + name + "“ auf " + hostName(h) + " anlegen?\n" + hint + warn)) return;
+    runForm(v, user, h, "user.create", sudo ? { name, sudo: "true" } : { name });
+  });
+  user.sudoLabel = el("label", null, "check-label");
+  user.sudo = el("input");
+  user.sudo.type = "checkbox";
+  user.sudoLabel.append(user.sudo, document.createTextNode(" sudo"));
+  user.el.insertBefore(user.sudoLabel, user.button);
+  return { pkg: pkg.el, user: user.el, pkgForm: pkg, userForm: user };
+}
+
+function formError(v, text) {
+  v.status.className = "small error-text";
+  v.status.textContent = text;
+}
+
+async function runForm(v, f, h, action, params) {
+  f.button.disabled = true;
+  v.status.textContent = "";
+  try {
+    await startJob(h.id, action, params);
+    f.input.value = "";
+    if (f.sudo) f.sudo.checked = false;
+  } catch (e) {
+    formError(v, e.message);
+  } finally {
+    f.button.disabled = !h.online;
+  }
+}
+
+function renderJobForms(v, h, caps) {
+  const { pkgForm, userForm } = v.forms;
+  pkgForm.el.hidden = !caps.includes("packages");
+  userForm.el.hidden = !caps.includes("users");
+  userForm.sudoLabel.hidden = h.os === "windows";
+  pkgForm.button.disabled = userForm.button.disabled = !h.online;
 }
 
 // startJob schickt einen Job an den Host, zeigt ihn im Verlauf und mit show
