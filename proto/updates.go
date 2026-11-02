@@ -9,8 +9,9 @@ import (
 // nötig ist: nach dem Verbinden, regelmäßig und nach Paket-Jobs.
 const TypeUpdates = "updates"
 
-// Aktionen für Pakete (Fähigkeit CapPackages) und Neustart (CapReboot).
-// Keine Parameter: es gibt nur "Paketlisten holen" und "alles aktualisieren".
+// Aktionen für Pakete (Fähigkeit CapPackages) und Neustart (CapReboot). Keine
+// Parameter: "Paketlisten holen" und "alles aktualisieren" (siehe auch
+// ActionPackageInstall).
 const (
 	ActionPackagesRefresh = "packages.refresh"
 	ActionPackagesUpgrade = "packages.upgrade"
@@ -29,14 +30,15 @@ func init() {
 // Updates ist der Update-Stand eines Hosts.
 type Updates struct {
 	Time time.Time `json:"time"`
-	// Manager ist die Paketverwaltung ("apt"); leer = keine (z. B. Windows,
-	// dann ist nur RebootRequired belegt).
+	// Manager ist die Paketverwaltung ("apt", "dnf", "zypper", "apk"); leer =
+	// keine Update-Liste (z. B. Windows, dann ist nur RebootRequired belegt).
 	Manager        string    `json:"manager,omitempty"`
 	Packages       []Package `json:"packages,omitempty"` // höchstens maxPackages
 	Upgradable     int       `json:"upgradable"`         // alle, auch über maxPackages hinaus
 	Security       int       `json:"security"`
 	RebootRequired bool      `json:"reboot_required"`
-	Error          string    `json:"error,omitempty"` // Paketstand nicht ermittelbar
+	RebootUnknown  bool      `json:"reboot_unknown,omitempty"` // Neustart-Bedarf nicht zuverlässig erkennbar
+	Error          string    `json:"error,omitempty"`          // Paketstand nicht ermittelbar
 }
 
 // Package ist ein Paket mit verfügbarem Update.
