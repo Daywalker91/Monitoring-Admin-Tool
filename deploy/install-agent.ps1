@@ -23,7 +23,7 @@
     .\install-agent.ps1 -Server wss://192.168.100.50/ws/agent -Ca .\server.crt
     .\install-agent.ps1                        # nur Programm aktualisieren, Konfiguration bleibt
     .\install-agent.ps1 -Version v1.0.0 -Server wss://192.168.100.50/ws/agent -Ca .\server.crt -Id pc-1
-    .\install-agent.ps1 -Server wss://192.168.100.50/ws/agent -Fingerprint <sha256> -Jobs services,reboot -LogSources eventlog:System
+    .\install-agent.ps1 -Server wss://192.168.100.50/ws/agent -Fingerprint <sha256> -Jobs services,packages,reboot,users -LogSources eventlog:System
     .\install-agent.ps1 -Uninstall [-Purge]
 #>
 param(

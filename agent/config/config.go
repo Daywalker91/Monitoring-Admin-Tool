@@ -34,7 +34,7 @@ type Config struct {
 	// selbst signierte Server-Zertifikat). Leer = System-Zertifikate.
 	CAFile string `json:"ca_file"`
 	// Jobs schaltet ändernde Admin-Aktionen frei, z. B. ["services", "packages",
-	// "reboot"]. Nur in der Datei, nicht per Flag: ohne Eintrag meldet der Agent
+	// "reboot", "users"]. Nur in der Datei, nicht per Flag: ohne Eintrag meldet der Agent
 	// diese Fähigkeiten nicht, und der Server kann sie nicht auslösen.
 	Jobs []proto.Capability `json:"jobs"`
 	// LogSources gibt Logs zum Lesen frei, z. B. ["journal:sshd", "journal:kernel",
@@ -47,7 +47,7 @@ type Config struct {
 }
 
 // jobCapabilities sind die Fähigkeiten, die sich über Jobs freischalten lassen.
-var jobCapabilities = []proto.Capability{proto.CapServices, proto.CapPackages, proto.CapReboot}
+var jobCapabilities = []proto.Capability{proto.CapServices, proto.CapPackages, proto.CapReboot, proto.CapUsers}
 
 // Defaults liefert die Standardkonfiguration.
 func Defaults() Config {

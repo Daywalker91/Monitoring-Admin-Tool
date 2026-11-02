@@ -5,7 +5,7 @@
 #   sudo sh install-agent.sh                 # nur Programm aktualisieren, Konfiguration bleibt
 #   sudo sh install-agent.sh --uninstall [--purge]
 #   weitere Optionen: --ca server.crt | --version v1.0.0 | --download | --binary <datei>
-#   Admin-Aktionen (nur mit --server): --jobs services,packages,reboot --log-sources journal:sshd,journal:kernel
+#   Admin-Aktionen (nur mit --server): --jobs services,packages,reboot,users --log-sources journal:sshd,journal:kernel
 #
 # Server-Zertifikat: mit --fingerprint (SHA-256, steht in der GUI unter
 # Einstellungen → Agent installieren) holt das Skript das Zertifikat per openssl

@@ -31,7 +31,7 @@ Administratoren lesbar). Ohne -server wird eine vorhandene Konfiguration
 übernommen; einzelne Flags überschreiben sie. Das Programm wird nach
 %ProgramFiles%\mat-agent kopiert.
 
-Nur bei install: -jobs services,packages,reboot und -log-sources eventlog:System,…
+Nur bei install: -jobs services,packages,reboot,users und -log-sources eventlog:System,…
 schalten Admin-Aktionen frei (leer = keine); ohne die Flags bleiben die
 Freischaltungen der vorhandenen Konfiguration.
 

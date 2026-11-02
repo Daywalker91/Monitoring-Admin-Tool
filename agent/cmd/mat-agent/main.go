@@ -32,6 +32,7 @@ import (
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/services"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/smart"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/update"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/users"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/internal/logfile"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/internal/release"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/internal/winsvc"
@@ -158,6 +159,10 @@ func runAgent(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if power.Supported() && cfg.Allows(proto.CapReboot) {
 		hello.Capabilities = append(hello.Capabilities, proto.CapReboot)
 	}
+	userMgr := users.New()
+	if userMgr.Supported() && cfg.Allows(proto.CapUsers) {
+		hello.Capabilities = append(hello.Capabilities, proto.CapUsers)
+	}
 	// Logs nur aus den freigegebenen Quellen, die es auf dieser Plattform gibt.
 	logReader := logs.New(cfg.LogSources)
 	if hello.LogSources = logReader.Sources(); len(hello.LogSources) > 0 {
@@ -207,7 +212,9 @@ func runAgent(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	cl.WithSmart(smart.New().Read)
 	cl.HandleJob(proto.ActionPackagesRefresh, pkgs.Refresh)
 	cl.HandleJob(proto.ActionPackagesUpgrade, pkgs.Upgrade)
+	cl.HandleJob(proto.ActionPackageInstall, pkgs.Install)
 	cl.HandleJob(proto.ActionReboot, power.Job(log))
+	cl.HandleJob(proto.ActionUserCreate, userMgr.Job)
 	cl.HandleJob(proto.ActionLogRead, logReader.Job)
 	cl.HandleJob(proto.ActionCommandRun, cmds.Run)
 	col.Prime(ctx)
