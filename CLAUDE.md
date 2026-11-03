@@ -34,7 +34,10 @@ Es wird in Meilensteinen gearbeitet. Alles, was zu keinem beauftragten Meilenste
 - **M11 (fertig):** Web-Terminal (Block `terminal` in `agent.json`, Shell als unprivilegierter Benutzer über
   `systemd-run --pty --uid`, Ticket nach erneuter Passworteingabe, Tabelle `terminal_sessions`, xterm.js lokal);
   nur Linux mit systemd, Agent v1.7.0
-- **Als Nächstes:** M12b/c (Gates, Probelauf, Zeitplan, Freigabe-Schritte) – vorher einen Plan zeigen
+- **M12b/c (fertig):** Gates (`host_healthy`, `cluster_healthy`, `check_ok`; 30 s stabil, nur Daten nach Schrittbeginn),
+  Probelauf (Einschätzung Host × Schritt, sendet nichts), Freigabe-Schritte (`approve`, `once`, Frist), Zeitplan
+  (`schedule`: daily/weekly/monthly inkl. „first sun“, Zeitzone `TZ`, Tabelle `playbook_schedules`, in der GUI nur pausieren)
+- **Zurückgestellt:** Load und Temperatur unter Windows (gopsutil liefert Load 0, WMI-Thermozonen fehlen) – erst recherchieren
 
 ## Tech-Stack
 
@@ -125,6 +128,9 @@ Playbooks (M12a): Jeder Schritt läuft über `startJob` bzw. `startDrain` mit `c
 GUI). Die Job-ID steht im Schritt, bevor der Job gesendet wird; nach einem Neustart wartet der Runner auf diesen Job
 statt ihn neu auszulösen, fehlt er, endet der Lauf als „unterbrochen“. Nach einem Fehler mit `stop` startet kein
 weiterer Host. Vor einem Schritt bis zu 2 min auf die Verbindung warten, nach `system.reboot` auf die Rückkehr.
+Gates, Freigaben und Zeitpläne (M12b/c) stehen in `server/api/playbook_{gates,approve,schedule}.go`. Ein Zeitplan
+merkt sich den Termin vor dem Start (nie doppelt), startet neue Zeitpläne nie rückwirkend und holt verpasste Termine
+nur innerhalb 1 h nach. once-Freigaben werden nach einem Neustart aus der Meldung des Schritts wiederhergestellt.
 
 Vorbereitet für später (nicht umsetzen, solange nicht beauftragt):
 
@@ -152,7 +158,8 @@ Der Agent läuft als root bzw. SYSTEM, deshalb gilt:
 - **Playbooks** bringen keine neuen Möglichkeiten: nur Aktionen aus `proto.ActionCapability` (ohne `agent.update`)
   plus `k3s.drain_reboot`, Parameter mit denselben Prüfern wie Jobs, keine Skripte, Ausdrücke oder Variablen aus
   Ausgaben. Dateien nur aus `MAT_PLAYBOOK_DIR` (kein Editor, kein Upload über die GUI). `on_error: continue` ist bei
-  `system.reboot`, `k3s.drain_reboot` und `packages.upgrade` verboten.
+  `system.reboot`, `k3s.drain_reboot` und `packages.upgrade` verboten. Gates und Freigaben sind feste Typen ohne
+  Ausdrücke. Ein Zeitplan lässt sich nur in der Datei einschalten, in der GUI nur pausieren.
 - **Web-Terminal – die einzige, bewusste Ausnahme von „keine freie Shell“** (M11). Begründung: Für Fehlersuche
   braucht es manchmal eine echte Shell, und SSH soll nicht von außen offen sein. Deshalb gilt zusätzlich:
   Freischaltung nur über den Block `terminal` in `agent.json` (eigene Fähigkeit, nicht über `jobs`, nie per

@@ -748,7 +748,7 @@ pre.log-text {
 .pb-list td { vertical-align: top; }
 .pb-error { white-space: pre-wrap; margin: 4px 0 0; color: var(--crit); max-width: 60ch; }
 .pb-grid td.pb-step { vertical-align: top; min-width: 90px; }
-.pb-grid td.name { white-space: nowrap; }
+table.pb-grid td.name { white-space: nowrap; overflow-wrap: normal; width: auto; }
 .pb-grid td.clickable { cursor: pointer; }
 .pb-grid td.clickable:hover { background: var(--bg); }
 .pb-grid .pb-msg { max-width: 28ch; overflow-wrap: anywhere; }
@@ -760,7 +760,7 @@ pre.log-text {
 .probe-wrap { overflow-x: auto; }
 .pb-schedule { margin-top: 4px; }
 .pb-approve { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
-.pb-approve button { padding: 4px 10px; font-size: 12px; }
+.pb-approve button { padding: 4px 10px; font-size: 12px; margin: 0; }
 .step-running > span:first-child { color: var(--warn); }
 .step-pending, .step-skipped { color: var(--muted); }
 .pb-hosts li { margin: 4px 0; }
@@ -773,6 +773,7 @@ dialog.job-dialog.pb-dialog[open] { display: block; }
 @media (max-width: 760px) {
   .view .table-wrap:has(> table.pb-grid) { overflow-x: auto; }
   table.pb-list thead { display: none; }
+  dialog.job-dialog.pb-dialog { width: 100vw; max-height: 100dvh; }
   table.pb-list, table.pb-list tbody, table.pb-list tr, table.pb-list td { display: block; }
   table.pb-list tr { padding: 10px 0; border-top: 1px solid var(--border); }
   table.pb-list td { padding: 2px 0; border: 0; white-space: normal; overflow-wrap: anywhere; }

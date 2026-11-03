@@ -140,7 +140,7 @@ func TestRestoreApproval(t *testing.T) {
 	if a, ok := r.decision("n2", 2, true); !ok || !a.ok || a.user != "anna" {
 		t.Fatalf("%+v %v", a, ok)
 	}
-	r.restoreApproval(step, store.PlaybookStep{HostID: "n1", Index: 3, Status: store.StepFailed, Message: "keine freigabe nach 24h0m0s"})
+	r.restoreApproval(step, store.PlaybookStep{HostID: "n1", Index: 3, Status: store.StepFailed, Message: "keine freigabe nach 24h"})
 	if _, ok := r.decision("n2", 3, true); ok {
 		t.Fatal("frist ist keine entscheidung")
 	}

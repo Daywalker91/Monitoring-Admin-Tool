@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/Daywalker91/Monitoring-Admin-Tool/proto"
@@ -166,7 +167,7 @@ func (s *Server) handlePlaybookPreview(w http.ResponseWriter, r *http.Request) {
 func (s *Server) previewStep(ctx context.Context, st playbook.Step, h store.Host, online bool) previewStep {
 	switch {
 	case st.IsWait():
-		return previewStep{previewInfo, "wartet " + time.Duration(st.Wait).String()}
+		return previewStep{previewInfo, "wartet " + shortDur(time.Duration(st.Wait))}
 	case st.IsGate():
 		ok, detail, err := s.gateState(ctx, st, h.ID, time.Time{})
 		var eg errGate
@@ -318,4 +319,13 @@ func (s *Server) handleCancelPlaybookRun(w http.ResponseWriter, r *http.Request)
 	}
 	s.log.Info("playbook-lauf abgebrochen", "run_id", id, "user", userFrom(r.Context()), "remote", r.RemoteAddr)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// shortDur schreibt eine Dauer ohne Null-Anteile: 5m statt 5m0s, 1h statt 1h0m0s.
+func shortDur(d time.Duration) string {
+	s := d.String()
+	if strings.HasSuffix(s, "m0s") {
+		s = strings.TrimSuffix(s, "0s")
+	}
+	return strings.TrimSuffix(s, "h0m")
 }

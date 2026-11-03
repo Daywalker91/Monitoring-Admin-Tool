@@ -19,13 +19,16 @@ const GATE_LABELS = {
   host_healthy: "warten bis Host gesund", cluster_healthy: "warten bis Cluster gesund", check_ok: "warten bis Check ok:",
 };
 
+// goDur kürzt Go-Dauern für die Anzeige: "10m0s" → "10m", "1h0m0s" → "1h".
+function goDur(d) { return String(d || "").replace(/([hm])0s$/, "$1").replace(/h0m$/, "h"); }
+
 function stepLabel(st) {
   if (st.gate) {
     return (GATE_LABELS[st.gate] || st.gate) + (st.check ? " " + st.check : "") +
-      " (höchstens " + (st.timeout || "10m0s") + ")";
+      " (höchstens " + goDur(st.timeout || "10m0s") + ")";
   }
   if (st.approve) return "Freigabe: " + st.approve + (st.once ? " (gilt für alle Hosts)" : "");
-  if (!st.action) return "warten " + st.wait;
+  if (!st.action) return "warten " + goDur(st.wait);
   if (st.action === "command.run") return "Befehl " + (st.params?.name || "");
   const params = Object.entries(st.params || {}).map(([k, v]) => k + "=" + v).join(", ");
   return (ACTION_LABELS[st.action] || st.action) + (params ? " (" + params + ")" : "");

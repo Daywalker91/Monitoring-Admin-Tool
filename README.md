@@ -312,10 +312,12 @@ Alle `/api/*`-Endpunkte außer Login/Logout erfordern eine Session.
 | `GET/POST /api/cluster/ignore`  | Ausnahmen für Cluster-Alarme (`{"patterns":["ns/name*"]}`) |
 | `GET /api/playbooks`            | Playbooks mit Prüfergebnis je Datei        |
 | `POST /api/playbooks/reload`    | Playbook-Ordner neu lesen                  |
-| `GET /api/playbooks/{name}/preview` | Zielhosts mit Warnungen vor dem Start  |
+| `GET /api/playbooks/{name}/preview` | Probelauf: Einschätzung je Host und Schritt, Hindernisse |
 | `POST /api/playbooks/{name}/run` | Lauf starten                              |
 | `GET /api/playbook-runs[/{id}]` | Verlauf der Läufe / ein Lauf mit allen Schritten |
 | `POST /api/playbook-runs/{id}/cancel` | Lauf nach dem aktuellen Schritt beenden |
+| `POST /api/playbook-runs/{id}/approve` | Freigabe-Schritt freigeben oder ablehnen (`{"host","step","ok"}`) |
+| `POST /api/playbooks/{name}/schedule` | Zeitplan pausieren oder fortsetzen (`{"paused": true}`) |
 | `POST /api/hosts/{id}/terminal` | Ticket fürs Web-Terminal (`{"password","cols","rows"}`, einmalig, 30 s) |
 | `GET /ws/terminal?ticket=…`     | WebSocket des Browsers für eine Terminal-Sitzung (Session und Origin) |
 | `GET /api/hosts/{id}/terminal-sessions` | letzte Terminal-Sitzungen (Audit, ohne Ein-/Ausgabe) |
@@ -458,7 +460,9 @@ steps:
 Im Tab „Playbooks“ zeigt der Probelauf je Host und Schritt, ob er nach heutigem Stand laufen würde (etwa ob
 eine Fähigkeit fehlt oder ein Gate gerade offen ist), ohne etwas auszulösen. Nach dem Start verfolgt man den
 Lauf je Host und Schritt; ein Klick auf einen Schritt zeigt seine Ausgabe. Gates (`host_healthy`,
-`cluster_healthy`, `check_ok`) warten, bis Host, Cluster oder ein externer Check wieder gesund sind. `serial` hält nach einem Fehler an, ohne den nächsten Host anzufangen;
+`cluster_healthy`, `check_ok`) warten, bis Host, Cluster oder ein externer Check wieder gesund sind;
+Freigabe-Schritte (`approve`) halten den Lauf an, bis jemand in der GUI freigibt (mit Nachricht über ntfy/E-Mail).
+Mit `schedule: monthly first sun 03:00` startet ein Playbook nach Zeitplan (Zeitzone `TZ`, in der GUI pausierbar). `serial` hält nach einem Fehler an, ohne den nächsten Host anzufangen;
 `parallel` startet bis `max_parallel` Hosts gleichzeitig. Startet der Server mitten im Lauf neu (etwa weil
 sein Pod beim drain umzieht), macht er dort weiter, ohne einen gestarteten Schritt doppelt auszulösen.
 Exit-Codes (`ok_exit_codes`, `when: exit_code`) meldet der Agent ab v1.6.0.

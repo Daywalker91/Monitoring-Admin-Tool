@@ -218,7 +218,7 @@ func (s *Server) execGate(ctx context.Context, run *pbRun, step playbook.Step, s
 			okSince = time.Time{}
 		}
 		if now.Unix() >= st.Until {
-			return finish(false, fmt.Sprintf("nach %v nicht erfüllt: %s", step.StepTimeout(), detail))
+			return finish(false, fmt.Sprintf("nach %s nicht erfüllt: %s", shortDur(step.StepTimeout()), detail))
 		}
 		if detail != st.Message {
 			st.Message = detail

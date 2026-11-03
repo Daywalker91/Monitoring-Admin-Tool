@@ -118,7 +118,7 @@ func TestPreviewStep(t *testing.T) {
 		online bool
 		want   previewStep
 	}{
-		{playbook.Step{Wait: playbook.Duration(5 * time.Minute)}, true, previewStep{previewInfo, "wartet 5m0s"}},
+		{playbook.Step{Wait: playbook.Duration(5 * time.Minute)}, true, previewStep{previewInfo, "wartet 5m"}},
 		{playbook.Step{Action: proto.ActionPackagesUpgrade}, true, previewStep{previewInfo, "4 updates ausstehend (1 sicherheit)"}},
 		{playbook.Step{Action: proto.ActionPackagesUpgrade}, false, previewStep{previewWarn, "host ist offline"}},
 		{playbook.Step{Action: proto.ActionCommandRun, Params: map[string]string{"name": "amp-update"}}, true, previewStep{previewOK, "bereit"}},

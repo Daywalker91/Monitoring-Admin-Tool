@@ -100,7 +100,7 @@ func (s *Server) askApproval(run *pbRun, step playbook.Step, st store.PlaybookSt
 	s.log.Info("playbook wartet auf freigabe", "run_id", run.id, "playbook", run.pb.Name, "schritt", step.ID, "host", host)
 	if s.notifier != nil {
 		s.notifier.Enqueue(notify.Message{Title: "Playbook " + run.pb.Name + " wartet auf Freigabe",
-			Body: step.Approve + " (" + host + ", Frist " + step.StepTimeout().String() + ")", High: true, Tag: "raised_hand"})
+			Body: step.Approve + " (" + host + ", Frist " + shortDur(step.StepTimeout()) + ")", High: true, Tag: "raised_hand"})
 	}
 }
 
@@ -125,7 +125,7 @@ func (s *Server) execApprove(ctx context.Context, run *pbRun, step playbook.Step
 			return finish(a.ok, msg)
 		}
 		if s.nowFor().Unix() >= st.Until {
-			return finish(false, "keine freigabe nach "+step.StepTimeout().String())
+			return finish(false, "keine freigabe nach "+shortDur(step.StepTimeout()))
 		}
 		if !sleepCtx(ctx, pbPoll) {
 			return st, false
