@@ -15,7 +15,9 @@ if [ -f "$STREAM_FILE" ]; then
 fi
 
 command -v apt-get >/dev/null 2>&1 || { echo "kein apt: Skript nicht unterstützt"; exit 2; }
-apt-get update -qq >/dev/null 2>&1 || { echo "apt-get update fehlgeschlagen"; exit 2; }
+if ! out=$(apt-get update -qq 2>&1); then
+  echo "apt-get update fehlgeschlagen:"; printf '%s\n' "$out" | tail -n 20; exit 2
+fi
 inst=$(apt-cache policy ampinstmgr | awk '/Installed:/ {print $2}')
 cand=$(apt-cache policy ampinstmgr | awk '/Candidate:/ {print $2}')
 if [ -z "$inst" ] || [ "$inst" = "(none)" ]; then echo "ampinstmgr nicht installiert"; exit 2; fi
