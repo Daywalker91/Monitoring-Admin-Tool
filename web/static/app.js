@@ -681,13 +681,23 @@ async function fetchJSON(url) {
   return resp.json();
 }
 
+// Nach dem Entsperren des Handys scheitert der erste Abruf oft (tote Verbindung,
+// Netz noch nicht da): Fehler erst nach zwei Fehlschlägen in Folge zeigen.
+// refreshApplied verhindert, dass ein alter, später fertiger Abruf einen neueren überschreibt.
+let refreshSeq = 0;
+let refreshApplied = 0;
+let refreshFailures = 0;
+
 async function refresh() {
   const errBox = document.getElementById("error");
+  const seq = ++refreshSeq;
   try {
     // In der Alarmansicht auch beendete Alarme laden, sonst nur aktive.
     const withPast = currentView === "alerts";
     const [hosts, alerts] = await Promise.all([fetchJSON("api/hosts"), fetchJSON("api/alerts" + (withPast ? "?all=1" : "")),
       loadUpdateStatus()]);
+    if (seq < refreshApplied) return;
+    refreshApplied = seq;
     activeAlerts = alerts.filter(a => a.resolved_at === null);
     renderAlertBadge();
     if (withPast) renderAlerts(alerts);
@@ -701,9 +711,12 @@ async function refresh() {
     if (currentView === "checks") await loadChecks();
     if (currentView === "cluster") await loadCluster();
     if (currentView === "playbooks") await loadPlaybooks();
+    refreshFailures = 0;
     errBox.hidden = true;
     document.getElementById("updated").textContent = "aktualisiert " + new Date().toLocaleTimeString("de-DE");
   } catch (e) {
+    if (seq < refreshApplied || ++refreshFailures < 2) return;
+    refreshApplied = seq;
     errBox.textContent = "Server nicht erreichbar: " + e.message;
     errBox.hidden = false;
   }
@@ -729,3 +742,5 @@ document.getElementById("alert-badge").addEventListener("click", () => showView(
 initUser();
 showView(currentView);
 setInterval(refresh, REFRESH_MS);
+// Zurück auf der Seite (Handy entsperrt, Tab gewechselt): gleich neu laden statt bis zu 5 s alte Werte.
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
