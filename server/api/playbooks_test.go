@@ -88,7 +88,7 @@ func (f *fakeAgents) started() string {
 
 // newPlaybookServer legt einen Server mit Store, Hosts (ID → Gruppe) und den
 // Playbooks (Dateiname → YAML) an und startet RunPlaybooks.
-func newPlaybookServer(t *testing.T, dbPath string, hosts map[string]string, books map[string]string) (*Server, *fakeAgents, context.CancelFunc) {
+func newPlaybookServer(t *testing.T, dbPath string, hosts map[string]string, books map[string]string) (*Server, *fakeAgents, func()) {
 	t.Helper()
 	oldPoll := pbPoll
 	pbPoll = 10 * time.Millisecond
@@ -118,7 +118,8 @@ func newPlaybookServer(t *testing.T, dbPath string, hosts map[string]string, boo
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() { s.RunPlaybooks(runCtx); close(done) }()
-	t.Cleanup(func() { cancel(); <-done })
+	stop := func() { cancel(); <-done } // wie ein Ende des Servers
+	t.Cleanup(stop)
 	for i := 0; ; i++ {
 		s.pb.mu.Lock()
 		ready := s.pb.ctx != nil && !s.pb.loadedAt.IsZero()
@@ -131,7 +132,7 @@ func newPlaybookServer(t *testing.T, dbPath string, hosts map[string]string, boo
 		}
 		time.Sleep(time.Millisecond)
 	}
-	return s, f, cancel
+	return s, f, stop
 }
 
 func waitRun(t *testing.T, s *Server, id string) store.PlaybookRun {

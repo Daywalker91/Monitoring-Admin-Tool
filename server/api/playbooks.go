@@ -46,6 +46,7 @@ type playbooks struct {
 	loadErr  string
 	loadedAt time.Time
 	runs     map[string]*pbRun // aktive Läufe nach ID
+	wg       sync.WaitGroup    // laufende execRun
 }
 
 // pbRun ist ein aktiver Lauf.
@@ -123,6 +124,7 @@ func (s *Server) RunPlaybooks(ctx context.Context) {
 		s.resumeRun(ctx, r)
 	}
 	<-ctx.Done()
+	s.pb.wg.Wait()
 }
 
 // resumeRun setzt einen gespeicherten Lauf fort.
@@ -155,6 +157,7 @@ func (s *Server) resumeRun(ctx context.Context, r store.PlaybookRun) {
 	s.log.Info("playbook-lauf wird fortgesetzt", "run_id", r.ID, "playbook", r.Name)
 	s.pb.mu.Lock()
 	s.pb.runs[r.ID] = run
+	s.pb.wg.Add(1)
 	s.pb.mu.Unlock()
 	go s.execRun(ctx, run)
 }
@@ -237,8 +240,8 @@ func (s *Server) startPlaybook(ctx context.Context, name, user, remote string) (
 
 	s.pb.mu.Lock()
 	defer s.pb.mu.Unlock()
-	if s.pb.ctx == nil {
-		return store.PlaybookRun{}, errors.New("playbooks laufen noch nicht")
+	if s.pb.ctx == nil || s.pb.ctx.Err() != nil {
+		return store.PlaybookRun{}, errors.New("playbooks laufen nicht (server startet oder endet)")
 	}
 	for _, r := range s.pb.runs {
 		if r.pb.Name == name {
@@ -275,6 +278,7 @@ func (s *Server) startPlaybook(ctx context.Context, name, user, remote string) (
 		return store.PlaybookRun{}, errors.New("interner fehler")
 	}
 	s.pb.runs[run.id] = run
+	s.pb.wg.Add(1)
 	s.log.Info("playbook gestartet", "run_id", run.id, "playbook", p.Name, "hosts", hosts, "user", user, "remote", remote)
 	go s.execRun(s.pb.ctx, run)
 	return rec, nil
@@ -300,6 +304,7 @@ func (s *Server) cancelPlaybook(ctx context.Context, id string) (bool, error) {
 // einem Abbruch) startet kein weiterer Host; laufende machen weiter bis zum
 // Ende ihres Schritts.
 func (s *Server) execRun(ctx context.Context, run *pbRun) {
+	defer s.pb.wg.Done()
 	sem := make(chan struct{}, run.pb.Parallel(len(run.hosts)))
 	outcomes := make([]hostOutcome, len(run.hosts))
 	var wg sync.WaitGroup
