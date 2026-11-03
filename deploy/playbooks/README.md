@@ -44,6 +44,19 @@ steps:
 
 Kann ein Gate nie erfüllt werden (keine k3s-Anbindung, Check unbekannt oder abgeschaltet), schlägt es sofort fehl.
 
+**Freigaben** halten den Lauf an, bis jemand in der GUI (Laufansicht) „Freigeben“ oder „Ablehnen“ klickt:
+
+```yaml
+  - id: freigabe
+    approve: "node1 ist durch – mit den übrigen weitermachen?"   # höchstens 200 Zeichen
+    once: true          # eine Entscheidung gilt für alle Hosts des Laufs (sonst je Host)
+    timeout: 24h        # Standard 24h, höchstens 7 Tage
+```
+
+Beim Warten geht eine Nachricht über ntfy/E-Mail raus (bei `once` einmal je Lauf). Ablehnen und Fristablauf
+gelten als Fehler (`on_error` entscheidet). Wer entschieden hat, steht beim Schritt und im Log. Freigeben kann
+jeder angemeldete Benutzer; ein erneutes Passwort wird nicht verlangt (wie beim Start eines Playbooks).
+
 **Aktionen:** `service.start|stop|restart`, `packages.refresh`, `packages.upgrade`, `package.install`,
 `user.create`, `system.reboot`, `log.read`, `command.run` und `k3s.drain_reboot`. Die Parameter prüft der
 Server genau wie bei einem Job aus der GUI. `agent.update` ist nicht erlaubt (eigener Ablauf).

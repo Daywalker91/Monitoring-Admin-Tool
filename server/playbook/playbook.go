@@ -46,11 +46,14 @@ const (
 	GateCheckOK        = "check_ok"        // externer Check (Name in check) meldet ok
 )
 
-// Fristen für Gates.
+// Fristen für Gates und Freigaben.
 const (
-	DefaultGateTimeout = 10 * time.Minute
-	MaxGateTimeout     = time.Hour
-	maxCheckNameLen    = 100
+	DefaultGateTimeout    = 10 * time.Minute
+	MaxGateTimeout        = time.Hour
+	DefaultApproveTimeout = 24 * time.Hour
+	MaxApproveTimeout     = 7 * 24 * time.Hour
+	maxCheckNameLen       = 100
+	maxApproveLen         = 200
 )
 
 var gates = map[string]bool{GateHostHealthy: true, GateClusterHealthy: true, GateCheckOK: true}
@@ -89,8 +92,8 @@ type Playbook struct {
 	Steps       []Step   `yaml:"steps" json:"steps"`
 }
 
-// Step ist genau eines von: Aktion (Action, Params), Wartezeit (Wait) oder
-// Gate (Gate, Check, Timeout).
+// Step ist genau eines von: Aktion (Action, Params), Wartezeit (Wait), Gate
+// (Gate, Check, Timeout) oder Freigabe (Approve, Once, Timeout).
 type Step struct {
 	ID          string            `yaml:"id" json:"id"`
 	Action      string            `yaml:"action,omitempty" json:"action,omitempty"`
@@ -100,6 +103,8 @@ type Step struct {
 	Gate        string            `yaml:"gate,omitempty" json:"gate,omitempty"`
 	Check       string            `yaml:"check,omitempty" json:"check,omitempty"` // nur bei gate: check_ok
 	Timeout     Duration          `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	Approve     string            `yaml:"approve,omitempty" json:"approve,omitempty"` // Frage an den Menschen
+	Once        bool              `yaml:"once,omitempty" json:"once,omitempty"`       // eine Freigabe gilt für alle Hosts des Laufs
 	When        *When             `yaml:"when,omitempty" json:"when,omitempty"`
 	OnError     string            `yaml:"on_error,omitempty" json:"on_error,omitempty"`
 }
@@ -137,18 +142,24 @@ func (d Duration) MarshalJSON() ([]byte, error) {
 }
 
 // IsWait meldet, ob der Schritt nur eine feste Zeit wartet.
-func (s Step) IsWait() bool { return s.Action == "" && s.Gate == "" }
+func (s Step) IsWait() bool { return s.Action == "" && s.Gate == "" && s.Approve == "" }
 
 // IsGate meldet, ob der Schritt auf ein Gate wartet.
 func (s Step) IsGate() bool { return s.Action == "" && s.Gate != "" }
 
+// IsApprove meldet, ob der Schritt auf eine Freigabe in der GUI wartet.
+func (s Step) IsApprove() bool { return s.Action == "" && s.Gate == "" && s.Approve != "" }
+
 // IsAction meldet, ob der Schritt einen Job auslöst.
 func (s Step) IsAction() bool { return s.Action != "" }
 
-// GateTimeout liefert die Frist eines Gates.
-func (s Step) GateTimeout() time.Duration {
-	if s.Timeout > 0 {
+// StepTimeout liefert die Frist eines Gates bzw. einer Freigabe.
+func (s Step) StepTimeout() time.Duration {
+	switch {
+	case s.Timeout > 0:
 		return time.Duration(s.Timeout)
+	case s.IsApprove():
+		return DefaultApproveTimeout
 	}
 	return DefaultGateTimeout
 }
@@ -284,22 +295,28 @@ func (p *Playbook) validateStep(s Step, seen map[string]int) []error {
 		add("on_error: stop oder continue")
 	}
 	kinds := 0
-	for _, set := range []bool{s.Action != "", s.Wait != 0, s.Gate != ""} {
+	for _, set := range []bool{s.Action != "", s.Wait != 0, s.Gate != "", s.Approve != ""} {
 		if set {
 			kinds++
 		}
 	}
 	if kinds > 1 {
-		add("action, wait und gate schließen sich aus")
+		add("action, wait, gate und approve schließen sich aus")
 	}
-	if !s.IsGate() && (s.Check != "" || s.Timeout != 0) {
-		add("check und timeout nur bei gate")
+	if !s.IsGate() && s.Check != "" {
+		add("check nur bei gate")
+	}
+	if !s.IsGate() && !s.IsApprove() && s.Timeout != 0 {
+		add("timeout nur bei gate und approve")
+	}
+	if !s.IsApprove() && s.Once {
+		add("once nur bei approve")
 	}
 	switch {
 	case s.IsWait():
 		switch {
 		case s.Wait <= 0:
-			add("action, wait oder gate fehlt")
+			add("action, wait, gate oder approve fehlt")
 		case time.Duration(s.Wait) > MaxWait:
 			add("wait: höchstens %v", MaxWait)
 		}
@@ -321,6 +338,16 @@ func (p *Playbook) validateStep(s Step, seen map[string]int) []error {
 		}
 		if len(s.Params) > 0 || len(s.OKExitCodes) > 0 {
 			add("gate-schritte haben keine params und keine ok_exit_codes")
+		}
+	case s.IsApprove():
+		if len(s.Approve) > maxApproveLen || hasControl(s.Approve) {
+			add("approve: höchstens %d zeichen, keine steuerzeichen", maxApproveLen)
+		}
+		if s.Timeout < 0 || time.Duration(s.Timeout) > MaxApproveTimeout {
+			add("timeout: höchstens %v", MaxApproveTimeout)
+		}
+		if len(s.Params) > 0 || len(s.OKExitCodes) > 0 {
+			add("approve-schritte haben keine params und keine ok_exit_codes")
 		}
 	default:
 		switch {

@@ -62,9 +62,11 @@ type pbRun struct {
 	hosts            []string
 	cancel           atomic.Bool
 
-	mu    sync.Mutex
-	steps map[string][]store.PlaybookStep // je Host, nach Index
-	halt  bool                            // keine weiteren Hosts starten
+	mu        sync.Mutex
+	steps     map[string][]store.PlaybookStep // je Host, nach Index
+	halt      bool                            // keine weiteren Hosts starten
+	approvals map[string]approval             // Freigaben: "<host>/<index>" bzw. "*/<index>" bei once
+	asked     map[int]bool                    // once-Freigaben, für die schon eine Nachricht raus ist
 }
 
 func (r *pbRun) halted() bool {
@@ -158,6 +160,7 @@ func (s *Server) resumeRun(ctx context.Context, r store.PlaybookRun) {
 			if st.Status == store.StepFailed && p.EffectiveOnError(p.Steps[i]) == playbook.OnErrorStop {
 				run.halt = true
 			}
+			run.restoreApproval(p.Steps[i], st)
 		}
 	}
 	s.log.Info("playbook-lauf wird fortgesetzt", "run_id", r.ID, "playbook", r.Name)
@@ -488,8 +491,12 @@ func (s *Server) execStep(ctx context.Context, run *pbRun, step playbook.Step, s
 			st.Until = s.nowFor().Add(time.Duration(step.Wait)).Unix()
 			s.saveStep(run, st)
 		case step.IsGate():
-			st.Until = s.nowFor().Add(step.GateTimeout()).Unix()
+			st.Until = s.nowFor().Add(step.StepTimeout()).Unix()
 			s.saveStep(run, st)
+		case step.IsApprove():
+			st.Until, st.Message = s.nowFor().Add(step.StepTimeout()).Unix(), msgAwaitApproval
+			s.saveStep(run, st)
+			s.askApproval(run, step, st)
 		default:
 			h, online, err := s.awaitOnline(ctx, st.HostID)
 			switch {
@@ -510,6 +517,9 @@ func (s *Server) execStep(ctx context.Context, run *pbRun, step playbook.Step, s
 
 	if step.IsGate() {
 		return s.execGate(ctx, run, step, st, finish)
+	}
+	if step.IsApprove() {
+		return s.execApprove(ctx, run, step, st, finish)
 	}
 	if step.IsWait() {
 		for s.nowFor().Unix() < st.Until {

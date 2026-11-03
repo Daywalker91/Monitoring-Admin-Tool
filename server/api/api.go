@@ -138,6 +138,7 @@ func (s *Server) Handler() http.Handler {
 	private.HandleFunc("GET /api/playbook-runs", s.handlePlaybookRuns)
 	private.HandleFunc("GET /api/playbook-runs/{id}", s.handlePlaybookRun)
 	private.HandleFunc("POST /api/playbook-runs/{id}/cancel", s.handleCancelPlaybookRun)
+	private.HandleFunc("POST /api/playbook-runs/{id}/approve", s.handleApprovePlaybookStep)
 	private.HandleFunc("POST /api/hosts/{id}/terminal", s.handleTerminalTicket)
 	private.HandleFunc("GET /api/hosts/{id}/terminal-sessions", s.handleTerminalSessions)
 	private.HandleFunc("GET /ws/terminal", s.handleTerminalBrowser)

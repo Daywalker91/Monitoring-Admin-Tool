@@ -24,6 +24,7 @@ function stepLabel(st) {
     return (GATE_LABELS[st.gate] || st.gate) + (st.check ? " " + st.check : "") +
       " (höchstens " + (st.timeout || "10m0s") + ")";
   }
+  if (st.approve) return "Freigabe: " + st.approve + (st.once ? " (gilt für alle Hosts)" : "");
   if (!st.action) return "warten " + st.wait;
   if (st.action === "command.run") return "Befehl " + (st.params?.name || "");
   const params = Object.entries(st.params || {}).map(([k, v]) => k + "=" + v).join(", ");
@@ -286,10 +287,11 @@ function renderRun(r) {
         td.append(el("span", " " + fmtDuration(stop - st.started_at), "muted small"));
       }
       if (st.status === "running" && st.until && st.until > r.now) {
-        const gate = steps[st.index]?.gate;
-        td.append(el("div", (gate ? "Frist noch " : "noch ") + fmtDuration(st.until - r.now), "muted small"));
+        const def = steps[st.index] || {};
+        td.append(el("div", (def.gate || def.approve ? "Frist noch " : "noch ") + fmtDuration(st.until - r.now), "muted small"));
       }
       if (st.message) td.append(el("div", st.message, "small pb-msg"));
+      if (st.status === "running" && steps[st.index]?.approve && !r.finished_at) td.append(approveButtons(r, hostID, st.index));
       const tip = [stepLabel(steps[st.index] || {}), st.message].filter(Boolean);
       if (st.job_id) {
         td.classList.add("clickable");
@@ -304,6 +306,36 @@ function renderRun(r) {
   const table = document.getElementById("pb-grid");
   table.tHead.replaceChildren(head);
   table.tBodies[0].replaceChildren(...rows);
+}
+
+// approveButtons: Freigeben oder Ablehnen eines wartenden Freigabe-Schritts.
+function approveButtons(r, hostID, index) {
+  const step = r.playbook.steps[index];
+  const box = el("div", null, "pb-approve");
+  for (const [label, ok, cls] of [["Freigeben", true, "primary"], ["Ablehnen", false, "danger"]]) {
+    const b = el("button", label, cls + " small-btn");
+    b.type = "button";
+    b.addEventListener("click", async ev => {
+      ev.stopPropagation();
+      const who = step.once ? "alle Hosts dieses Laufs" : (r.host_names[hostID] || hostID);
+      if (!confirm(label + " für " + who + "?\n\n" + step.approve)) return;
+      box.querySelectorAll("button").forEach(x => { x.disabled = true; });
+      try {
+        const resp = await fetch("api/playbook-runs/" + encodeURIComponent(r.id) + "/approve", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ host: hostID, step: index, ok }),
+        });
+        if (resp.status === 401) { toLogin(); return; }
+        if (!resp.ok) throw new Error((await resp.text()).trim() || "HTTP " + resp.status);
+        await loadRun(r.id);
+      } catch (e) {
+        pbStatus(e.message, true);
+        box.querySelectorAll("button").forEach(x => { x.disabled = false; });
+      }
+    });
+    box.append(b);
+  }
+  return box;
 }
 
 document.getElementById("pb-run-cancel").addEventListener("click", async () => {
