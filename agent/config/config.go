@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -44,6 +45,56 @@ type Config struct {
 	// {"backup": {"argv": ["/opt/backup.sh"], "timeout_sec": 600}}. Der Eintrag
 	// selbst ist die Freischaltung; der Server wählt nur den Namen.
 	Commands map[string]commands.Spec `json:"commands"`
+	// Terminal schaltet das Web-Terminal frei (M11). Die einzige freie Shell in MAT,
+	// deshalb nur hier am Host und nie als root. nil = aus.
+	Terminal *Terminal `json:"terminal"`
+}
+
+// Terminal ist der Block "terminal" in agent.json.
+type Terminal struct {
+	User           string `json:"user"`             // unprivilegierter Benutzer, als der die Shell läuft
+	Shell          string `json:"shell"`            // absoluter Pfad, muss in /etc/shells stehen
+	MaxSessions    int    `json:"max_sessions"`     // gleichzeitige Sitzungen (Standard 1)
+	IdleTimeoutSec int    `json:"idle_timeout_sec"` // ohne Eingabe (Standard 900)
+	MaxDurationSec int    `json:"max_duration_sec"` // Gesamtdauer (Standard 3600)
+}
+
+// Grenzen für den Terminal-Block.
+const (
+	TerminalMaxSessions = 3
+	terminalMinTimeout  = 60
+	terminalMaxTimeout  = 12 * 3600
+)
+
+// applyDefaults setzt fehlende Werte.
+func (t *Terminal) applyDefaults() {
+	if t.MaxSessions == 0 {
+		t.MaxSessions = 1
+	}
+	if t.IdleTimeoutSec == 0 {
+		t.IdleTimeoutSec = 900
+	}
+	if t.MaxDurationSec == 0 {
+		t.MaxDurationSec = 3600
+	}
+}
+
+// validate prüft, was sich ohne Blick auf das System prüfen lässt (Benutzer und
+// /etc/shells prüft agent/terminal beim Start).
+func (t *Terminal) validate() error {
+	switch {
+	case !proto.ValidUserName(t.User):
+		return fmt.Errorf("terminal: ungültiger oder reservierter benutzer %q (root ist nie erlaubt)", t.User)
+	case !strings.HasPrefix(t.Shell, "/") || path.Clean(t.Shell) != t.Shell:
+		return fmt.Errorf("terminal: shell muss ein absoluter pfad sein, ist %q", t.Shell)
+	case t.MaxSessions < 1 || t.MaxSessions > TerminalMaxSessions:
+		return fmt.Errorf("terminal: max_sessions muss zwischen 1 und %d liegen", TerminalMaxSessions)
+	case t.IdleTimeoutSec < terminalMinTimeout || t.IdleTimeoutSec > terminalMaxTimeout:
+		return fmt.Errorf("terminal: idle_timeout_sec muss zwischen %d und %d liegen", terminalMinTimeout, terminalMaxTimeout)
+	case t.MaxDurationSec < terminalMinTimeout || t.MaxDurationSec > terminalMaxTimeout:
+		return fmt.Errorf("terminal: max_duration_sec muss zwischen %d und %d liegen", terminalMinTimeout, terminalMaxTimeout)
+	}
+	return nil
 }
 
 // jobCapabilities sind die Fähigkeiten, die sich über Jobs freischalten lassen.
@@ -155,6 +206,12 @@ func (c *Config) Validate() error {
 	for name, s := range c.Commands {
 		if err := commands.Check(name, s, runtime.GOOS); err != nil {
 			return fmt.Errorf("commands: %w", err)
+		}
+	}
+	if c.Terminal != nil {
+		c.Terminal.applyDefaults()
+		if err := c.Terminal.validate(); err != nil {
+			return err
 		}
 	}
 	return nil

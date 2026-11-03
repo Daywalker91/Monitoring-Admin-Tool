@@ -82,6 +82,40 @@ func TestJobs(t *testing.T) {
 	}
 }
 
+func TestTerminal(t *testing.T) {
+	t.Setenv("MAT_AGENT_TOKEN", "")
+	path := filepath.Join(t.TempDir(), "agent.json")
+	load := func(term string) (Config, error) {
+		os.WriteFile(path, []byte(`{"server_url":"ws://a/ws","token":"t","terminal":`+term+`}`), 0o600)
+		return Load([]string{"-config", path})
+	}
+	cfg, err := load(`{"user":"hans","shell":"/bin/bash"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tc := cfg.Terminal; tc.MaxSessions != 1 || tc.IdleTimeoutSec != 900 || tc.MaxDurationSec != 3600 {
+		t.Errorf("standardwerte: %+v", tc)
+	}
+	if cfg, _ := load(`null`); cfg.Terminal != nil {
+		t.Error("ohne eintrag freigeschaltet")
+	}
+	for _, bad := range []string{
+		`{"user":"root","shell":"/bin/bash"}`,
+		`{"user":"","shell":"/bin/bash"}`,
+		`{"user":"Hans","shell":"/bin/bash"}`,
+		`{"user":"hans","shell":"bash"}`,
+		`{"user":"hans","shell":"/bin/../bin/bash"}`,
+		`{"user":"hans"}`,
+		`{"user":"hans","shell":"/bin/bash","max_sessions":4}`,
+		`{"user":"hans","shell":"/bin/bash","idle_timeout_sec":10}`,
+		`{"user":"hans","shell":"/bin/bash","max_duration_sec":86400}`,
+	} {
+		if _, err := load(bad); err == nil {
+			t.Errorf("terminal %s akzeptiert", bad)
+		}
+	}
+}
+
 func TestInsecure(t *testing.T) {
 	cases := map[string]bool{
 		"ws://127.0.0.1:8080/ws/agent": false,

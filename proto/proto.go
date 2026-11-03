@@ -65,6 +65,9 @@ type Hello struct {
 	LogSources []string `json:"log_sources,omitempty"`
 	// Commands sind die freigegebenen Befehle (agent.json, ohne Befehlszeile).
 	Commands []CommandInfo `json:"commands,omitempty"`
+	// TerminalUser ist der Benutzer, als der das Web-Terminal läuft (nur mit
+	// Fähigkeit "terminal"; zur Anzeige in der GUI).
+	TerminalUser string `json:"terminal_user,omitempty"`
 }
 
 // Validate prüft die Pflichtfelder einer Hello-Nachricht.
@@ -86,6 +89,9 @@ func (h *Hello) Validate() error {
 	}
 	if !ValidCommands(h.Commands) {
 		return fmt.Errorf("ungültige commands")
+	}
+	if h.TerminalUser != "" && !ValidUserName(h.TerminalUser) {
+		return fmt.Errorf("ungültiger terminal_user")
 	}
 	return nil
 }
