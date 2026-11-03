@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
+	"os/exec"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -355,7 +356,7 @@ func (c *Client) handleMessage(runCtx, ctx context.Context, conn *websocket.Conn
 		stopProgress()
 		res := proto.JobResult{JobID: job.JobID, OK: err == nil, Output: proto.CleanOutput(out, proto.MaxJobOutputLen)}
 		if err != nil {
-			res.ExitCode = 1
+			res.ExitCode = exitCode(err)
 			res.Error = proto.CleanOutput(err.Error(), 1024)
 			c.log.Warn("job fehlgeschlagen", "job_id", job.JobID, "action", job.Action, "err", err)
 		} else {
@@ -428,6 +429,16 @@ func trigger(ch chan struct{}) {
 	case ch <- struct{}{}:
 	default:
 	}
+}
+
+// exitCode liefert den Exit-Code eines fehlgeschlagenen Programms, sonst 1.
+// Playbooks werten ihn aus (z. B. 10 = „nichts zu tun“ bei eigenen Befehlen).
+func exitCode(err error) int {
+	var ee *exec.ExitError
+	if errors.As(err, &ee) && ee.ExitCode() > 0 {
+		return ee.ExitCode()
+	}
+	return 1
 }
 
 // attach macht conn zur aktuellen Verbindung und schickt wartende Ergebnisse nach.
