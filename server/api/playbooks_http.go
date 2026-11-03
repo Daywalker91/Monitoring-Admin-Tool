@@ -25,14 +25,26 @@ type playbookItem struct {
 	Running string `json:"running,omitempty"` // ID des aktiven Laufs
 }
 
-func (s *Server) handlePlaybooks(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handlePlaybooks(w http.ResponseWriter, r *http.Request) {
 	if s.pb == nil {
 		writeJSON(w, playbookList{Files: []playbookItem{}})
+		return
+	}
+	hosts, err := s.store.ListHosts(r.Context())
+	if err != nil {
+		s.log.Error("hosts lesen", "err", err)
+		http.Error(w, "interner fehler", http.StatusInternalServerError)
 		return
 	}
 	s.pb.mu.Lock()
 	out := playbookList{Enabled: true, LoadedAt: s.pb.loadedAt.Unix(), Error: s.pb.loadErr, Files: []playbookItem{}}
 	for _, f := range s.pb.files {
+		// Ziele mit dem aktuellen Host-Stand prüfen: Hosts kommen und gehen.
+		if f.OK() {
+			if _, err := f.Playbook.Resolve(pbHosts(hosts)); err != nil {
+				f.Err = err.Error()
+			}
+		}
 		it := playbookItem{File: f}
 		for id, r := range s.pb.runs {
 			if f.Playbook != nil && r.pb.Name == f.Playbook.Name {
@@ -62,7 +74,7 @@ func (s *Server) handleReloadPlaybooks(w http.ResponseWriter, r *http.Request) {
 	if !s.requirePlaybooks(w) {
 		return
 	}
-	if err := s.reloadPlaybooks(r.Context()); err != nil {
+	if err := s.reloadPlaybooks(); err != nil {
 		s.log.Warn("playbooks laden", "err", err)
 	}
 	s.log.Info("playbooks neu geladen", "user", userFrom(r.Context()), "remote", r.RemoteAddr)

@@ -25,6 +25,10 @@ import (
 var (
 	pbPoll          = 2 * time.Second
 	pbRebootTimeout = 15 * time.Minute // nach system.reboot: bis der Host zurück ist
+	// pbOnlineWait: so lange wartet ein Schritt auf die Verbindung des Hosts.
+	// Nach einem Neustart des Servers brauchen Agenten bis zu einer Minute
+	// (Backoff), bis sie wieder verbunden sind.
+	pbOnlineWait = 2 * time.Minute
 )
 
 // playbookActions sind die Zugriffe des Runners auf Hosts und Agenten
@@ -113,7 +117,7 @@ func (s *Server) RunPlaybooks(ctx context.Context) {
 	s.pb.mu.Lock()
 	s.pb.ctx = ctx
 	s.pb.mu.Unlock()
-	if err := s.reloadPlaybooks(ctx); err != nil {
+	if err := s.reloadPlaybooks(); err != nil {
 		s.log.Warn("playbooks laden", "err", err)
 	}
 	runs, err := s.store.ActivePlaybookRuns(ctx)
@@ -163,12 +167,8 @@ func (s *Server) resumeRun(ctx context.Context, r store.PlaybookRun) {
 }
 
 // reloadPlaybooks liest den Ordner neu.
-func (s *Server) reloadPlaybooks(ctx context.Context) error {
-	hosts, err := s.store.ListHosts(ctx)
-	if err != nil {
-		return fmt.Errorf("hosts lesen: %w", err)
-	}
-	files, err := playbook.LoadDir(s.pb.dir, pbHosts(hosts))
+func (s *Server) reloadPlaybooks() error {
+	files, err := playbook.LoadDir(s.pb.dir)
 	s.pb.mu.Lock()
 	defer s.pb.mu.Unlock()
 	s.pb.loadedAt = s.nowFor()
@@ -343,7 +343,11 @@ func runStatus(outcomes []hostOutcome, cancelled bool) (string, string) {
 	for _, o := range outcomes {
 		count[o]++
 	}
-	parts := []string{fmt.Sprintf("%d hosts", len(outcomes))}
+	hosts := "Hosts"
+	if len(outcomes) == 1 {
+		hosts = "Host"
+	}
+	parts := []string{fmt.Sprintf("%d %s", len(outcomes), hosts)}
 	for _, c := range []struct {
 		o    hostOutcome
 		text string
@@ -469,12 +473,14 @@ func (s *Server) execStep(ctx context.Context, run *pbRun, step playbook.Step, s
 			st.Until = s.nowFor().Add(time.Duration(step.Wait)).Unix()
 			s.saveStep(run, st)
 		} else {
-			h, online, err := s.pb.act.hostState(ctx, st.HostID)
+			h, online, err := s.awaitOnline(ctx, st.HostID)
 			switch {
+			case ctx.Err() != nil:
+				return st, false // noch nichts gesendet: nach dem Neustart wieder pending
 			case err != nil:
 				return finish(false, "host nicht gefunden")
 			case !online:
-				return finish(false, "host ist offline")
+				return finish(false, fmt.Sprintf("host ist offline (%v gewartet)", pbOnlineWait))
 			}
 			st.JobID, st.BootTime = newJobID("job"), h.BootTime
 			s.saveStep(run, st) // Job-ID vor dem Senden speichern: nie doppelt auslösen
@@ -548,6 +554,20 @@ func (s *Server) awaitReboot(ctx context.Context, run *pbRun, st store.PlaybookS
 		}
 		if !sleepCtx(ctx, pbPoll) {
 			return st, false
+		}
+	}
+}
+
+// awaitOnline wartet höchstens pbOnlineWait, bis der Host verbunden ist.
+func (s *Server) awaitOnline(ctx context.Context, id string) (store.Host, bool, error) {
+	deadline := s.nowFor().Add(pbOnlineWait)
+	for {
+		h, online, err := s.pb.act.hostState(ctx, id)
+		if err != nil || online || !s.nowFor().Before(deadline) {
+			return h, online, err
+		}
+		if !sleepCtx(ctx, pbPoll) {
+			return h, false, nil
 		}
 	}
 }

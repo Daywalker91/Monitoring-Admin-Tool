@@ -18,7 +18,8 @@ import (
 func TestPlaybookHTTP(t *testing.T) {
 	s, _, _ := newPlaybookServer(t, filepath.Join(t.TempDir(), "mat.db"), threeHosts(), map[string]string{
 		"p.yaml": fmt.Sprintf(patchBook, "serial", 0, "stop"),
-		"k.yaml": "name: kaputt\ntargets: [n1]\nsteps: [{id: a, action: shell.run}]\n"})
+		"k.yaml": "name: kaputt\ntargets: [n1]\nsteps: [{id: a, action: shell.run}]\n",
+		"z.yaml": "name: ziel\ntargets: [weg]\nsteps: [{id: a, wait: 1s}]\n"})
 	s.auth = auth.New(s.store)
 	hash, _ := auth.HashPassword(testPassword)
 	s.store.SetUser(context.Background(), "admin", hash, time.Now())
@@ -31,10 +32,11 @@ func TestPlaybookHTTP(t *testing.T) {
 	c := login(t, ts)
 
 	var list playbookList
-	if code := getJSON(t, c, ts.URL+"/api/playbooks", &list); code != http.StatusOK || !list.Enabled || len(list.Files) != 2 {
+	if code := getJSON(t, c, ts.URL+"/api/playbooks", &list); code != http.StatusOK || !list.Enabled || len(list.Files) != 3 {
 		t.Fatalf("%d %+v", code, list)
 	}
-	if list.Files[0].File.File != "k.yaml" || !strings.Contains(list.Files[0].Err, "unbekannte aktion") || list.Files[1].Err != "" {
+	if list.Files[0].File.File != "k.yaml" || !strings.Contains(list.Files[0].Err, "unbekannte aktion") || list.Files[1].Err != "" ||
+		list.Files[2].Err != "unbekannte ziele: weg" {
 		t.Errorf("dateien: %+v", list.Files)
 	}
 

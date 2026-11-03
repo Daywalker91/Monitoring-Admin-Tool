@@ -264,7 +264,7 @@ func TestLoadDir(t *testing.T) {
 	write("notiz.txt", "kein playbook")
 	write(".versteckt.yaml", "name: [\n")
 
-	files, err := LoadDir(dir, []Host{{ID: "gs3"}})
+	files, err := LoadDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,13 +281,13 @@ func TestLoadDir(t *testing.T) {
 	if got["kaputt.yml"].OK() || got["kaputt.yml"].Playbook != nil {
 		t.Error("kaputt.yml startbar")
 	}
-	if f := got["ziel.yaml"]; f.OK() || !strings.Contains(f.Err, "unbekannte ziele: weg") || f.Playbook == nil {
+	if f := got["ziel.yaml"]; !f.OK() { // Ziele prüft erst Resolve beim Anzeigen und Starten
 		t.Errorf("ziel: %+v", f)
 	}
 	if got["dop1.yaml"].OK() || got["dop2.yaml"].OK() || !strings.Contains(got["dop1.yaml"].Err, "dop2.yaml") {
 		t.Errorf("doppelte namen: %q %q", got["dop1.yaml"].Err, got["dop2.yaml"].Err)
 	}
-	if _, err := LoadDir(filepath.Join(dir, "fehlt"), nil); err == nil {
+	if _, err := LoadDir(filepath.Join(dir, "fehlt")); err == nil {
 		t.Error("fehlender ordner ohne fehler")
 	}
 }

@@ -90,9 +90,9 @@ func (f *fakeAgents) started() string {
 // Playbooks (Dateiname → YAML) an und startet RunPlaybooks.
 func newPlaybookServer(t *testing.T, dbPath string, hosts map[string]string, books map[string]string) (*Server, *fakeAgents, func()) {
 	t.Helper()
-	oldPoll := pbPoll
-	pbPoll = 10 * time.Millisecond
-	t.Cleanup(func() { pbPoll = oldPoll })
+	oldPoll, oldWait := pbPoll, pbOnlineWait
+	pbPoll, pbOnlineWait = 10*time.Millisecond, 200*time.Millisecond
+	t.Cleanup(func() { pbPoll, pbOnlineWait = oldPoll, oldWait })
 
 	st, err := store.Open(dbPath)
 	if err != nil {
@@ -286,14 +286,26 @@ func TestPlaybookParallelStop(t *testing.T) {
 func TestPlaybookOfflineAndStartError(t *testing.T) {
 	s, f, _ := newPlaybookServer(t, filepath.Join(t.TempDir(), "mat.db"), map[string]string{"n1": "k3s"},
 		map[string]string{"p.yaml": fmt.Sprintf(patchBook, "serial", 0, "stop")})
+	f.mu.Lock()
 	f.offline["n1"] = true
+	f.mu.Unlock()
 	run, _ := s.startPlaybook(context.Background(), "patchen", "admin", "")
 	r := waitRun(t, s, run.ID)
-	if r.Status != store.RunStopped || r.Steps[0].Message != "host ist offline" || f.started() != "" {
+	if r.Status != store.RunStopped || !strings.HasPrefix(r.Steps[0].Message, "host ist offline") || f.started() != "" {
 		t.Fatalf("%s: %+v", r.Status, r.Steps[0])
 	}
 
+	// Kommt der Host innerhalb von pbOnlineWait zurück (z. B. Agent nach einem
+	// Neustart des Servers), läuft der Schritt.
+	run, _ = s.startPlaybook(context.Background(), "patchen", "admin", "")
+	time.Sleep(50 * time.Millisecond)
+	f.mu.Lock()
 	f.offline["n1"] = false
+	f.mu.Unlock()
+	if r = waitRun(t, s, run.ID); r.Status != store.RunOK {
+		t.Fatalf("host zurück: %s %+v", r.Status, r.Steps)
+	}
+
 	f.startErr = errors.New("befehl ist auf diesem host nicht freigegeben")
 	run, _ = s.startPlaybook(context.Background(), "patchen", "admin", "")
 	r = waitRun(t, s, run.ID)
@@ -477,7 +489,7 @@ func TestRunStatus(t *testing.T) {
 			t.Errorf("%v: %s (%s)", c.out, got, msg)
 		}
 	}
-	if _, msg := runStatus([]hostOutcome{outOK, outOK, outStopped}, false); msg != "3 hosts, 2 ok, 1 angehalten" {
+	if _, msg := runStatus([]hostOutcome{outOK, outOK, outStopped}, false); msg != "3 Hosts, 2 ok, 1 angehalten" {
 		t.Errorf("meldung %q", msg)
 	}
 }
