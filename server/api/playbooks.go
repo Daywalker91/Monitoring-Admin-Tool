@@ -38,6 +38,8 @@ type playbookActions interface {
 	hostState(ctx context.Context, id string) (store.Host, bool, error)
 	// startStep prüft und startet die Aktion eines Schritts als Job jobID.
 	startStep(ctx context.Context, h store.Host, step playbook.Step, jobID, user, remote string) error
+	// gateState prüft das Gate eines Schritts (siehe playbook_gates.go).
+	gateState(ctx context.Context, step playbook.Step, hostID string, since time.Time) (bool, string, error)
 }
 
 type playbooks struct {
@@ -469,10 +471,14 @@ func (s *Server) execStep(ctx context.Context, run *pbRun, step playbook.Step, s
 
 	if st.Status == store.StepPending {
 		st.Status, st.StartedAt = store.StepRunning, s.nowFor().Unix()
-		if step.IsWait() {
+		switch {
+		case step.IsWait():
 			st.Until = s.nowFor().Add(time.Duration(step.Wait)).Unix()
 			s.saveStep(run, st)
-		} else {
+		case step.IsGate():
+			st.Until = s.nowFor().Add(step.GateTimeout()).Unix()
+			s.saveStep(run, st)
+		default:
 			h, online, err := s.awaitOnline(ctx, st.HostID)
 			switch {
 			case ctx.Err() != nil:
@@ -490,6 +496,9 @@ func (s *Server) execStep(ctx context.Context, run *pbRun, step playbook.Step, s
 		}
 	}
 
+	if step.IsGate() {
+		return s.execGate(ctx, run, step, st, finish)
+	}
 	if step.IsWait() {
 		for s.nowFor().Unix() < st.Until {
 			if run.cancel.Load() {

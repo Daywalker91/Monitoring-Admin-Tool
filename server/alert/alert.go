@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -695,6 +696,26 @@ func (e *Evaluator) ActiveCount() map[string]map[string]int {
 		}
 		out[k.host][k.kind]++
 	}
+	return out
+}
+
+// Firing liefert die aktiven Alarme einer Kennung (Host-ID, ClusterID, …) mit
+// einem der Regeltypen kinds, sortiert nach Typ und Ziel.
+func (e *Evaluator) Firing(id string, kinds ...string) []store.Alert {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	var out []store.Alert
+	for k, a := range e.firing {
+		if k.host == id && slices.Contains(kinds, k.kind) {
+			out = append(out, *a)
+		}
+	}
+	slices.SortFunc(out, func(a, b store.Alert) int {
+		if a.Kind != b.Kind {
+			return strings.Compare(a.Kind, b.Kind)
+		}
+		return strings.Compare(a.Target, b.Target)
+	})
 	return out
 }
 

@@ -15,7 +15,15 @@ const STEP_STATUS = {
 
 const pb = { list: null, openRun: null, run: null };
 
+const GATE_LABELS = {
+  host_healthy: "warten bis Host gesund", cluster_healthy: "warten bis Cluster gesund", check_ok: "warten bis Check ok:",
+};
+
 function stepLabel(st) {
+  if (st.gate) {
+    return (GATE_LABELS[st.gate] || st.gate) + (st.check ? " " + st.check : "") +
+      " (höchstens " + (st.timeout || "10m0s") + ")";
+  }
   if (!st.action) return "warten " + st.wait;
   if (st.action === "command.run") return "Befehl " + (st.params?.name || "");
   const params = Object.entries(st.params || {}).map(([k, v]) => k + "=" + v).join(", ");
@@ -234,7 +242,8 @@ function renderRun(r) {
         td.append(el("span", " " + fmtDuration(stop - st.started_at), "muted small"));
       }
       if (st.status === "running" && st.until && st.until > r.now) {
-        td.append(el("div", "noch " + fmtDuration(st.until - r.now), "muted small"));
+        const gate = steps[st.index]?.gate;
+        td.append(el("div", (gate ? "Frist noch " : "noch ") + fmtDuration(st.until - r.now), "muted small"));
       }
       if (st.message) td.append(el("div", st.message, "small pb-msg"));
       const tip = [stepLabel(steps[st.index] || {}), st.message].filter(Boolean);

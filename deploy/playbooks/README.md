@@ -28,7 +28,21 @@ steps:
   - id: pause
     wait: 60s                   # Wartezeit, höchstens 1h
     on_error: continue          # überschreibt on_error des Playbooks
+  - id: gesund
+    gate: cluster_healthy       # warten, bis eine feste Prüfung erfüllt ist (siehe „Gates“)
+    timeout: 20m                # Standard 10m, höchstens 1h
 ```
+
+**Gates** warten, bis eine Prüfung 30 s lang ununterbrochen erfüllt ist, und schlagen nach `timeout` fehl
+(dann gilt `on_error`). Gezählt werden nur Daten, die nach dem Beginn des Schritts eingegangen sind:
+
+| Gate | erfüllt, wenn |
+|------|---------------|
+| `host_healthy` | Host verbunden, überwachte Dienste laufen, keine systemd-Unit `failed`, kein offener SMART- oder Platten-Alarm |
+| `cluster_healthy` | alle Nodes bereit, alle Workloads mit gewünschter Zahl bereiter Pods, kein Pod im Fehlerzustand (Ausnahmen wie bei den Cluster-Alarmen) |
+| `check_ok` + `check: <Name>` | der externe Check mit diesem Namen meldet ok |
+
+Kann ein Gate nie erfüllt werden (keine k3s-Anbindung, Check unbekannt oder abgeschaltet), schlägt es sofort fehl.
 
 **Aktionen:** `service.start|stop|restart`, `packages.refresh`, `packages.upgrade`, `package.install`,
 `user.create`, `system.reboot`, `log.read`, `command.run` und `k3s.drain_reboot`. Die Parameter prüft der

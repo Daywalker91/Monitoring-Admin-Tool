@@ -16,5 +16,10 @@ steps:
   # bei jedem Lauf neu (der drain verdrängt die Pods vorher).
   - id: neustart
     action: k3s.drain_reboot
+  # Erst weiter, wenn alle Nodes bereit und alle Workloads wieder verfügbar sind
+  # (Ausnahmen wie bei den Cluster-Alarmen). Sonst hält der Lauf nach 20 min an.
+  - id: cluster-gesund
+    gate: cluster_healthy
+    timeout: 20m
   - id: durchatmen      # Longhorn Zeit geben, Replikate wieder aufzubauen
     wait: 5m

@@ -225,7 +225,7 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 	} else {
 		s.setName(hello.AgentID, name)
 	}
-	s.register(hello.AgentID, agentConn{conn, r.RemoteAddr}, log)
+	s.register(hello.AgentID, agentConn{conn: conn, remote: r.RemoteAddr, since: s.nowFor()}, log)
 	defer s.unregister(hello.AgentID, conn)
 	log.Info("agent verbunden", "hostname", hello.Hostname, "version", hello.AgentVersion,
 		"os", hello.OS, "arch", hello.Arch)
@@ -401,6 +401,7 @@ func (s *Server) pingLoop(ctx context.Context, conn *websocket.Conn, cancel cont
 type agentConn struct {
 	conn   *websocket.Conn
 	remote string
+	since  time.Time // Beginn der Verbindung
 }
 
 // register merkt sich die Verbindung. Meldet sich dieselbe Agent-ID erneut an,

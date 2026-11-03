@@ -39,6 +39,22 @@ const (
 	defaultOnError = OnErrorStop
 )
 
+// Gates (M12b): feste Prüfungen, auf die ein Schritt wartet. Ausdrücke gibt es nicht.
+const (
+	GateHostHealthy    = "host_healthy"    // Host verbunden, überwachte Dienste laufen, keine Units failed, kein SMART-/Platten-Alarm
+	GateClusterHealthy = "cluster_healthy" // alle Nodes bereit, Workloads verfügbar (Ausnahmen wie bei den Alarmen)
+	GateCheckOK        = "check_ok"        // externer Check (Name in check) meldet ok
+)
+
+// Fristen für Gates.
+const (
+	DefaultGateTimeout = 10 * time.Minute
+	MaxGateTimeout     = time.Hour
+	maxCheckNameLen    = 100
+)
+
+var gates = map[string]bool{GateHostHealthy: true, GateClusterHealthy: true, GateCheckOK: true}
+
 // Ausführungsart.
 const (
 	ModeSerial   = "serial"
@@ -73,13 +89,17 @@ type Playbook struct {
 	Steps       []Step   `yaml:"steps" json:"steps"`
 }
 
-// Step ist entweder eine Aktion (Action, Params) oder eine Wartezeit (Wait).
+// Step ist genau eines von: Aktion (Action, Params), Wartezeit (Wait) oder
+// Gate (Gate, Check, Timeout).
 type Step struct {
 	ID          string            `yaml:"id" json:"id"`
 	Action      string            `yaml:"action,omitempty" json:"action,omitempty"`
 	Params      map[string]string `yaml:"params,omitempty" json:"params,omitempty"`
 	OKExitCodes []int             `yaml:"ok_exit_codes,flow,omitempty" json:"ok_exit_codes,omitempty"`
 	Wait        Duration          `yaml:"wait,omitempty" json:"wait,omitempty"`
+	Gate        string            `yaml:"gate,omitempty" json:"gate,omitempty"`
+	Check       string            `yaml:"check,omitempty" json:"check,omitempty"` // nur bei gate: check_ok
+	Timeout     Duration          `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 	When        *When             `yaml:"when,omitempty" json:"when,omitempty"`
 	OnError     string            `yaml:"on_error,omitempty" json:"on_error,omitempty"`
 }
@@ -116,8 +136,22 @@ func (d Duration) MarshalJSON() ([]byte, error) {
 	return []byte(`"` + time.Duration(d).String() + `"`), nil
 }
 
-// IsWait meldet, ob der Schritt nur wartet.
-func (s Step) IsWait() bool { return s.Action == "" }
+// IsWait meldet, ob der Schritt nur eine feste Zeit wartet.
+func (s Step) IsWait() bool { return s.Action == "" && s.Gate == "" }
+
+// IsGate meldet, ob der Schritt auf ein Gate wartet.
+func (s Step) IsGate() bool { return s.Action == "" && s.Gate != "" }
+
+// IsAction meldet, ob der Schritt einen Job auslöst.
+func (s Step) IsAction() bool { return s.Action != "" }
+
+// GateTimeout liefert die Frist eines Gates.
+func (s Step) GateTimeout() time.Duration {
+	if s.Timeout > 0 {
+		return time.Duration(s.Timeout)
+	}
+	return DefaultGateTimeout
+}
 
 // EffectiveOnError liefert das Fehlerverhalten des Schritts: am Schritt,
 // sonst am Playbook, sonst stop.
@@ -249,20 +283,46 @@ func (p *Playbook) validateStep(s Step, seen map[string]int) []error {
 	if !validOnError(s.OnError) {
 		add("on_error: stop oder continue")
 	}
-	if s.IsWait() {
+	kinds := 0
+	for _, set := range []bool{s.Action != "", s.Wait != 0, s.Gate != ""} {
+		if set {
+			kinds++
+		}
+	}
+	if kinds > 1 {
+		add("action, wait und gate schließen sich aus")
+	}
+	if !s.IsGate() && (s.Check != "" || s.Timeout != 0) {
+		add("check und timeout nur bei gate")
+	}
+	switch {
+	case s.IsWait():
 		switch {
 		case s.Wait <= 0:
-			add("action oder wait fehlt")
+			add("action, wait oder gate fehlt")
 		case time.Duration(s.Wait) > MaxWait:
 			add("wait: höchstens %v", MaxWait)
 		}
 		if len(s.Params) > 0 || len(s.OKExitCodes) > 0 {
 			add("wait-schritte haben keine params und keine ok_exit_codes")
 		}
-	} else {
-		if s.Wait != 0 {
-			add("action und wait schließen sich aus")
+	case s.IsGate():
+		if !gates[s.Gate] {
+			add("gate: %s, %s oder %s", GateHostHealthy, GateClusterHealthy, GateCheckOK)
 		}
+		switch {
+		case s.Gate == GateCheckOK && (s.Check == "" || len(s.Check) > maxCheckNameLen || hasControl(s.Check)):
+			add("check: name des externen checks fehlt oder ist ungültig")
+		case s.Gate != GateCheckOK && s.Check != "":
+			add("check nur bei gate: %s", GateCheckOK)
+		}
+		if s.Timeout < 0 || time.Duration(s.Timeout) > MaxGateTimeout {
+			add("timeout: höchstens %v", MaxGateTimeout)
+		}
+		if len(s.Params) > 0 || len(s.OKExitCodes) > 0 {
+			add("gate-schritte haben keine params und keine ok_exit_codes")
+		}
+	default:
 		switch {
 		case excluded[s.Action]:
 			add("aktion %s ist in playbooks nicht erlaubt", s.Action)

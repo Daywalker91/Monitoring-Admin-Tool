@@ -24,6 +24,7 @@ type fakeAgents struct {
 	st     *store.Store
 	delay  time.Duration
 	result func(host string, step playbook.Step) (ok bool, exit int)
+	gate   func(host string, step playbook.Step) (ok bool, detail string, err error)
 
 	mu       sync.Mutex
 	offline  map[string]bool
@@ -38,7 +39,15 @@ type fakeAgents struct {
 
 func newFakeAgents(st *store.Store) *fakeAgents {
 	return &fakeAgents{st: st, delay: 20 * time.Millisecond, offline: map[string]bool{}, boot: map[string]int64{},
-		result: func(string, playbook.Step) (bool, int) { return true, 0 }}
+		result: func(string, playbook.Step) (bool, int) { return true, 0 },
+		gate:   func(string, playbook.Step) (bool, string, error) { return true, "", nil }}
+}
+
+func (f *fakeAgents) gateState(_ context.Context, step playbook.Step, host string, _ time.Time) (bool, string, error) {
+	f.mu.Lock()
+	gate := f.gate
+	f.mu.Unlock()
+	return gate(host, step)
 }
 
 func (f *fakeAgents) hostState(_ context.Context, id string) (store.Host, bool, error) {
@@ -90,9 +99,9 @@ func (f *fakeAgents) started() string {
 // Playbooks (Dateiname → YAML) an und startet RunPlaybooks.
 func newPlaybookServer(t *testing.T, dbPath string, hosts map[string]string, books map[string]string) (*Server, *fakeAgents, func()) {
 	t.Helper()
-	oldPoll, oldWait := pbPoll, pbOnlineWait
-	pbPoll, pbOnlineWait = 10*time.Millisecond, 200*time.Millisecond
-	t.Cleanup(func() { pbPoll, pbOnlineWait = oldPoll, oldWait })
+	oldPoll, oldWait, oldGatePoll, oldStable := pbPoll, pbOnlineWait, gatePoll, gateStable
+	pbPoll, pbOnlineWait, gatePoll, gateStable = 10*time.Millisecond, 200*time.Millisecond, 10*time.Millisecond, 30*time.Millisecond
+	t.Cleanup(func() { pbPoll, pbOnlineWait, gatePoll, gateStable = oldPoll, oldWait, oldGatePoll, oldStable })
 
 	st, err := store.Open(dbPath)
 	if err != nil {

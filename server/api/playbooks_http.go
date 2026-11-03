@@ -132,7 +132,7 @@ func stepWarnings(p *playbook.Playbook, h store.Host, canDrain bool) []string {
 	var out []string
 	for _, st := range p.Steps {
 		switch {
-		case st.IsWait():
+		case !st.IsAction():
 		case st.Action == playbook.ActionDrainReboot:
 			if !canDrain || !slices.Contains(h.Capabilities, proto.CapReboot) {
 				out = append(out, st.ID+": neustart mit drain nicht möglich")

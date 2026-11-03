@@ -25,7 +25,8 @@ type svcSummary struct {
 type svcState struct {
 	sum      svcSummary
 	list     []proto.Service
-	hostname string // gemeldeter Hostname (Anzeigename kommt aus s.names)
+	hostname string    // gemeldeter Hostname (Anzeigename kommt aus s.names)
+	at       time.Time // Empfang der Liste
 }
 
 // observeServices speichert eine Dienstliste und wertet die Alarme aus.
@@ -41,7 +42,7 @@ func (s *Server) observeServices(ctx context.Context, id, hostname string, svcs 
 		}
 	}
 	s.mu.Lock()
-	s.svcs[id] = svcState{sum: sum, list: svcs.List, hostname: hostname}
+	s.svcs[id] = svcState{sum: sum, list: svcs.List, hostname: hostname, at: now}
 	s.mu.Unlock()
 	s.evaluateServices(ctx, id, s.hostName(id, hostname), svcs.List, now)
 }
