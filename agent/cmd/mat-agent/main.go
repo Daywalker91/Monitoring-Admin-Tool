@@ -22,6 +22,8 @@ import (
 	"slices"
 	"syscall"
 
+	"github.com/coder/websocket"
+
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/client"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/collector"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/commands"
@@ -31,6 +33,7 @@ import (
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/power"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/services"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/smart"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/terminal"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/update"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/users"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/internal/logfile"
@@ -173,6 +176,18 @@ func runAgent(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if hello.Commands = cmds.Infos(); len(hello.Commands) > 0 {
 		hello.Capabilities = append(hello.Capabilities, proto.CapCommands)
 	}
+	// Web-Terminal nur mit Block "terminal" in agent.json und nur, wenn Benutzer,
+	// Shell und systemd passen; sonst bleibt es aus (Agent startet trotzdem).
+	terminal.Cleanup(log)
+	term, err := terminal.New(cfg.Terminal, log)
+	if err != nil {
+		log.Error("web-terminal bleibt aus", "err", err)
+	}
+	if term != nil {
+		defer term.Shutdown()
+		hello.Capabilities = append(hello.Capabilities, proto.CapTerminal)
+		hello.TerminalUser = term.User()
+	}
 	if err := hello.Validate(); err != nil {
 		return fmt.Errorf("ungültige agent-angaben: %w", err)
 	}
@@ -217,6 +232,11 @@ func runAgent(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	cl.HandleJob(proto.ActionUserCreate, userMgr.Job)
 	cl.HandleJob(proto.ActionLogRead, logReader.Job)
 	cl.HandleJob(proto.ActionCommandRun, cmds.Run)
+	if term != nil {
+		cl.WithTerminal(func(ctx context.Context, req proto.TerminalOpen, conn *websocket.Conn) {
+			term.Serve(ctx, req, conn)
+		})
+	}
 	col.Prime(ctx)
 	if err := cl.Run(ctx); errors.Is(err, client.ErrRestart) {
 		log.Info("agent startet für das update neu")
@@ -262,6 +282,13 @@ func runCheck(args []string) error {
 		cfg.ServerURL, id, cfg.IntervalSec, cfg.CAFile, cfg.Jobs, commandNames(cfg))
 	if cfg.Insecure() {
 		fmt.Println("warnung: unverschlüsselte verbindung (ws://) zu entferntem server")
+	}
+	if cfg.Terminal != nil {
+		if _, err := terminal.New(cfg.Terminal, newLogger(io.Discard, "error")); err != nil {
+			fmt.Println("warnung: web-terminal bleibt aus:", err)
+		} else {
+			fmt.Printf("web-terminal: als %s mit %s\n", cfg.Terminal.User, cfg.Terminal.Shell)
+		}
 	}
 	return nil
 }

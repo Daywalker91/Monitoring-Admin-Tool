@@ -78,6 +78,7 @@ type Client struct {
 	updates  UpdateChecker      // nil = kein Update-Stand
 	updNow   chan struct{}      // Update-Stand sofort prüfen (nach einem Paket-Job)
 	smart    SmartReader        // nil = kein SMART
+	terminal TerminalFunc       // nil = kein Web-Terminal
 	jobs     map[string]JobFunc // erlaubte Aktionen; nur mit gemeldeter Fähigkeit
 	busy     atomic.Bool        // es läuft immer höchstens ein ändernder Job …
 	readBusy atomic.Bool        // … und daneben höchstens ein lesender (z. B. log.read)
@@ -128,6 +129,13 @@ func (c *Client) WithUpdates(fn UpdateChecker) { c.updates = fn }
 
 // WithSmart sendet den SMART-Stand des Hosts.
 func (c *Client) WithSmart(fn SmartReader) { c.smart = fn }
+
+// TerminalFunc führt eine Terminal-Sitzung über conn aus, bis sie endet.
+type TerminalFunc func(ctx context.Context, req proto.TerminalOpen, conn *websocket.Conn)
+
+// WithTerminal erlaubt Terminal-Sitzungen. Der Agent muss die Fähigkeit
+// "terminal" im hello melden, sonst wird jede Sitzung abgelehnt.
+func (c *Client) WithTerminal(fn TerminalFunc) { c.terminal = fn }
 
 // OnStable wird einmal aufgerufen, sobald eine Verbindung stableAfter gehalten hat.
 func (c *Client) OnStable(fn func()) { c.onStable = fn }
@@ -308,13 +316,22 @@ func (c *Client) session(ctx context.Context) (connected bool, err error) {
 	}
 }
 
-// handleMessage verarbeitet eine Nachricht des Servers. Bisher gibt es nur Jobs.
-// Jobs laufen unter runCtx (Lebensdauer des Agenten), Ablehnungen gehen direkt
-// über die Verbindung der Sitzung.
+// handleMessage verarbeitet eine Nachricht des Servers: Jobs und Terminal-Sitzungen.
+// Beide laufen unter runCtx (Lebensdauer des Agenten), Ablehnungen von Jobs gehen
+// direkt über die Verbindung der Sitzung.
 func (c *Client) handleMessage(runCtx, ctx context.Context, conn *websocket.Conn, data []byte) {
 	var env proto.Envelope
 	if err := json.Unmarshal(data, &env); err != nil {
 		c.log.Warn("unlesbare nachricht vom server", "err", err)
+		return
+	}
+	if env.Type == proto.TypeTerminalOpen {
+		var req proto.TerminalOpen
+		if err := json.Unmarshal(env.Data, &req); err != nil || req.Validate() != nil {
+			c.log.Warn("ungültige terminal-anfrage", "err", err)
+			return
+		}
+		go c.openTerminal(runCtx, req)
 		return
 	}
 	if env.Type != proto.TypeJobRequest {
