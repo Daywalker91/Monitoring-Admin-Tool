@@ -1,0 +1,20 @@
+# Monatlicher Patch-Lauf über die k3s-Nodes: ein Node nach dem anderen
+# Paketlisten holen, Updates installieren, Neustart mit drain.
+# Voraussetzungen je Host: "jobs": ["packages", "reboot"] in agent.json,
+# für den drain die optionale ClusterRole mat-server-drain (deploy/k8s/rbac-drain.yaml).
+name: monatlich-patchen
+description: k3s-Nodes nacheinander patchen und mit drain neu starten
+targets: [k3s]          # Gruppe in MAT (Host-Details → Gruppe); auch Host-IDs oder Anzeigenamen
+mode: serial            # ein kaputtes Update geht so nicht nacheinander auf alle Nodes
+on_error: stop
+steps:
+  - id: listen
+    action: packages.refresh
+  - id: updates
+    action: packages.upgrade
+  # In M12a gibt es noch keine Bedingung "Neustart nötig": Der Node startet
+  # bei jedem Lauf neu (der drain verdrängt die Pods vorher).
+  - id: neustart
+    action: k3s.drain_reboot
+  - id: durchatmen      # Longhorn Zeit geben, Replikate wieder aufzubauen
+    wait: 5m

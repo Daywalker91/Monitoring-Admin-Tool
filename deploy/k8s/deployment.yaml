@@ -51,6 +51,9 @@ spec:
               value: 10.42.0.0/16
             - name: TZ
               value: Europe/Berlin
+            # Playbooks aus der ConfigMap mat-playbooks (optional, siehe README.md)
+            - name: MAT_PLAYBOOK_DIR
+              value: /playbooks
           # Tokens, ntfy und SMTP (siehe secret.example.yaml)
           envFrom:
             - secretRef:
@@ -60,6 +63,9 @@ spec:
               mountPath: /data
             - name: tls
               mountPath: /tls
+              readOnly: true
+            - name: playbooks
+              mountPath: /playbooks
               readOnly: true
           securityContext:
             allowPrivilegeEscalation: false
@@ -92,3 +98,8 @@ spec:
         - name: tls
           secret:
             secretName: mat-server-tls
+        # Fehlt die ConfigMap, bleibt der Ordner leer (keine Playbooks).
+        - name: playbooks
+          configMap:
+            name: mat-playbooks
+            optional: true

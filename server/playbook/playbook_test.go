@@ -249,6 +249,22 @@ func TestResolve(t *testing.T) {
 	}
 }
 
+// TestExamples: Die Beispiele in deploy/playbooks müssen gültig bleiben.
+func TestExamples(t *testing.T) {
+	files, err := LoadDir(filepath.Join("..", "..", "deploy", "playbooks"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) < 3 {
+		t.Fatalf("%d beispiele", len(files))
+	}
+	for _, f := range files {
+		if !f.OK() {
+			t.Errorf("%s: %s", f.File, f.Err)
+		}
+	}
+}
+
 func TestLoadDir(t *testing.T) {
 	dir := t.TempDir()
 	write := func(name, src string) {

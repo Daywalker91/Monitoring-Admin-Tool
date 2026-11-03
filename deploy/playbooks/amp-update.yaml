@@ -1,0 +1,13 @@
+# AMP auf dem Windows-Gameserver aktualisieren. Das Skript amp-update.ps1 prüft
+# selbst, ob es etwas zu tun gibt (Version, Signatur der MSI), und ändert sonst
+# nichts. Exit-Codes: 0 = ok bzw. nichts zu tun, 1 = Fehler (ADS wird möglichst
+# wieder gestartet), 2 = Vorprüfung fehlgeschlagen, nichts geändert.
+# Eintrag "amp-update" in agent.json: siehe README.md in diesem Ordner.
+name: amp-update
+description: AMP auf gameserver3 aktualisieren (Skript prüft selbst, ob ein Update da ist)
+targets: [gameserver3]  # Host-ID in MAT
+on_error: stop
+steps:
+  - id: update
+    action: command.run
+    params: {name: amp-update}

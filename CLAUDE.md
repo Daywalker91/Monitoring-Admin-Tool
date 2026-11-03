@@ -28,7 +28,11 @@ Es wird in Meilensteinen gearbeitet. Alles, was zu keinem beauftragten Meilenste
   optionale ClusterRole `mat-server-drain`); „Node nicht bereit“ folgt dem Wartungsfenster des gleichnamigen Hosts
 - **M10 (fertig):** Pakete installieren (`package.install`, Fähigkeit `packages`) und Benutzer anlegen (`user.create`,
   Fähigkeit `users`); Paketverwaltungen apt, dnf, zypper, apk an festen Pfaden, unter Windows nur Installation per winget
-- **Später:** Playbooks (Abläufe über mehrere Hosts) – vorher gemeinsam einen genauen Plan erarbeiten
+- **M12a (fertig):** Playbooks, Grundversion: YAML-Dateien aus `MAT_PLAYBOOK_DIR` (nur Server, `go.yaml.in/yaml/v3`),
+  manuell starten, serial/parallel, `on_error`, `when` (Exit-Code oder ok eines früheren Schritts), Wartezeiten,
+  Tabellen `playbook_runs`/`playbook_steps`, Fortsetzen nach Server-Neustart; Agent meldet echte Exit-Codes (v1.6.0)
+- **Als Nächstes:** M11 (Web-Terminal), danach M12b/c (Gates, Probelauf, Zeitplan, Freigabe-Schritte) – jeweils
+  vorher einen Plan zeigen
 
 ## Tech-Stack
 
@@ -77,12 +81,14 @@ oder direkt als Binary. Agenten laufen immer direkt auf den Hosts (Windows-Diens
           server/k8s liest den k3s-Cluster (REST ohne client-go) und die k3s-Release-Kanäle; schreibend nur
           cordon/uncordon und Eviction für den Neustart mit drain,
           server/forecast schätzt aus der Disk-Historie, wann ein Mountpoint voll ist,
-          server/heartbeat meldet einem externen Wächter regelmäßig ein Lebenszeichen
+          server/heartbeat meldet einem externen Wächter regelmäßig ein Lebenszeichen,
+          server/playbook liest und prüft Playbooks (Parsen, Prüfen, Schreiben getrennt; Runner in server/api)
 /web      Frontend-Dateien (werden per go:embed eingebettet)
 /proto    gemeinsame Nachrichtentypen (JSON) zwischen Agent und Server
 /internal kleine gemeinsame Hilfspakete ohne schwere Abhängigkeiten (winsvc: Windows-Dienst, logfile,
           release: signierte Release-Manifeste)
-/deploy   Dockerfile, k8s-Manifeste (k3s), systemd-Unit, install-agent.sh/.ps1, env-Vorlage
+/deploy   Dockerfile, k8s-Manifeste (k3s), systemd-Unit, install-agent.sh/.ps1, env-Vorlage,
+          playbooks (Beispiele und AMP-Hilfsskripte)
 .github   Workflow: Multi-Arch-Server-Image nach ghcr.io
 build.ps1 baut den Agenten für alle Zielplattformen nach /dist
 ```
@@ -112,6 +118,11 @@ Jobs (M5/M7): Aktionen und ihre Parameter stehen fest in `proto` (`ActionCapabil
 Agent-Jobs laufen unabhängig von der Verbindung; Ergebnisse gehen nach dem nächsten hello raus. Paket-Jobs schicken
 ihre Ausgabe zusätzlich alle 2 s als `job_progress` (nur im Server-Speicher, für die Live-Anzeige).
 
+Playbooks (M12a): Jeder Schritt läuft über `startJob` bzw. `startDrain` mit `checkJob` (dieselben Prüfungen wie die
+GUI). Die Job-ID steht im Schritt, bevor der Job gesendet wird; nach einem Neustart wartet der Runner auf diesen Job
+statt ihn neu auszulösen, fehlt er, endet der Lauf als „unterbrochen“. Nach einem Fehler mit `stop` startet kein
+weiterer Host. Vor einem Schritt bis zu 2 min auf die Verbindung warten, nach `system.reboot` auf die Rückkehr.
+
 Vorbereitet für später (nicht umsetzen, solange nicht beauftragt):
 
 - weitere Benachrichtigungskanäle (Telegram, Gotify)
@@ -135,6 +146,10 @@ Der Agent läuft als root bzw. SYSTEM, deshalb gilt:
   entfernt bei apt und zypper das Paket!), ohne Pfade, Versionen und Platzhalter; apt schlägt den Namen vorher exakt nach.
   Es wird nichts entfernt (`--no-remove`, `--no-force-resolution`). Nie ein Passwort über Server, GUI, Job oder Log:
   Linux-Konten bleiben gesperrt, Windows-Konten deaktiviert. sudo nur über die Gruppe, nie über `/etc/sudoers`.
+- **Playbooks** bringen keine neuen Möglichkeiten: nur Aktionen aus `proto.ActionCapability` (ohne `agent.update`)
+  plus `k3s.drain_reboot`, Parameter mit denselben Prüfern wie Jobs, keine Skripte, Ausdrücke oder Variablen aus
+  Ausgaben. Dateien nur aus `MAT_PLAYBOOK_DIR` (kein Editor, kein Upload über die GUI). `on_error: continue` ist bei
+  `system.reboot`, `k3s.drain_reboot` und `packages.upgrade` verboten.
 - Der Agent öffnet **keine eingehenden Ports**; er verbindet sich nur ausgehend zum Server.
 - **Cluster-Zugriff des Servers:** lesend (ClusterRole `mat-server-read`); schreibend nur Node absperren/freigeben
   (`patch` auf Nodes) und Pods über die Eviction-API verdrängen – mit eigener, optionaler ClusterRole

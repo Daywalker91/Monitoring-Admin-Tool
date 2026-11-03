@@ -1,0 +1,17 @@
+# AMP auf einem Linux-Host aktualisieren, nur wenn ein Update da ist.
+# Skripte und agent.json-Einträge: siehe README.md in diesem Ordner.
+# Exit-Codes brauchen Agent v1.6.0 oder neuer (ältere melden jeden Fehler als 1;
+# dann schlägt "pruefen" bei "kein Update" fehl und der Lauf hält an).
+name: amp-update-linux
+description: AMP aktualisieren, wenn es ein Update gibt (Linux, getamp)
+targets: [amp-server]   # Host-ID, Anzeigename oder Gruppe
+on_error: stop
+steps:
+  - id: pruefen
+    action: command.run
+    params: {name: amp-update-check}
+    ok_exit_codes: [0, 10]    # 0 = Update verfügbar, 10 = nichts zu tun, sonst Fehler
+  - id: update
+    action: command.run
+    params: {name: amp-update}
+    when: {step: pruefen, exit_code: 0}

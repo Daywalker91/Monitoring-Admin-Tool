@@ -100,6 +100,19 @@ Mit dem Tag `main` und `imagePullPolicy: Always` holt ein Neustart des Pods das 
 `kubectl -n monitoring rollout restart deploy/mat-server`. Für feste Stände einen Git-Tag `v1.2.3`
 setzen und in `kustomization.yaml` `newTag: 1.2.3` eintragen.
 
+## Playbooks (optional)
+
+Der Server liest Playbooks aus `/playbooks`, eingehängt aus der ConfigMap `mat-playbooks` (fehlt sie,
+bleibt der Tab leer). Format und Beispiele: [../playbooks/README.md](../playbooks/README.md).
+
+```sh
+kubectl -n monitoring create configmap mat-playbooks --from-file=monatlich-patchen.yaml --from-file=amp-update.yaml \
+  --dry-run=client -o yaml > mat-playbooks.yaml   # ins eigene Deploy-Repo legen bzw. per kustomize configMapGenerator
+```
+
+Kubernetes aktualisiert eine eingehängte ConfigMap nach einer Änderung von selbst (nach bis zu einer Minute);
+danach im Tab „Playbooks“ auf „Neu laden“ klicken. Ein Neustart des Pods ist nicht nötig.
+
 ## Zugang von außen (optional)
 
 Ein Reverse-Proxy im Cluster (z. B. das Caddy-Gateway) kann vor den Server geschaltet werden.

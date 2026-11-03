@@ -271,6 +271,12 @@ Alle `/api/*`-Endpunkte außer Login/Logout erfordern eine Session.
 | `GET /api/cluster`              | k3s-Stand: Nodes, Workloads, Pods, ArgoCD-Apps |
 | `GET /api/cluster/logs`         | Pod-Logs als Text, `?ns=&pod=&container=&lines=1..5000&previous=1` |
 | `GET/POST /api/cluster/ignore`  | Ausnahmen für Cluster-Alarme (`{"patterns":["ns/name*"]}`) |
+| `GET /api/playbooks`            | Playbooks mit Prüfergebnis je Datei        |
+| `POST /api/playbooks/reload`    | Playbook-Ordner neu lesen                  |
+| `GET /api/playbooks/{name}/preview` | Zielhosts mit Warnungen vor dem Start  |
+| `POST /api/playbooks/{name}/run` | Lauf starten                              |
+| `GET /api/playbook-runs[/{id}]` | Verlauf der Läufe / ein Lauf mit allen Schritten |
+| `POST /api/playbook-runs/{id}/cancel` | Lauf nach dem aktuellen Schritt beenden |
 | `GET /agent/update/{version}/{datei}` | Release-Dateien für Agenten (Agent-Token) |
 | `GET /healthz`                  | Health-Check                               |
 | `GET /metrics`                  | Prometheus-Format (eigenes Bearer-Token)   |
@@ -380,6 +386,40 @@ Standard ist ein POST mit dem Feld `payload`, z. B. „MAT 1.5.0 · 5/6 Hosts on
 Lebenszeichen aus. URL und Token werden nie geloggt. Kontingent beachten: bei ipv64 zählt jeder
 Ping (3m = 480/Tag); beim Wächter Zeitraum und Karenzzeit größer als das Intervall wählen
 (z. B. 5 + 5 min).
+
+## Playbooks
+
+Ein Playbook ist eine feste Reihenfolge freigeschalteter Aktionen über mehrere Hosts, z. B. „k3s-Nodes
+nacheinander patchen und mit drain neu starten“ oder „AMP aktualisieren, wenn es ein Update gibt“. Es
+bringt keine neuen Möglichkeiten: Jeder Schritt ist ein Job aus der Whitelist mit denselben Prüfungen
+wie ein Klick in der GUI, und der Agent prüft seine Freischaltung weiterhin selbst.
+
+```powershell
+$env:MAT_PLAYBOOK_DIR = ".\deploy\playbooks"   # Ordner mit *.yaml; ohne Variable ist der Tab abgeschaltet
+```
+
+```yaml
+name: amp-update-linux
+targets: [amp-server]              # Host-ID, Anzeigename oder Gruppe
+steps:
+  - id: pruefen
+    action: command.run
+    params: {name: amp-update-check}
+    ok_exit_codes: [0, 10]         # 10 = kein Update
+  - id: update
+    action: command.run
+    params: {name: amp-update}
+    when: {step: pruefen, exit_code: 0}
+```
+
+Im Tab „Playbooks“ startet man ein Playbook nach einer Bestätigung mit den aufgelösten Zielhosts (samt
+Warnungen, etwa wenn eine Fähigkeit fehlt) und verfolgt den Lauf je Host und Schritt; ein Klick auf einen
+Schritt zeigt seine Ausgabe. `serial` hält nach einem Fehler an, ohne den nächsten Host anzufangen;
+`parallel` startet bis `max_parallel` Hosts gleichzeitig. Startet der Server mitten im Lauf neu (etwa weil
+sein Pod beim drain umzieht), macht er dort weiter, ohne einen gestarteten Schritt doppelt auszulösen.
+Exit-Codes (`ok_exit_codes`, `when: exit_code`) meldet der Agent ab v1.6.0.
+
+Format, Regeln und die AMP-Beispiele: [deploy/playbooks/README.md](deploy/playbooks/README.md).
 
 ## Externe Checks
 
