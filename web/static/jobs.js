@@ -289,6 +289,21 @@ function getJobDialog() {
   return d;
 }
 
+// openJobByID zeigt die Ausgabe eines Jobs, z. B. eines Playbook-Schritts.
+async function openJobByID(hostID, jobID) {
+  let v = jobViews.get(hostID);
+  if (!v) {
+    v = createJobView({ id: hostID });
+    v.jobs = [];
+    jobViews.set(hostID, v);
+  }
+  try {
+    openJobDialog(v, await fetchJSON("api/jobs/" + encodeURIComponent(jobID)));
+  } catch (e) {
+    alert("Ausgabe: " + e.message);
+  }
+}
+
 function openJobDialog(v, j) {
   const d = getJobDialog();
   d.jobID = j.id;

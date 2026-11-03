@@ -730,3 +730,23 @@ pre.log-text {
   box-sizing: border-box;
 }
 #cluster-ignore-form { margin-top: 22px; }
+
+/* Playbooks (M12a) */
+.pb-tools { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+.pb-list td { vertical-align: top; }
+.pb-error { white-space: pre-wrap; margin: 4px 0 0; color: var(--crit); max-width: 60ch; }
+.pb-grid td.pb-step { vertical-align: top; min-width: 90px; }
+.pb-grid td.clickable { cursor: pointer; }
+.pb-grid td.clickable:hover { background: var(--bg); }
+.pb-grid .pb-msg { max-width: 28ch; overflow-wrap: anywhere; }
+.step-ok > span:first-child { color: var(--ok); }
+.step-failed > span:first-child { color: var(--crit); }
+.step-running > span:first-child { color: var(--warn); }
+.step-pending, .step-skipped { color: var(--muted); }
+.pb-hosts li { margin: 4px 0; }
+.pb-steps { padding-left: 22px; margin: 4px 0 12px; }
+.pb-steps li { margin: 3px 0; }
+#pb-run { margin-top: 18px; }
+dialog.job-dialog.pb-dialog { width: min(680px, calc(100vw - 32px)); height: auto; max-height: 85vh; overflow: auto; }
+dialog.job-dialog.pb-dialog[open] { display: block; }
+.pb-dialog h3 { margin-top: 12px; }

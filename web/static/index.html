@@ -18,6 +18,7 @@
   <script src="install.js" defer></script>
   <script src="checks.js" defer></script>
   <script src="cluster.js" defer></script>
+  <script src="playbooks.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -27,6 +28,7 @@
       <button type="button" data-view="hosts">Hosts</button>
       <button type="button" data-view="checks">Checks</button>
       <button type="button" data-view="cluster">Cluster</button>
+      <button type="button" data-view="playbooks">Playbooks</button>
       <button type="button" data-view="alerts">Alarme<span class="count"></span></button>
       <button type="button" data-view="rules">Einstellungen</button>
     </nav>
@@ -187,6 +189,52 @@
           <span id="cluster-ignore-status" class="small" role="status"></span>
         </div>
       </form>
+    </section>
+
+    <section id="view-playbooks" class="view" hidden>
+      <div class="view-head">
+        <p class="muted small">Ein Playbook ist eine feste Reihenfolge freigeschalteter Aktionen über mehrere Hosts.
+          Die Dateien liegen im Ordner <code>MAT_PLAYBOOK_DIR</code>; jeder Schritt erscheint als Job im Verlauf des Hosts.</p>
+        <span class="pb-tools">
+          <span id="pb-loaded" class="muted small"></span>
+          <button type="button" id="pb-reload" class="secondary" hidden>Neu laden</button>
+        </span>
+      </div>
+      <p id="pb-disabled" class="banner" hidden>Playbooks sind abgeschaltet. Zum Einschalten
+        <code>MAT_PLAYBOOK_DIR</code> auf einen Ordner mit Playbook-Dateien (*.yaml) setzen.</p>
+      <p id="pb-dir-error" class="banner warn" hidden></p>
+      <p id="pb-status" class="small" role="status"></p>
+      <p id="pb-empty" class="muted" hidden>Keine Playbooks im Ordner.</p>
+      <div class="table-wrap">
+        <table id="pb-list" class="pb-list" hidden>
+          <thead><tr><th>Name</th><th class="hide-sm">Ziele</th><th>Schritte</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div id="pb-run" class="panel" hidden>
+        <div class="job-dialog-head">
+          <h2 id="pb-run-title"></h2>
+          <span>
+            <button type="button" id="pb-run-cancel" class="danger" hidden>Abbrechen</button>
+            <button type="button" id="pb-run-close" class="secondary">Schließen</button>
+          </span>
+        </div>
+        <p id="pb-run-meta" class="small"></p>
+        <div class="table-wrap">
+          <table id="pb-grid" class="mini pb-grid"><thead></thead><tbody></tbody></table>
+        </div>
+      </div>
+
+      <h2>Verlauf (90 Tage)</h2>
+      <p id="pb-runs-empty" class="muted">Noch keine Läufe.</p>
+      <div class="table-wrap">
+        <table id="pb-runs" class="mini job-list" hidden>
+          <thead><tr><th>Beginn</th><th>Playbook</th><th class="hide-sm">Von</th><th>Status</th>
+            <th class="hide-sm">Ergebnis</th><th class="num">Dauer</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </section>
 
     <section id="view-alerts" class="view" hidden>

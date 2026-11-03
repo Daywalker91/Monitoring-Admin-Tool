@@ -4,7 +4,7 @@
 "use strict";
 
 const REFRESH_MS = 5000;
-const VIEWS = ["hosts", "checks", "cluster", "alerts", "rules"];
+const VIEWS = ["hosts", "checks", "cluster", "playbooks", "alerts", "rules"];
 // Ansicht und aufgeklappte Hosts stehen im URL-Hash (#view=alerts&open=a,b),
 // damit sie einen Reload überstehen.
 const hashParams = new URLSearchParams(location.hash.slice(1));
@@ -700,6 +700,7 @@ async function refresh() {
     }
     if (currentView === "checks") await loadChecks();
     if (currentView === "cluster") await loadCluster();
+    if (currentView === "playbooks") await loadPlaybooks();
     errBox.hidden = true;
     document.getElementById("updated").textContent = "aktualisiert " + new Date().toLocaleTimeString("de-DE");
   } catch (e) {
