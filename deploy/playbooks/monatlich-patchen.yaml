@@ -7,6 +7,9 @@ description: k3s-Nodes nacheinander patchen und mit drain neu starten
 targets: [k3s]          # Gruppe in MAT (Host-Details → Gruppe); auch Host-IDs oder Anzeigenamen
 mode: serial            # ein kaputtes Update geht so nicht nacheinander auf alle Nodes
 on_error: stop
+# Zeitplan (optional): startet automatisch als Benutzer „zeitplan“, Zeitzone des Servers (TZ).
+# Nicht in das Fenster eines k3s-Upgrades legen (system-upgrade-controller).
+# schedule: monthly second sat 03:00
 steps:
   - id: listen
     action: packages.refresh

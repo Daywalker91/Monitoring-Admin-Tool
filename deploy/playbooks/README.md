@@ -16,6 +16,7 @@ targets: [amp-server, k3s]      # Host-ID (genau), Anzeigename oder Gruppe (ohne
 mode: serial                    # serial (Standard) | parallel
 max_parallel: 3                 # nur bei parallel, 1–10 (Standard 10)
 on_error: stop                  # Standard für alle Schritte: stop (Standard) | continue
+schedule: monthly first sun 03:00  # optional, siehe „Zeitplan“
 steps:
   - id: pruefen                 # a-z, 0-9, -; eindeutig im Playbook
     action: command.run         # Aktion aus der Whitelist
@@ -68,6 +69,16 @@ nicht als Fehler. Freie Ausdrücke, Variablen und Schleifen gibt es nicht.
 **Grenzen:** 50 Schritte, 50 Ziele, 64 Dateien zu je 64 KiB. `on_error: continue` ist bei `system.reboot`,
 `k3s.drain_reboot` und `packages.upgrade` verboten: Nach einem fehlgeschlagenen Upgrade soll nie einfach
 neu gestartet werden.
+
+**Zeitplan:** `daily 04:30`, `weekly sun 03:00` (auch `weekly sat,sun 03:00`), `monthly 15 02:00` (Tag 1–28) oder
+`monthly first sun 03:00` (`first`, `second`, `third`, `fourth`, `last`). Kein cron: Dort werden Tag im Monat und
+Wochentag mit ODER verknüpft, „erster Sonntag“ geht nicht. Es gilt die Zeitzone des Servers (`TZ`, wie bei den
+Wartungsfenstern). Gestartet wird als Benutzer `zeitplan` mit denselben Prüfungen wie ein Start in der GUI;
+verhindert etwas den Start (z. B. ein laufender Job), fällt der Termin mit einer Nachricht aus. Ein neuer Zeitplan
+startet erst zum nächsten Termin, nie rückwirkend. War der Server zum Termin aus, läuft der Plan noch, wenn er
+innerhalb einer Stunde zurück ist; sonst fällt der Termin mit einer Nachricht aus. Einschalten geht nur über die
+Datei; in der GUI lässt sich ein Zeitplan nur pausieren und fortsetzen. Ein Zeitplan läuft auch außerhalb von
+Wartungsfenstern – wer das nicht will, setzt `gate: host_healthy` und `approve` an den Anfang.
 
 ## Ablauf
 

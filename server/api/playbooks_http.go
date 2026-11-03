@@ -26,7 +26,8 @@ type playbookList struct {
 
 type playbookItem struct {
 	playbook.File
-	Running string `json:"running,omitempty"` // ID des aktiven Laufs
+	Running  string        `json:"running,omitempty"`  // ID des aktiven Laufs
+	Schedule *scheduleView `json:"schedule,omitempty"` // nur bei gültigem Zeitplan
 }
 
 func (s *Server) handlePlaybooks(w http.ResponseWriter, r *http.Request) {
@@ -40,6 +41,7 @@ func (s *Server) handlePlaybooks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "interner fehler", http.StatusInternalServerError)
 		return
 	}
+	scheds := s.scheduleViews(r.Context())
 	s.pb.mu.Lock()
 	out := playbookList{Enabled: true, LoadedAt: s.pb.loadedAt.Unix(), Error: s.pb.loadErr, Files: []playbookItem{}}
 	for _, f := range s.pb.files {
@@ -50,6 +52,11 @@ func (s *Server) handlePlaybooks(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		it := playbookItem{File: f}
+		if f.Playbook != nil {
+			if v, ok := scheds[f.Playbook.Name]; ok && f.OK() {
+				it.Schedule = &v
+			}
+		}
 		for id, r := range s.pb.runs {
 			if f.Playbook != nil && r.pb.Name == f.Playbook.Name {
 				it.Running = id

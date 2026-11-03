@@ -43,6 +43,12 @@ CREATE TABLE IF NOT EXISTS playbook_steps (
 	boot_time   INTEGER NOT NULL DEFAULT 0,
 	PRIMARY KEY (run_id, host_id, idx)
 );
+-- Zeitpläne (M12c): letzter behandelter Termin und Pause je Playbook-Name.
+CREATE TABLE IF NOT EXISTS playbook_schedules (
+	name     TEXT PRIMARY KEY,
+	last_due INTEGER NOT NULL DEFAULT 0,
+	paused   INTEGER NOT NULL DEFAULT 0
+);
 `
 
 // Status eines Laufs.
@@ -280,4 +286,47 @@ func (s *Store) OpenJobs(ctx context.Context) ([]Job, error) {
 		out = append(out, j)
 	}
 	return out, rows.Err()
+}
+
+// ScheduleState ist der Stand des Zeitplans eines Playbooks.
+type ScheduleState struct {
+	LastDue int64 // letzter behandelter Termin (Unix); 0 = noch keiner
+	Paused  bool
+}
+
+// PlaybookSchedules liefert den Stand aller Zeitpläne nach Playbook-Name.
+func (s *Store) PlaybookSchedules(ctx context.Context) (map[string]ScheduleState, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT name, last_due, paused FROM playbook_schedules`)
+	if err != nil {
+		return nil, fmt.Errorf("zeitpläne lesen: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]ScheduleState{}
+	for rows.Next() {
+		var name string
+		var st ScheduleState
+		if err := rows.Scan(&name, &st.LastDue, &st.Paused); err != nil {
+			return nil, fmt.Errorf("zeitpläne lesen: %w", err)
+		}
+		out[name] = st
+	}
+	return out, rows.Err()
+}
+
+// SetScheduleDue merkt sich den zuletzt behandelten Termin.
+func (s *Store) SetScheduleDue(ctx context.Context, name string, due int64) error {
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO playbook_schedules (name, last_due) VALUES (?, ?)
+ON CONFLICT(name) DO UPDATE SET last_due = excluded.last_due`, name, due); err != nil {
+		return fmt.Errorf("zeitplan speichern: %w", err)
+	}
+	return nil
+}
+
+// SetSchedulePaused pausiert einen Zeitplan oder setzt ihn fort.
+func (s *Store) SetSchedulePaused(ctx context.Context, name string, paused bool) error {
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO playbook_schedules (name, paused) VALUES (?, ?)
+ON CONFLICT(name) DO UPDATE SET paused = excluded.paused`, name, paused); err != nil {
+		return fmt.Errorf("zeitplan speichern: %w", err)
+	}
+	return nil
 }

@@ -758,6 +758,7 @@ pre.log-text {
 .probe-info > span:first-child { color: var(--muted); }
 .pb-actions { display: inline-flex; gap: 6px; flex-wrap: wrap; }
 .probe-wrap { overflow-x: auto; }
+.pb-schedule { margin-top: 4px; }
 .pb-approve { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
 .pb-approve button { padding: 4px 10px; font-size: 12px; }
 .step-running > span:first-child { color: var(--warn); }

@@ -70,6 +70,7 @@ function renderPlaybookList(list) {
     const name = el("td", null, "name");
     name.append(el("span", p ? p.name : f.file, "hostname"), el("span", f.file, "agent-id"));
     if (p?.description) name.append(el("div", p.description, "muted small"));
+    if (f.schedule) name.append(scheduleLine(p, f.schedule));
     tr.append(name, el("td", p ? p.targets.join(", ") : "–", "hide-sm"),
       el("td", p ? p.steps.length + " · " + (p.mode === "parallel" ? "parallel" : "nacheinander") : "–", "nowrap"));
     const state = el("td");
@@ -94,6 +95,33 @@ function renderPlaybookList(list) {
     tr.append(state);
     return tr;
   }));
+}
+
+// scheduleLine: Zeitplan mit nächstem Termin und Pausieren/Fortsetzen.
+function scheduleLine(p, sched) {
+  const line = el("div", null, "small pb-schedule");
+  const text = "⏱ " + p.schedule + (sched.paused ? " · pausiert" :
+    sched.next ? " · nächster Lauf " + fmtDateTime(sched.next) : "");
+  line.append(el("span", text, sched.paused ? "warn-text" : "muted"));
+  const b = el("button", sched.paused ? "Fortsetzen" : "Pausieren", "secondary small-btn");
+  b.type = "button";
+  b.addEventListener("click", async () => {
+    b.disabled = true;
+    try {
+      const resp = await fetch("api/playbooks/" + encodeURIComponent(p.name) + "/schedule", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paused: !sched.paused }),
+      });
+      if (resp.status === 401) { toLogin(); return; }
+      if (!resp.ok) throw new Error((await resp.text()).trim() || "HTTP " + resp.status);
+      await loadPlaybooks();
+    } catch (e) {
+      pbStatus(e.message, true);
+      b.disabled = false;
+    }
+  });
+  line.append(b);
+  return line;
 }
 
 function renderRunHistory(runs) {

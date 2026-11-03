@@ -131,7 +131,15 @@ func (s *Server) RunPlaybooks(ctx context.Context) {
 	for _, r := range runs {
 		s.resumeRun(ctx, r)
 	}
-	<-ctx.Done()
+	t := time.NewTicker(scheduleTick)
+	defer t.Stop()
+	for ctx.Err() == nil {
+		s.runSchedules(ctx)
+		select {
+		case <-ctx.Done():
+		case <-t.C:
+		}
+	}
 	s.pb.wg.Wait()
 }
 

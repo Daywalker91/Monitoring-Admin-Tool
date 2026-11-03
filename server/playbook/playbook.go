@@ -89,6 +89,7 @@ type Playbook struct {
 	Mode        string   `yaml:"mode,omitempty" json:"mode,omitempty"`
 	MaxParallel int      `yaml:"max_parallel,omitempty" json:"max_parallel,omitempty"`
 	OnError     string   `yaml:"on_error,omitempty" json:"on_error,omitempty"`
+	Schedule    string   `yaml:"schedule,omitempty" json:"schedule,omitempty"` // Zeitplan, siehe ParseSchedule
 	Steps       []Step   `yaml:"steps" json:"steps"`
 }
 
@@ -256,6 +257,11 @@ func (p *Playbook) Validate() error {
 	}
 	if !validOnError(p.OnError) {
 		add("on_error: stop oder continue")
+	}
+	if p.Schedule != "" {
+		if _, err := ParseSchedule(p.Schedule); err != nil {
+			add("%v", err)
+		}
 	}
 	switch {
 	case len(p.Steps) == 0:
