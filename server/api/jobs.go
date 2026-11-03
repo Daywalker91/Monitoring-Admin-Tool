@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"time"
@@ -54,21 +55,12 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !slices.Contains(h.Capabilities, proto.ActionCapability[job.Action]) {
-		http.Error(w, "host unterstützt diese aktion nicht (fähigkeit in agent.json freigeschaltet?)", http.StatusConflict)
-		return
-	}
-	if job.Action == proto.ActionLogRead && !slices.Contains(h.LogSources, job.Params["source"]) {
-		http.Error(w, "log-quelle ist auf diesem host nicht freigegeben", http.StatusBadRequest)
-		return
-	}
-	if job.Action == proto.ActionCommandRun &&
-		!slices.ContainsFunc(h.Commands, func(c proto.CommandInfo) bool { return c.Name == job.Params["name"] }) {
-		http.Error(w, "befehl ist auf diesem host nicht freigegeben", http.StatusBadRequest)
-		return
-	}
-	if !s.online(h.ID) {
-		http.Error(w, "host ist offline", http.StatusConflict)
+	if err := s.checkJob(h, job); err != nil {
+		code := http.StatusConflict
+		if errors.Is(err, errNotReleased) {
+			code = http.StatusBadRequest
+		}
+		http.Error(w, err.Error(), code)
 		return
 	}
 	j, err := s.startJob(r.Context(), h.ID, job, userFrom(r.Context()), r.RemoteAddr, 0)
@@ -78,6 +70,26 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusAccepted)
 	writeJSON(w, j)
+}
+
+// errNotReleased: Log-Quelle oder Befehl ist am Host nicht freigegeben.
+var errNotReleased = errors.New("nicht freigegeben")
+
+// checkJob prüft, ob der Host die (bereits validierte) Aktion jetzt ausführen
+// kann: Fähigkeit gemeldet, Log-Quelle bzw. Befehl freigegeben, online.
+func (s *Server) checkJob(h store.Host, job proto.JobRequest) error {
+	switch {
+	case !slices.Contains(h.Capabilities, proto.ActionCapability[job.Action]):
+		return errors.New("host unterstützt diese aktion nicht (fähigkeit in agent.json freigeschaltet?)")
+	case job.Action == proto.ActionLogRead && !slices.Contains(h.LogSources, job.Params["source"]):
+		return fmt.Errorf("log-quelle ist auf diesem host %w", errNotReleased)
+	case job.Action == proto.ActionCommandRun &&
+		!slices.ContainsFunc(h.Commands, func(c proto.CommandInfo) bool { return c.Name == job.Params["name"] }):
+		return fmt.Errorf("befehl ist auf diesem host %w", errNotReleased)
+	case !s.online(h.ID):
+		return errors.New("host ist offline")
+	}
+	return nil
 }
 
 // findHost sucht den Host aus dem Pfad; sonst Antwort 404 bzw. 500.

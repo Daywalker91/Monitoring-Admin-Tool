@@ -156,38 +156,42 @@ func (s *Server) handleDrainReboot(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	fail := func(msg string) { http.Error(w, msg, http.StatusConflict) }
-	switch {
-	case !s.canDrain():
-		fail("drain nicht verfügbar (clusterrole mat-server-drain fehlt)")
-		return
-	case !slices.Contains(h.Capabilities, proto.CapReboot):
-		fail("host unterstützt keinen neustart (fähigkeit in agent.json freigeschaltet?)")
-		return
-	case !s.online(h.ID):
-		fail("host ist offline")
+	j, err := s.startDrain(r.Context(), h, newJobID("job"), userFrom(r.Context()), r.RemoteAddr)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
-	n, err := s.nodeOfHost(r.Context(), h)
+	w.WriteHeader(http.StatusAccepted)
+	writeJSON(w, j)
+}
+
+// startDrain prüft die Voraussetzungen und startet einen Neustart mit drain
+// unter der Job-ID jobID (aus der GUI oder als Playbook-Schritt).
+func (s *Server) startDrain(ctx context.Context, h store.Host, jobID, user, remote string) (store.Job, error) {
+	switch {
+	case !s.canDrain():
+		return store.Job{}, errors.New("drain nicht verfügbar (clusterrole mat-server-drain fehlt)")
+	case !slices.Contains(h.Capabilities, proto.CapReboot):
+		return store.Job{}, errors.New("host unterstützt keinen neustart (fähigkeit in agent.json freigeschaltet?)")
+	case !s.online(h.ID):
+		return store.Job{}, errors.New("host ist offline")
+	}
+	n, err := s.nodeOfHost(ctx, h)
 	switch {
 	case errors.Is(err, k8s.ErrNotFound):
-		fail("kein k3s-node zu diesem host")
-		return
+		return store.Job{}, errors.New("kein k3s-node zu diesem host")
 	case err != nil:
-		fail("node lesen: " + err.Error())
-		return
+		return store.Job{}, fmt.Errorf("node lesen: %w", err)
 	case !n.Ready:
-		fail("node ist nicht bereit")
-		return
+		return store.Job{}, errors.New("node ist nicht bereit")
 	case n.Unschedulable:
-		fail("node ist bereits abgesperrt (z. B. durch ein k3s-upgrade)")
-		return
+		return store.Job{}, errors.New("node ist bereits abgesperrt (z. B. durch ein k3s-upgrade)")
 	}
 
 	s.drain.mu.Lock()
 	busy := len(s.drain.runs) > 0
-	ctx := s.drain.ctx
-	job := proto.JobRequest{JobID: newJobID("job"), Action: actionDrainReboot, Params: map[string]string{"node": n.Name}}
+	runCtx := s.drain.ctx
+	job := proto.JobRequest{JobID: jobID, Action: actionDrainReboot, Params: map[string]string{"node": n.Name}}
 	run := &drainRun{op: store.NodeOp{JobID: job.JobID, HostID: h.ID, Node: n.Name, Phase: store.NodeOpDrain,
 		BootTime: h.BootTime, PhaseUntil: s.nowFor().Add(drainTimeout).Unix()}, result: make(chan proto.JobResult, 1)}
 	if !busy {
@@ -195,21 +199,28 @@ func (s *Server) handleDrainReboot(w http.ResponseWriter, r *http.Request) {
 	}
 	s.drain.mu.Unlock()
 	if busy {
-		fail("es läuft bereits ein neustart mit drain")
-		return
+		return store.Job{}, errors.New("es läuft bereits ein neustart mit drain")
 	}
-	j, err := s.recordJob(r.Context(), h.ID, job, userFrom(r.Context()), r.RemoteAddr, drainTimeout+returnTimeout)
+	j, err := s.recordJob(ctx, h.ID, job, user, remote, drainTimeout+returnTimeout)
 	if err == nil {
-		err = s.store.SaveNodeOp(r.Context(), run.op)
+		err = s.store.SaveNodeOp(ctx, run.op)
 	}
 	if err != nil {
 		s.dropRun(job.JobID)
-		fail(err.Error())
-		return
+		return store.Job{}, err
 	}
-	go s.runDrain(ctx, run)
-	w.WriteHeader(http.StatusAccepted)
-	writeJSON(w, j)
+	go s.runDrain(runCtx, run)
+	return j, nil
+}
+
+// drainBusy meldet, ob gerade ein Neustart mit drain läuft.
+func (s *Server) drainBusy() bool {
+	if s.drain == nil {
+		return false
+	}
+	s.drain.mu.Lock()
+	defer s.drain.mu.Unlock()
+	return len(s.drain.runs) > 0
 }
 
 // runDrain führt einen Vorgang ab seiner gespeicherten Phase aus. Endet ctx
@@ -413,13 +424,15 @@ func (s *Server) finishDrain(run *drainRun, ok bool, errText string) {
 	if !ok {
 		exit = 1
 	}
+	// Erst die Sperre lösen, dann den Job beenden: Ein Playbook startet den
+	// nächsten drain, sobald der Job fertig ist.
+	s.dropRun(op.JobID)
 	if _, err := s.store.FinishJob(ctx, op.JobID, op.HostID, s.nowFor(), ok, exit, op.Log, errText); err != nil {
 		s.log.Error("drain: job beenden", "err", err)
 	}
 	if err := s.store.DeleteNodeOp(ctx, op.JobID); err != nil {
 		s.log.Error("drain: vorgang löschen", "err", err)
 	}
-	s.dropRun(op.JobID)
 	if ok {
 		s.log.Info("neustart mit drain erledigt", "agent_id", op.HostID, "node", op.Node, "job_id", op.JobID)
 		return

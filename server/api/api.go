@@ -53,6 +53,7 @@ type Server struct {
 	cluster     *k8s.Watcher       // nil = keine k3s-Ansicht
 	k3sReleases *k8s.Releases      // nil = keine Anzeige neuer k3s-Versionen
 	drain       *drainState        // nil = kein Neustart mit drain
+	pb          *playbooks         // nil = keine Playbooks
 	version     string             // Server-Version (Anzeige)
 
 	certNotAfter    time.Time // Ablauf des TLS-Zertifikats, null = kein TLS
@@ -620,6 +621,9 @@ func RunRetention(ctx context.Context, st *store.Store, retention time.Duration,
 		}
 		if _, err := st.PruneJobs(ctx, time.Now().Add(-jobRetention)); err != nil {
 			log.Error("jobs bereinigen", "err", err)
+		}
+		if _, err := st.PrunePlaybookRuns(ctx, time.Now().Add(-jobRetention)); err != nil {
+			log.Error("playbook-läufe bereinigen", "err", err)
 		}
 		if _, err := st.ClearJobOutputs(ctx, proto.ActionLogRead, time.Now().Add(-logRetention)); err != nil {
 			log.Error("log-ausgaben leeren", "err", err)
