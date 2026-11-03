@@ -90,6 +90,8 @@ var migrations = []struct{ table, column, def, fill string }{
 	{"hosts", "depends_on", "TEXT NOT NULL DEFAULT ''", ""},
 	// Freigegebene eigene Befehle aus dem hello (M8, JSON-Liste ohne Befehlszeile).
 	{"hosts", "commands", "TEXT NOT NULL DEFAULT '[]'", ""},
+	// Benutzer des Web-Terminals aus dem hello (M11, leer = kein Terminal).
+	{"hosts", "terminal_user", "TEXT NOT NULL DEFAULT ''", ""},
 }
 
 // AlertRule ist der Schwellwert eines Regeltyps.

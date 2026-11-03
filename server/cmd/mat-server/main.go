@@ -182,6 +182,10 @@ func run(ctx context.Context, listen, dbPath string, retention time.Duration, to
 	}
 
 	go api.RunRetention(ctx, st, retention, log)
+	// Terminal-Sitzungen überstehen keinen Neustart; im Audit-Log als beendet vermerken.
+	if _, err := st.CloseOpenTerminalSessions(ctx, time.Now()); err != nil {
+		log.Error("offene terminal-sitzungen beenden", "err", err)
+	}
 
 	dispatcher := notify.NewDispatcher(log, chans...)
 	go dispatcher.Run(ctx)

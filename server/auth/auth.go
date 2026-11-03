@@ -125,6 +125,34 @@ func (m *Manager) Login(ctx context.Context, key, username, password string) (to
 	return token, expires, nil
 }
 
+// Verify prüft das Passwort eines angemeldeten Benutzers erneut (z. B. vor dem
+// Öffnen eines Terminals), ohne eine Session anzulegen. Fehlversuche zählen zur
+// selben Sperre wie beim Login.
+func (m *Manager) Verify(ctx context.Context, key, username, password string) error {
+	now := m.now()
+	if m.limiter.locked(key, now) {
+		return ErrLocked
+	}
+	hash, err := m.store.PasswordHash(ctx, username)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		_ = bcrypt.CompareHashAndPassword(dummyHash, []byte(password))
+		m.limiter.fail(key, now)
+		return ErrInvalid
+	case err != nil:
+		return err
+	}
+	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) != nil {
+		m.limiter.fail(key, now)
+		return ErrInvalid
+	}
+	return nil
+}
+
+// SessionKey liefert den Hash eines Session-Tokens (so steht es in der Datenbank);
+// damit lässt sich etwas an eine Session binden, ohne das Token selbst zu halten.
+func SessionKey(token string) string { return hashToken(token) }
+
 // User liefert den Benutzer zu einem Session-Token oder store.ErrNotFound.
 func (m *Manager) User(ctx context.Context, token string) (string, error) {
 	if token == "" {

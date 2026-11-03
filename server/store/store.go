@@ -45,7 +45,8 @@ CREATE TABLE IF NOT EXISTS hosts (
 	log_sources      TEXT NOT NULL DEFAULT '[]',
 	last_smart       TEXT,
 	depends_on       TEXT NOT NULL DEFAULT '',
-	commands         TEXT NOT NULL DEFAULT '[]'
+	commands         TEXT NOT NULL DEFAULT '[]',
+	terminal_user    TEXT NOT NULL DEFAULT ''
 );
 
 -- Kompakte Historie: nur Kennzahlen, kein vollständiges JSON (spart Platz).
@@ -85,7 +86,7 @@ func Open(path string) (*Store, error) {
 	}
 	// SQLite verträgt nur einen Schreiber; eine Verbindung vermeidet SQLITE_BUSY.
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(schema + usersSchema + alertsSchema + checksSchema + jobsSchema + servicesSchema + maintenanceSchema + disksSchema + nodeOpsSchema + playbooksSchema); err != nil {
+	if _, err := db.Exec(schema + usersSchema + alertsSchema + checksSchema + jobsSchema + servicesSchema + maintenanceSchema + disksSchema + nodeOpsSchema + playbooksSchema + terminalSchema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("schema anlegen: %w", err)
 	}
@@ -119,17 +120,19 @@ func (s *Store) UpsertHost(ctx context.Context, h proto.Hello, remoteAddr string
 	}
 	_, err = s.db.ExecContext(ctx, `
 INSERT INTO hosts (id, hostname, os, platform, platform_version, kernel_version, arch, agent_version,
-                   cpu_cores, boot_time, interval_sec, capabilities, remote_addr, first_seen, last_seen, log_sources, commands)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   cpu_cores, boot_time, interval_sec, capabilities, remote_addr, first_seen, last_seen, log_sources, commands,
+                   terminal_user)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	hostname = excluded.hostname, os = excluded.os, platform = excluded.platform,
 	platform_version = excluded.platform_version, kernel_version = excluded.kernel_version,
 	arch = excluded.arch, agent_version = excluded.agent_version, cpu_cores = excluded.cpu_cores,
 	boot_time = excluded.boot_time, interval_sec = excluded.interval_sec,
 	capabilities = excluded.capabilities, remote_addr = excluded.remote_addr, last_seen = excluded.last_seen,
-	log_sources = excluded.log_sources, commands = excluded.commands`,
+	log_sources = excluded.log_sources, commands = excluded.commands, terminal_user = excluded.terminal_user`,
 		h.AgentID, h.Hostname, h.OS, h.Platform, h.PlatformVer, h.KernelVer, h.Arch, h.AgentVersion,
-		h.CPUCores, h.BootTime, h.IntervalSec, string(caps), remoteAddr, now.Unix(), now.Unix(), string(sources), string(cmdJSON))
+		h.CPUCores, h.BootTime, h.IntervalSec, string(caps), remoteAddr, now.Unix(), now.Unix(), string(sources), string(cmdJSON),
+		h.TerminalUser)
 	if err != nil {
 		return fmt.Errorf("host speichern: %w", err)
 	}
@@ -202,6 +205,8 @@ type Host struct {
 	DependsOn       string             `json:"depends_on"`   // "host:<id>", "check:<id>" oder leer
 	// Commands sind die freigegebenen eigenen Befehle (agent.json, ohne Befehlszeile).
 	Commands []proto.CommandInfo `json:"commands"`
+	// TerminalUser ist der Benutzer des Web-Terminals (leer = kein Terminal).
+	TerminalUser string `json:"terminal_user,omitempty"`
 }
 
 // Name liefert den Anzeigenamen, ersatzweise den gemeldeten Hostnamen.
@@ -218,7 +223,7 @@ func (s *Store) ListHosts(ctx context.Context) ([]Host, error) {
 SELECT id, hostname, os, platform, platform_version, kernel_version, arch, agent_version, cpu_cores,
        boot_time, interval_sec, capabilities, remote_addr, first_seen, last_seen,
        COALESCE(last_metrics, 'null'), COALESCE(last_processes, 'null'), display_name, group_name,
-       COALESCE(updates_summary, 'null'), log_sources, depends_on, commands
+       COALESCE(updates_summary, 'null'), log_sources, depends_on, commands, terminal_user
 FROM hosts ORDER BY CASE display_name WHEN '' THEN hostname ELSE display_name END COLLATE NOCASE, id`)
 	if err != nil {
 		return nil, fmt.Errorf("hosts lesen: %w", err)
@@ -231,7 +236,7 @@ FROM hosts ORDER BY CASE display_name WHEN '' THEN hostname ELSE display_name EN
 		var caps, metrics, procs, updates, sources, cmds string
 		if err := rows.Scan(&h.ID, &h.Hostname, &h.OS, &h.Platform, &h.PlatformVersion, &h.KernelVersion,
 			&h.Arch, &h.AgentVersion, &h.CPUCores, &h.BootTime, &h.IntervalSec, &caps, &h.RemoteAddr,
-			&h.FirstSeen, &h.LastSeen, &metrics, &procs, &h.DisplayName, &h.Group, &updates, &sources, &h.DependsOn, &cmds); err != nil {
+			&h.FirstSeen, &h.LastSeen, &metrics, &procs, &h.DisplayName, &h.Group, &updates, &sources, &h.DependsOn, &cmds, &h.TerminalUser); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(cmds), &h.Commands); err != nil {

@@ -56,6 +56,32 @@ func TestLoginFlow(t *testing.T) {
 	}
 }
 
+func TestVerify(t *testing.T) {
+	ctx := context.Background()
+	m, st := newManager(t)
+	hash, _ := HashPassword("geheim-passwort")
+	st.SetUser(ctx, "admin", hash, time.Now())
+
+	if err := m.Verify(ctx, "ip", "admin", "geheim-passwort"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Verify(ctx, "ip", "niemand", "geheim-passwort"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("unbekannter benutzer: %v", err)
+	}
+	for range maxFailures - 1 {
+		if err := m.Verify(ctx, "ip", "admin", "falsch-passwort"); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("falsches passwort: %v", err)
+		}
+	}
+	// zusammen mit dem unbekannten Benutzer sind das 5 Fehlversuche: gesperrt, auch fürs Login
+	if err := m.Verify(ctx, "ip", "admin", "geheim-passwort"); !errors.Is(err, ErrLocked) {
+		t.Fatalf("nicht gesperrt: %v", err)
+	}
+	if _, _, err := m.Login(ctx, "ip", "admin", "geheim-passwort"); !errors.Is(err, ErrLocked) {
+		t.Fatalf("login nicht gesperrt: %v", err)
+	}
+}
+
 func TestLimiter(t *testing.T) {
 	l := newLimiter()
 	now := time.Now()

@@ -54,6 +54,7 @@ type Server struct {
 	k3sReleases *k8s.Releases      // nil = keine Anzeige neuer k3s-Versionen
 	drain       *drainState        // nil = kein Neustart mit drain
 	pb          *playbooks         // nil = keine Playbooks
+	term        *terminals         // Tickets und Sitzungen des Web-Terminals
 	version     string             // Server-Version (Anzeige)
 
 	certNotAfter    time.Time // Ablauf des TLS-Zertifikats, null = kein TLS
@@ -82,7 +83,7 @@ type Server struct {
 func New(st *store.Store, am *auth.Manager, token string, gui fs.FS, log *slog.Logger) *Server {
 	return &Server{store: st, auth: am, token: []byte(token), gui: gui, log: log,
 		conns: make(map[string]agentConn), names: make(map[string]string), svcs: make(map[string]svcState),
-		nowFor: time.Now, loc: time.Local}
+		term: newTerminals(), nowFor: time.Now, loc: time.Local}
 }
 
 // WithVersion setzt die angezeigte Server-Version.
@@ -137,6 +138,9 @@ func (s *Server) Handler() http.Handler {
 	private.HandleFunc("GET /api/playbook-runs", s.handlePlaybookRuns)
 	private.HandleFunc("GET /api/playbook-runs/{id}", s.handlePlaybookRun)
 	private.HandleFunc("POST /api/playbook-runs/{id}/cancel", s.handleCancelPlaybookRun)
+	private.HandleFunc("POST /api/hosts/{id}/terminal", s.handleTerminalTicket)
+	private.HandleFunc("GET /api/hosts/{id}/terminal-sessions", s.handleTerminalSessions)
+	private.HandleFunc("GET /ws/terminal", s.handleTerminalBrowser)
 	if s.checks != nil {
 		private.HandleFunc("GET /api/checks", s.handleChecks)
 		private.HandleFunc("POST /api/checks", s.handleCreateCheck)
@@ -154,6 +158,7 @@ func (s *Server) Handler() http.Handler {
 
 	public := http.NewServeMux()
 	public.HandleFunc("GET /ws/agent", s.handleAgent)
+	public.HandleFunc("GET /ws/agent/terminal/{id}", s.handleTerminalAgent)        // Agent-Token
 	public.HandleFunc("GET /agent/update/{version}/{file}", s.handleAgentDownload) // Agent-Token
 	public.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
 	public.HandleFunc("GET /metrics", s.handleMetrics) // eigenes Token statt Session
@@ -631,6 +636,9 @@ func RunRetention(ctx context.Context, st *store.Store, retention time.Duration,
 		}
 		if _, err := st.PrunePlaybookRuns(ctx, time.Now().Add(-jobRetention)); err != nil {
 			log.Error("playbook-läufe bereinigen", "err", err)
+		}
+		if _, err := st.PruneTerminalSessions(ctx, time.Now().Add(-jobRetention)); err != nil {
+			log.Error("terminal-sitzungen bereinigen", "err", err)
 		}
 		if _, err := st.ClearJobOutputs(ctx, proto.ActionLogRead, time.Now().Add(-logRetention)); err != nil {
 			log.Error("log-ausgaben leeren", "err", err)
