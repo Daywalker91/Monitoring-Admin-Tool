@@ -175,7 +175,9 @@ func (s *Server) Handler() http.Handler {
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
-		h.Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'")
+		// style-src-elem erlaubt nur <style>-Elemente, die xterm.js für das Web-Terminal
+		// selbst anlegt (Zellmaße, Farben); Inline-Styles in Attributen und Skripte bleiben verboten.
+		h.Set("Content-Security-Policy", "default-src 'self'; style-src-elem 'self' 'unsafe-inline'; frame-ancestors 'none'")
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "no-referrer")

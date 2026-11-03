@@ -5,7 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>Monitoring and Administration Tool</title>
+  <link rel="stylesheet" href="vendor/xterm/xterm.css">
   <link rel="stylesheet" href="style.css">
+  <script src="vendor/xterm/xterm.js" defer></script>
+  <script src="vendor/xterm/addon-fit.js" defer></script>
   <script src="charts.js" defer></script>
   <script src="alerts.js" defer></script>
   <script src="updates.js" defer></script>
@@ -19,6 +22,7 @@
   <script src="checks.js" defer></script>
   <script src="cluster.js" defer></script>
   <script src="playbooks.js" defer></script>
+  <script src="terminal.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -393,6 +397,7 @@
           <section class="host-packages-slot"></section>
           <section class="host-services-slot"></section>
           <section class="host-logs-slot"></section>
+          <section class="host-terminal-slot"></section>
           <section class="host-jobs-slot"></section>
           <section class="host-meta-slot"></section>
           <section class="host-alerts-slot"></section>

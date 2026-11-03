@@ -316,8 +316,19 @@ func TestGUIAndHeaders(t *testing.T) {
 	if !strings.Contains(string(body), "gui") {
 		t.Fatalf("gui nicht ausgeliefert: %s", body)
 	}
-	if resp.Header.Get("Content-Security-Policy") == "" {
+	csp := resp.Header.Get("Content-Security-Policy")
+	if csp == "" {
 		t.Error("CSP-Header fehlt")
+	}
+	// 'unsafe-inline' nur für <style>-Elemente (xterm.js), nie für Skripte oder Attribute.
+	for _, part := range strings.Split(csp, ";") {
+		part = strings.TrimSpace(part)
+		if strings.Contains(part, "unsafe-inline") && !strings.HasPrefix(part, "style-src-elem ") {
+			t.Errorf("unsafe-inline in %q", part)
+		}
+		if strings.Contains(part, "unsafe-eval") || strings.HasPrefix(part, "script-src") {
+			t.Errorf("skripte gelockert: %q", part)
+		}
 	}
 }
 

@@ -355,6 +355,7 @@ const DETAIL_SLOTS = [
   [".host-alerts-slot", hostAlertSection],
   [".host-meta-slot", hostMetaSection],
   [".host-update-slot", hostUpdateSection],
+  [".host-terminal-slot", hostTerminalSection],
   [".host-jobs-slot", hostJobSection],
   [".host-services-slot", hostServiceSection],
   [".host-packages-slot", hostPackageSection],

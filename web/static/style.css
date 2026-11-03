@@ -705,6 +705,18 @@ dialog.job-dialog pre.job-dialog-output { flex: 1; min-height: 0; max-height: no
 @media (max-width: 600px) {
   dialog.job-dialog { width: 100vw; height: 100dvh; margin: 0; border: 0; border-radius: 0; }
 }
+/* Web-Terminal (M11) */
+.host-terminal[hidden] { display: none; }
+.host-terminal table.term-list { margin-top: 8px; }
+.host-terminal table.term-list[hidden] { display: none; }
+dialog.term-dialog .term-auth[hidden], dialog.term-dialog .term-box[hidden] { display: none; }
+dialog.term-dialog .term-auth input[type="password"] { width: 100%; min-width: 0; padding: 6px 8px; font: inherit;
+  font-size: 16px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
+/* Innenabstand am .xterm-Element: das Fit-Addon rechnet ihn heraus, den der Box nicht. */
+dialog.term-dialog .term-box { flex: 1; min-height: 0; background: #0d1117; border-radius: 6px; overflow: hidden; }
+dialog.term-dialog .term-box .xterm { height: 100%; padding: 6px; }
+dialog.term-dialog .term-box .xterm-viewport { scrollbar-color: #3a414c #0d1117; }
+dialog.job-dialog.term-dialog.term-auth-mode { height: fit-content; }
 .log-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 pre.log-text {
   margin: 0;
