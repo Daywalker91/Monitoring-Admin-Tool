@@ -756,6 +756,6 @@ dialog.job-dialog.pb-dialog[open] { display: block; }
   table.pb-list thead { display: none; }
   table.pb-list, table.pb-list tbody, table.pb-list tr, table.pb-list td { display: block; }
   table.pb-list tr { padding: 10px 0; border-top: 1px solid var(--border); }
-  table.pb-list td { padding: 2px 0; border: 0; }
+  table.pb-list td { padding: 2px 0; border: 0; white-space: normal; overflow-wrap: anywhere; }
   .pb-error { max-width: none; }
 }
