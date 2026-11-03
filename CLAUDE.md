@@ -31,8 +31,10 @@ Es wird in Meilensteinen gearbeitet. Alles, was zu keinem beauftragten Meilenste
 - **M12a (fertig):** Playbooks, Grundversion: YAML-Dateien aus `MAT_PLAYBOOK_DIR` (nur Server, `go.yaml.in/yaml/v3`),
   manuell starten, serial/parallel, `on_error`, `when` (Exit-Code oder ok eines früheren Schritts), Wartezeiten,
   Tabellen `playbook_runs`/`playbook_steps`, Fortsetzen nach Server-Neustart; Agent meldet echte Exit-Codes (v1.6.0)
-- **Als Nächstes:** M11 (Web-Terminal), danach M12b/c (Gates, Probelauf, Zeitplan, Freigabe-Schritte) – jeweils
-  vorher einen Plan zeigen
+- **M11 (fertig):** Web-Terminal (Block `terminal` in `agent.json`, Shell als unprivilegierter Benutzer über
+  `systemd-run --pty --uid`, Ticket nach erneuter Passworteingabe, Tabelle `terminal_sessions`, xterm.js lokal);
+  nur Linux mit systemd, Agent v1.7.0
+- **Als Nächstes:** M12b/c (Gates, Probelauf, Zeitplan, Freigabe-Schritte) – vorher einen Plan zeigen
 
 ## Tech-Stack
 
@@ -74,7 +76,7 @@ oder direkt als Binary. Agenten laufen immer direkt auf den Hosts (Windows-Diens
 /agent    Agent: collector (Metriken), client (WebSocket, Jobs), services, packages (apt, dnf, zypper, apk, winget),
           users (Benutzer anlegen), power (Neustart),
           logs (journalctl/wevtutil), smart (smartctl), update (Self-Update), commands (eigene Befehle),
-          progress (Live-Ausgabe von Jobs)
+          progress (Live-Ausgabe von Jobs), terminal (Web-Terminal, PTY über github.com/creack/pty)
 /server   Server: API, WebSocket-Endpunkt, SQLite-Speicher, liefert die GUI aus;
           server/alert wertet Alarmregeln aus, server/notify verschickt Nachrichten (ntfy, SMTP),
           server/checks führt externe Checks aus (HTTP(S), Ping, TCP),
@@ -82,8 +84,9 @@ oder direkt als Binary. Agenten laufen immer direkt auf den Hosts (Windows-Diens
           cordon/uncordon und Eviction für den Neustart mit drain,
           server/forecast schätzt aus der Disk-Historie, wann ein Mountpoint voll ist,
           server/heartbeat meldet einem externen Wächter regelmäßig ein Lebenszeichen,
-          server/playbook liest und prüft Playbooks (Parsen, Prüfen, Schreiben getrennt; Runner in server/api)
-/web      Frontend-Dateien (werden per go:embed eingebettet)
+          server/playbook liest und prüft Playbooks (Parsen, Prüfen, Schreiben getrennt; Runner in server/api),
+          Web-Terminal: Tickets und Vermittlung in server/api/terminal.go
+/web      Frontend-Dateien (werden per go:embed eingebettet; xterm.js unter web/static/vendor/xterm)
 /proto    gemeinsame Nachrichtentypen (JSON) zwischen Agent und Server
 /internal kleine gemeinsame Hilfspakete ohne schwere Abhängigkeiten (winsvc: Windows-Dienst, logfile,
           release: signierte Release-Manifeste)
@@ -150,6 +153,15 @@ Der Agent läuft als root bzw. SYSTEM, deshalb gilt:
   plus `k3s.drain_reboot`, Parameter mit denselben Prüfern wie Jobs, keine Skripte, Ausdrücke oder Variablen aus
   Ausgaben. Dateien nur aus `MAT_PLAYBOOK_DIR` (kein Editor, kein Upload über die GUI). `on_error: continue` ist bei
   `system.reboot`, `k3s.drain_reboot` und `packages.upgrade` verboten.
+- **Web-Terminal – die einzige, bewusste Ausnahme von „keine freie Shell“** (M11). Begründung: Für Fehlersuche
+  braucht es manchmal eine echte Shell, und SSH soll nicht von außen offen sein. Deshalb gilt zusätzlich:
+  Freischaltung nur über den Block `terminal` in `agent.json` (eigene Fähigkeit, nicht über `jobs`, nie per
+  Server/GUI/Flag); Shell nur als dort eingetragener Benutzer, nie root/UID 0, Shell absolut und in `/etc/shells`;
+  Start nur über `systemd-run` mit fester Argumentliste (eigene Unit `mat-term-<id>`, wird beim Ende gestoppt);
+  erneute Passworteingabe je Sitzung, einmaliges Ticket (30 s, an Benutzer, Host und Session gebunden), Origin-
+  Prüfung auch beim WebSocket; Leerlauf-, Gesamtzeit-, Sitzungs- und Größenlimits im Agenten; Audit ohne Ein-
+  und Ausgabe. Der Server reicht nur Bytes durch und erzeugt keine Eingaben. Bekannte Grenze: Ein übernommener
+  Server kann auf freigeschalteten Hosts selbst Sitzungen öffnen (in der README unter „Risiken“).
 - Der Agent öffnet **keine eingehenden Ports**; er verbindet sich nur ausgehend zum Server.
 - **Cluster-Zugriff des Servers:** lesend (ClusterRole `mat-server-read`); schreibend nur Node absperren/freigeben
   (`patch` auf Nodes) und Pods über die Eviction-API verdrängen – mit eigener, optionaler ClusterRole
@@ -162,6 +174,7 @@ Der Agent läuft als root bzw. SYSTEM, deshalb gilt:
   einen selbst signierten Dienst ausdrücklich ankreuzt — dort wird nur Erreichbarkeit gemessen, nichts vertraut.
 - Alle Netzwerkeingaben gelten als nicht vertrauenswürdig: Größenlimit für WebSocket-Nachrichten, Felder validieren,
   SQL nur mit Platzhaltern, in der GUI Werte per `textContent` setzen (kein `innerHTML` mit Fremddaten).
+  CSP `default-src 'self'`; einzige Lockerung `style-src-elem 'unsafe-inline'` für die `<style>`-Elemente von xterm.js.
 - **GUI-Login**: Alles außer Login-Seite, `/ws/agent` (Agent-Token) und `/healthz` erfordert eine Session.
   Passwörter mit bcrypt (Kosten 12, min. 10 Zeichen); Session-Token zufällig (32 Byte), in der DB nur als SHA-256;
   Cookie `HttpOnly`, `SameSite=Strict`, `Secure` bei TLS; 7 Tage gültig; 5 Fehlversuche → 5 Minuten Sperre pro IP.

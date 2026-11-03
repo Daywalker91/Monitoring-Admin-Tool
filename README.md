@@ -157,6 +157,45 @@ k3s selbst ist per Install-Skript installiert, nicht über apt: `packages.upgrad
 das Betriebssystem. Vor Upgrade oder Neustart eines Nodes am besten `kubectl drain`, und immer nur
 einen Node gleichzeitig.
 
+### Web-Terminal (ab Agent v1.7.0)
+
+Eine interaktive Shell im Browser (Host-Details → „Terminal öffnen“). Das Terminal ist die **einzige
+freie Shell in MAT** und deshalb standardmäßig aus. Freigeschaltet wird es nur am Host, mit eigenem Block
+in `agent.json` (nicht über `jobs`, nie über Server oder GUI):
+
+```json
+"terminal": {"user": "hans", "shell": "/bin/bash", "max_sessions": 1, "idle_timeout_sec": 900, "max_duration_sec": 3600}
+```
+
+```sh
+sudo sh install-agent.sh --server wss://… --fingerprint … --terminal-user hans [--terminal-shell /bin/zsh]
+```
+
+- **Nie als root:** Die Shell läuft als der eingetragene Benutzer. root und reservierte Namen lehnt der Agent ab,
+  ebenso Benutzer mit UID 0. Wer root braucht, nutzt darin `sudo` (fragt wie bei SSH nach dem Passwort des
+  Benutzers). Die Shell muss als absoluter Pfad in `/etc/shells` stehen.
+- **Technik:** Der Agent startet die Shell über `systemd-run --pty --uid=<benutzer>` als eigene, kurzlebige Unit
+  `mat-term-<id>.service`. Sie erbt so nicht die Sperren der Agent-Unit (`NoNewPrivileges`, `ProtectHome`),
+  und beim Ende stoppt der Agent die Unit samt aller Kindprozesse. Übrig gebliebene Units räumt er beim Start
+  weg. Ohne systemd (z. B. Alpine) und unter Windows gibt es kein Terminal.
+- **Zugang:** nur angemeldet und mit erneuter Passworteingabe je Sitzung (Fehlversuche zählen zur Login-Sperre).
+  Der Server gibt dafür ein einmaliges Ticket aus (30 s, gebunden an Benutzer, Host und GUI-Session). Der Agent
+  baut je Sitzung eine eigene, ausgehende Verbindung auf; eingehende Ports gibt es weiterhin nicht.
+- **Grenzen:** `max_sessions` je Host (1–3), Leerlauf ohne Eingabe (`idle_timeout_sec`, Standard 15 min) und
+  Gesamtdauer (`max_duration_sec`, Standard 1 h, beides 1 min bis 12 h), Eingabe-Rate und Nachrichtengröße
+  begrenzt. Kein Terminal, solange auf dem Host ein Neustart mit drain, ein Playbook oder ein ändernder Job läuft.
+- **Audit:** Beginn, Ende, Grund, Benutzer, Quell-IP und Datenmenge stehen in den Host-Details (90 Tage).
+  **Eingaben und Ausgaben werden nicht gespeichert** – was in der Sitzung passiert, steht nur im Log des Hosts
+  (z. B. `journalctl`, sudo-Log).
+
+**Risiken:** Wer die GUI samt Passwort hat, hat auf freigeschalteten Hosts eine Shell als dieser Benutzer – mit
+sudo auch root. Deshalb nur auf Hosts freischalten, wo das gewollt ist, die GUI nicht ungeschützt ins Internet
+stellen und einen eigenen Benutzer ohne sudo nehmen, wenn das Terminal nur zum Nachsehen dient. Ein übernommener
+Server kann das Terminal auf Hosts ohne Block `terminal` nicht einschalten. Wo es freigeschaltet ist, kann er
+aber selbst Sitzungen öffnen und hat damit eine Shell als dieser Benutzer – der Agent kann nicht prüfen, ob ein
+Mensch die Sitzung angefordert hat (wie bei einem übernommenen SSH-Jump-Host). Das ist der Preis der Funktion.
+Hinter einem Reverse-Proxy muss dieser WebSockets für `/ws/terminal` und `/ws/agent/terminal/` durchreichen.
+
 ## Installation als Dienst
 
 Die Installationsskripte laden das passende Programm aus dem neuesten GitHub-Release und prüfen
@@ -277,6 +316,10 @@ Alle `/api/*`-Endpunkte außer Login/Logout erfordern eine Session.
 | `POST /api/playbooks/{name}/run` | Lauf starten                              |
 | `GET /api/playbook-runs[/{id}]` | Verlauf der Läufe / ein Lauf mit allen Schritten |
 | `POST /api/playbook-runs/{id}/cancel` | Lauf nach dem aktuellen Schritt beenden |
+| `POST /api/hosts/{id}/terminal` | Ticket fürs Web-Terminal (`{"password","cols","rows"}`, einmalig, 30 s) |
+| `GET /ws/terminal?ticket=…`     | WebSocket des Browsers für eine Terminal-Sitzung (Session und Origin) |
+| `GET /api/hosts/{id}/terminal-sessions` | letzte Terminal-Sitzungen (Audit, ohne Ein-/Ausgabe) |
+| `GET /ws/agent/terminal/{id}`   | WebSocket des Agenten für eine Sitzung (Bearer-Token) |
 | `GET /agent/update/{version}/{datei}` | Release-Dateien für Agenten (Agent-Token) |
 | `GET /healthz`                  | Health-Check                               |
 | `GET /metrics`                  | Prometheus-Format (eigenes Bearer-Token)   |

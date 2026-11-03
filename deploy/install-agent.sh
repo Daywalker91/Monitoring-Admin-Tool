@@ -6,6 +6,8 @@
 #   sudo sh install-agent.sh --uninstall [--purge]
 #   weitere Optionen: --ca server.crt | --version v1.0.0 | --download | --binary <datei>
 #   Admin-Aktionen (nur mit --server): --jobs services,packages,reboot,users --log-sources journal:sshd,journal:kernel
+#   Web-Terminal (nur mit --server): --terminal-user <name> [--terminal-shell /bin/bash] – Shell als dieser
+#   unprivilegierte Benutzer (nie root); sudo darin wie bei SSH
 #
 # Server-Zertifikat: mit --fingerprint (SHA-256, steht in der GUI unter
 # Einstellungen → Agent installieren) holt das Skript das Zertifikat per openssl
@@ -42,14 +44,14 @@ systemctl_() {
 }
 
 usage() {
-	sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'
 	exit "${1:-0}"
 }
 
 # Quelle der Releases; MAT_RELEASE_URL nur für Tests oder Forks.
 RELEASES=${MAT_RELEASE_URL:-https://github.com/Daywalker91/Monitoring-Admin-Tool/releases}
 
-server= ca= fingerprint= id= binary= uninstall= purge= version= download= jobs= logsrc=
+server= ca= fingerprint= id= binary= uninstall= purge= version= download= jobs= logsrc= termuser= termshell=/bin/bash
 while [ $# -gt 0 ]; do
 	case "$1" in
 	--server) server=${2:?}; shift 2 ;;
@@ -58,6 +60,8 @@ while [ $# -gt 0 ]; do
 	--id) id=${2:?}; shift 2 ;;
 	--jobs) jobs=${2:?}; shift 2 ;;
 	--log-sources) logsrc=${2:?}; shift 2 ;;
+	--terminal-user) termuser=${2:?}; shift 2 ;;
+	--terminal-shell) termshell=${2:?}; shift 2 ;;
 	--binary) binary=${2:?}; shift 2 ;;
 	--version) version=${2:?}; download=1; shift 2 ;;
 	--download) download=1; shift ;;
@@ -69,11 +73,22 @@ while [ $# -gt 0 ]; do
 done
 
 # Freischaltungen: nur einfache Zeichen; die genaue Prüfung macht "mat-agent check".
-if [ -n "$jobs$logsrc" ] && [ -z "$server" ]; then
-	die "--jobs/--log-sources nur zusammen mit --server (sonst agent.json von hand ändern)"
+if [ -n "$jobs$logsrc$termuser" ] && [ -z "$server" ]; then
+	die "--jobs/--log-sources/--terminal-user nur zusammen mit --server (sonst agent.json von hand ändern)"
 fi
 case "$jobs" in *[!a-z,]*) die "--jobs: z. b. services,packages,reboot" ;; esac
 case "$logsrc" in *[!A-Za-z0-9:@._/,-]*) die "--log-sources: z. b. journal:sshd,journal:kernel" ;; esac
+# Terminal: Benutzer klein, ohne Sonderzeichen, nie root; Shell als absoluter Pfad.
+if [ -n "$termuser" ]; then
+	case "$termuser" in root | [!a-z]* | *[!a-z0-9_-]*) die "--terminal-user: unprivilegierter benutzer, z. b. hans (nie root)" ;; esac
+	case "$termshell" in /*) ;; *) die "--terminal-shell: absoluter pfad, z. b. /bin/bash" ;; esac
+	case "$termshell" in *[!A-Za-z0-9/._-]*) die "--terminal-shell enthält unzulässige zeichen" ;; esac
+	if [ -z "$DESTROOT" ]; then
+		uid=$(id -u "$termuser" 2>/dev/null) || die "--terminal-user: benutzer $termuser gibt es nicht"
+		[ "$uid" -ne 0 ] || die "--terminal-user: $termuser hat uid 0 – das terminal läuft nie als root"
+		grep -qx "$termshell" /etc/shells || die "--terminal-shell: $termshell steht nicht in /etc/shells"
+	fi
+fi
 
 # json_list macht aus "a,b" die JSON-Elemente "a", "b".
 json_list() {
@@ -318,11 +333,16 @@ if [ -n "$server" ]; then
 		logs_json=",
   \"log_sources\": [$(json_list "$logsrc")]"
 	fi
+	term_json=
+	if [ -n "$termuser" ]; then
+		term_json=",
+  \"terminal\": {\"user\": \"$termuser\", \"shell\": \"$termshell\"}"
+	fi
 	tmp="$CONF.tmp"
 	cat >"$tmp" <<EOF
 {
   "server_url": "$server",
-  "token": "$token"$id_json$ca_json$jobs_json$logs_json
+  "token": "$token"$id_json$ca_json$jobs_json$logs_json$term_json
 }
 EOF
 	chmod 0600 "$tmp"
