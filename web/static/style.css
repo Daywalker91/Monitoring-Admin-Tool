@@ -754,13 +754,17 @@ pre.log-text {
 .pb-grid .pb-msg { max-width: 28ch; overflow-wrap: anywhere; }
 .step-ok > span:first-child { color: var(--ok); }
 .step-failed > span:first-child { color: var(--crit); }
+.probe-warn > span:first-child { color: var(--warn); }
+.probe-info > span:first-child { color: var(--muted); }
+.pb-actions { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.probe-wrap { overflow-x: auto; }
 .step-running > span:first-child { color: var(--warn); }
 .step-pending, .step-skipped { color: var(--muted); }
 .pb-hosts li { margin: 4px 0; }
 .pb-steps { padding-left: 22px; margin: 4px 0 12px; }
 .pb-steps li { margin: 3px 0; }
 #pb-run { margin-top: 18px; }
-dialog.job-dialog.pb-dialog { width: min(680px, calc(100vw - 32px)); height: fit-content; max-height: 85vh; overflow: auto; }
+dialog.job-dialog.pb-dialog { width: min(900px, calc(100vw - 32px)); height: fit-content; max-height: 85vh; overflow: auto; }
 dialog.job-dialog.pb-dialog[open] { display: block; }
 .pb-dialog h3 { margin-top: 12px; }
 @media (max-width: 760px) {

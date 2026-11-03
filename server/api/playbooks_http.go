@@ -1,11 +1,15 @@
 package api
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
+	"time"
 
 	"github.com/Daywalker91/Monitoring-Admin-Tool/proto"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/server/k8s"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/playbook"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/store"
 )
@@ -81,15 +85,30 @@ func (s *Server) handleReloadPlaybooks(w http.ResponseWriter, r *http.Request) {
 	s.handlePlaybooks(w, r)
 }
 
-// previewHost beschreibt einen Zielhost im Bestätigungsdialog.
+// previewHost beschreibt einen Zielhost im Probelauf.
 type previewHost struct {
-	ID       string   `json:"id"`
-	Name     string   `json:"name"`
-	Online   bool     `json:"online"`
-	Warnings []string `json:"warnings,omitempty"` // z. B. fehlende Fähigkeit: Schritt wird fehlschlagen
+	ID     string        `json:"id"`
+	Name   string        `json:"name"`
+	Online bool          `json:"online"`
+	Steps  []previewStep `json:"steps"` // je Schritt des Playbooks
 }
 
-// handlePlaybookPreview zeigt, auf welche Hosts ein Start jetzt zielen würde.
+// Einschätzung eines Schritts im Probelauf.
+const (
+	previewOK   = "ok"   // würde nach heutigem Stand laufen
+	previewInfo = "info" // Hinweis (Wartezeit, ausstehende Updates)
+	previewWarn = "warn" // jetzt nicht erfüllt (z. B. Host offline, Gate offen)
+	previewFail = "fail" // schlägt sicher fehl (Fähigkeit fehlt)
+)
+
+type previewStep struct {
+	State string `json:"state"`
+	Text  string `json:"text"`
+}
+
+// handlePlaybookPreview ist der Probelauf: Zielhosts, Einschätzung jedes
+// Schritts je Host und was einen Start gerade verhindert. Es wird nichts
+// gesendet und nichts gespeichert; Gates zeigen den Stand von jetzt.
 func (s *Server) handlePlaybookPreview(w http.ResponseWriter, r *http.Request) {
 	if !s.requirePlaybooks(w) {
 		return
@@ -114,39 +133,97 @@ func (s *Server) handlePlaybookPreview(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "interner fehler", http.StatusInternalServerError)
 		return
 	}
+	open, err := s.store.OpenJobs(r.Context())
+	if err != nil {
+		s.log.Error("offene jobs lesen", "err", err)
+		http.Error(w, "interner fehler", http.StatusInternalServerError)
+		return
+	}
 	out := []previewHost{}
 	for _, id := range ids {
 		i := slices.IndexFunc(hosts, func(h store.Host) bool { return h.ID == id })
 		h := hosts[i]
-		ph := previewHost{ID: h.ID, Name: h.Name(), Online: s.online(h.ID), Warnings: stepWarnings(p, h, s.canDrain())}
-		if !ph.Online {
-			ph.Warnings = append(ph.Warnings, "host ist offline")
+		ph := previewHost{ID: h.ID, Name: h.Name(), Online: s.online(h.ID)}
+		for _, st := range p.Steps {
+			ph.Steps = append(ph.Steps, s.previewStep(r.Context(), st, h, ph.Online))
 		}
 		out = append(out, ph)
 	}
-	writeJSON(w, map[string]any{"playbook": p, "hosts": out})
+	s.pb.mu.Lock()
+	blockers := s.playbookBlockers(p.Name, ids, open)
+	s.pb.mu.Unlock()
+	writeJSON(w, map[string]any{"playbook": p, "hosts": out, "blockers": blockers})
 }
 
-// stepWarnings nennt Schritte, die auf h sicher fehlschlagen würden.
-func stepWarnings(p *playbook.Playbook, h store.Host, canDrain bool) []string {
-	var out []string
-	for _, st := range p.Steps {
+// previewStep schätzt einen Schritt auf h nach heutigem Stand ein.
+func (s *Server) previewStep(ctx context.Context, st playbook.Step, h store.Host, online bool) previewStep {
+	switch {
+	case st.IsWait():
+		return previewStep{previewInfo, "wartet " + time.Duration(st.Wait).String()}
+	case st.IsGate():
+		ok, detail, err := s.gateState(ctx, st, h.ID, time.Time{})
+		var eg errGate
 		switch {
-		case !st.IsAction():
-		case st.Action == playbook.ActionDrainReboot:
-			if !canDrain || !slices.Contains(h.Capabilities, proto.CapReboot) {
-				out = append(out, st.ID+": neustart mit drain nicht möglich")
-			}
-		case !slices.Contains(h.Capabilities, proto.ActionCapability[st.Action]):
-			out = append(out, st.ID+": fähigkeit "+string(proto.ActionCapability[st.Action])+" fehlt")
-		case st.Action == proto.ActionCommandRun &&
-			!slices.ContainsFunc(h.Commands, func(c proto.CommandInfo) bool { return c.Name == st.Params["name"] }):
-			out = append(out, st.ID+": befehl "+st.Params["name"]+" nicht freigegeben")
-		case st.Action == proto.ActionLogRead && !slices.Contains(h.LogSources, st.Params["source"]):
-			out = append(out, st.ID+": log-quelle "+st.Params["source"]+" nicht freigegeben")
+		case errors.As(err, &eg):
+			return previewStep{previewFail, eg.msg}
+		case err != nil:
+			return previewStep{previewWarn, "prüfung fehlgeschlagen"}
+		case ok:
+			return previewStep{previewOK, "jetzt erfüllt"}
 		}
+		return previewStep{previewWarn, "jetzt nicht erfüllt: " + detail}
+	case st.Action == playbook.ActionDrainReboot:
+		return s.previewDrain(ctx, h, online)
 	}
-	return out
+	switch {
+	case !slices.Contains(h.Capabilities, proto.ActionCapability[st.Action]):
+		return previewStep{previewFail, "fähigkeit " + string(proto.ActionCapability[st.Action]) + " fehlt"}
+	case st.Action == proto.ActionCommandRun &&
+		!slices.ContainsFunc(h.Commands, func(c proto.CommandInfo) bool { return c.Name == st.Params["name"] }):
+		return previewStep{previewFail, "befehl " + st.Params["name"] + " nicht freigegeben"}
+	case st.Action == proto.ActionLogRead && !slices.Contains(h.LogSources, st.Params["source"]):
+		return previewStep{previewFail, "log-quelle " + st.Params["source"] + " nicht freigegeben"}
+	case !online:
+		return previewStep{previewWarn, "host ist offline"}
+	}
+	u := h.Updates
+	switch {
+	case st.Action == proto.ActionPackagesUpgrade && u != nil && u.Error == "":
+		if u.Upgradable == 0 {
+			return previewStep{previewInfo, "keine updates ausstehend"}
+		}
+		return previewStep{previewInfo, fmt.Sprintf("%d updates ausstehend (%d sicherheit)", u.Upgradable, u.Security)}
+	case st.Action == proto.ActionReboot && u != nil && !u.RebootUnknown:
+		if u.RebootRequired {
+			return previewStep{previewInfo, "neustart nötig"}
+		}
+		return previewStep{previewInfo, "neustart nicht nötig"}
+	}
+	return previewStep{previewOK, "bereit"}
+}
+
+// previewDrain prüft wie startDrain, ohne etwas zu reservieren.
+func (s *Server) previewDrain(ctx context.Context, h store.Host, online bool) previewStep {
+	switch {
+	case !s.canDrain():
+		return previewStep{previewFail, "drain nicht verfügbar (clusterrole mat-server-drain fehlt)"}
+	case !slices.Contains(h.Capabilities, proto.CapReboot):
+		return previewStep{previewFail, "fähigkeit reboot fehlt"}
+	case !online:
+		return previewStep{previewWarn, "host ist offline"}
+	}
+	n, err := s.nodeOfHost(ctx, h)
+	switch {
+	case errors.Is(err, k8s.ErrNotFound):
+		return previewStep{previewFail, "kein k3s-node zu diesem host"}
+	case err != nil:
+		return previewStep{previewWarn, "node nicht lesbar"}
+	case !n.Ready:
+		return previewStep{previewWarn, "node " + n.Name + " ist nicht bereit"}
+	case n.Unschedulable:
+		return previewStep{previewWarn, "node " + n.Name + " ist abgesperrt"}
+	}
+	return previewStep{previewOK, "node " + n.Name}
 }
 
 func (s *Server) handleRunPlaybook(w http.ResponseWriter, r *http.Request) {

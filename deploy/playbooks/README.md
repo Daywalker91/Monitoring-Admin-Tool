@@ -65,7 +65,10 @@ neu gestartet werden.
 - Fehler mit `stop`: Der Host endet, und es startet **kein weiterer Host**; laufende Hosts machen ihren Schritt
   fertig. Der Lauf endet als „angehalten“. Mit `continue` wird der Fehler vermerkt und es geht weiter.
 - Ist ein Host offline, wartet der Schritt bis zu 2 Minuten auf die Verbindung und schlägt dann fehl. Fehlt
-  eine Fähigkeit oder ein Befehl, schlägt er sofort fehl (die Vorschau beim Start warnt vorher).
+  eine Fähigkeit oder ein Befehl, schlägt er sofort fehl (der Probelauf zeigt das vorher).
+- **Probelauf** (Knopf im Tab, auch im Startdialog): Tabelle Host × Schritt mit der Einschätzung nach heutigem
+  Stand – Fähigkeit und Befehl vorhanden, Host online, Node für den drain, ausstehende Updates, Gates jetzt
+  erfüllt – und was einen Start gerade verhindert. Es wird nichts gesendet und nichts gespeichert.
 - Nach `system.reboot` wartet der Lauf, bis der Host mit neuer Boot-Zeit zurück ist (höchstens 15 min).
 - Pro Playbook läuft höchstens ein Lauf, ein Host gehört zu höchstens einem Lauf. Ein offener ändernder Job auf
   einem Zielhost oder ein laufender Neustart mit drain verhindert den Start.

@@ -245,23 +245,8 @@ func (s *Server) startPlaybook(ctx context.Context, name, user, remote string) (
 	if s.pb.ctx == nil || s.pb.ctx.Err() != nil {
 		return store.PlaybookRun{}, errors.New("playbooks laufen nicht (server startet oder endet)")
 	}
-	for _, r := range s.pb.runs {
-		if r.pb.Name == name {
-			return store.PlaybookRun{}, errors.New("dieses playbook läuft bereits")
-		}
-		for _, h := range hosts {
-			if slices.Contains(r.hosts, h) {
-				return store.PlaybookRun{}, fmt.Errorf("host %s ist schon in einem anderen lauf (%s)", h, r.pb.Name)
-			}
-		}
-	}
-	if s.drainBusy() {
-		return store.PlaybookRun{}, errors.New("es läuft ein neustart mit drain")
-	}
-	for _, j := range open {
-		if slices.Contains(hosts, j.HostID) && !proto.ReadOnly(j.Action) {
-			return store.PlaybookRun{}, fmt.Errorf("auf host %s läuft noch ein job (%s)", j.HostID, j.Action)
-		}
+	if b := s.playbookBlockers(name, hosts, open); len(b) > 0 {
+		return store.PlaybookRun{}, errors.New(b[0])
 	}
 
 	run := &pbRun{id: newJobID("pb"), user: user, remote: remote, pb: p, hosts: hosts, steps: map[string][]store.PlaybookStep{}}
@@ -284,6 +269,33 @@ func (s *Server) startPlaybook(ctx context.Context, name, user, remote string) (
 	s.log.Info("playbook gestartet", "run_id", run.id, "playbook", p.Name, "hosts", hosts, "user", user, "remote", remote)
 	go s.execRun(s.pb.ctx, run)
 	return rec, nil
+}
+
+// playbookBlockers nennt, was einen Start gerade verhindert: derselbe Lauf,
+// ein Zielhost in einem anderen Lauf, ein Neustart mit drain oder ein offener
+// ändernder Job. s.pb.mu ist gesperrt.
+func (s *Server) playbookBlockers(name string, hosts []string, open []store.Job) []string {
+	var out []string
+	for _, r := range s.pb.runs {
+		if r.pb.Name == name {
+			out = append(out, "dieses playbook läuft bereits")
+			continue
+		}
+		for _, h := range hosts {
+			if slices.Contains(r.hosts, h) {
+				out = append(out, fmt.Sprintf("host %s ist schon in einem anderen lauf (%s)", h, r.pb.Name))
+			}
+		}
+	}
+	if s.drainBusy() {
+		out = append(out, "es läuft ein neustart mit drain")
+	}
+	for _, j := range open {
+		if slices.Contains(hosts, j.HostID) && !proto.ReadOnly(j.Action) {
+			out = append(out, fmt.Sprintf("auf host %s läuft noch ein job (%s)", j.HostID, j.Action))
+		}
+	}
+	return out
 }
 
 // cancelPlaybook merkt den Abbruch vor: Der Lauf endet nach dem aktuellen

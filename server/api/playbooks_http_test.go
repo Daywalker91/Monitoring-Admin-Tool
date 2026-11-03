@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Daywalker91/Monitoring-Admin-Tool/proto"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/auth"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/server/playbook"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/store"
 )
 
@@ -41,14 +43,16 @@ func TestPlaybookHTTP(t *testing.T) {
 	}
 
 	var preview struct {
-		Hosts []previewHost `json:"hosts"`
+		Hosts    []previewHost `json:"hosts"`
+		Blockers []string      `json:"blockers"`
 	}
 	if code := getJSON(t, c, ts.URL+"/api/playbooks/patchen/preview", &preview); code != http.StatusOK || len(preview.Hosts) != 3 {
 		t.Fatalf("vorschau: %d %+v", code, preview)
 	}
 	// Testhosts melden keine Fähigkeiten und sind nicht verbunden.
-	if w := strings.Join(preview.Hosts[0].Warnings, "; "); !strings.Contains(w, "fähigkeit packages fehlt") || !strings.Contains(w, "offline") {
-		t.Errorf("warnungen: %s", w)
+	if h := preview.Hosts[0]; h.Online || len(h.Steps) != 2 || h.Steps[0] != (previewStep{previewFail, "fähigkeit packages fehlt"}) ||
+		len(preview.Blockers) != 0 {
+		t.Errorf("probelauf: %+v", preview)
 	}
 	if code := getJSON(t, c, ts.URL+"/api/playbooks/kaputt/preview", &struct{}{}); code != http.StatusConflict {
 		t.Errorf("vorschau fehlerhaft: %d", code)
@@ -100,5 +104,32 @@ func TestPlaybooksDisabled(t *testing.T) {
 	}
 	if code := status(t, c, http.MethodPost, ts.URL+"/api/playbooks/x/run", ts.URL); code != http.StatusNotFound {
 		t.Errorf("start ohne playbooks: %d", code)
+	}
+}
+
+// TestPreviewStep prüft die Einschätzung einzelner Schritte im Probelauf.
+func TestPreviewStep(t *testing.T) {
+	s, _, _ := newPlaybookServer(t, filepath.Join(t.TempDir(), "mat.db"), threeHosts(), nil)
+	ctx := context.Background()
+	h := store.Host{ID: "n1", Capabilities: []proto.Capability{proto.CapPackages, proto.CapCommands},
+		Commands: []proto.CommandInfo{{Name: "amp-update"}}, Updates: &store.UpdateSummary{Upgradable: 4, Security: 1}}
+	for _, c := range []struct {
+		step   playbook.Step
+		online bool
+		want   previewStep
+	}{
+		{playbook.Step{Wait: playbook.Duration(5 * time.Minute)}, true, previewStep{previewInfo, "wartet 5m0s"}},
+		{playbook.Step{Action: proto.ActionPackagesUpgrade}, true, previewStep{previewInfo, "4 updates ausstehend (1 sicherheit)"}},
+		{playbook.Step{Action: proto.ActionPackagesUpgrade}, false, previewStep{previewWarn, "host ist offline"}},
+		{playbook.Step{Action: proto.ActionCommandRun, Params: map[string]string{"name": "amp-update"}}, true, previewStep{previewOK, "bereit"}},
+		{playbook.Step{Action: proto.ActionCommandRun, Params: map[string]string{"name": "x"}}, true, previewStep{previewFail, "befehl x nicht freigegeben"}},
+		{playbook.Step{Action: proto.ActionReboot}, true, previewStep{previewFail, "fähigkeit reboot fehlt"}},
+		{playbook.Step{Action: playbook.ActionDrainReboot}, true, previewStep{previewFail, "drain nicht verfügbar (clusterrole mat-server-drain fehlt)"}},
+		{playbook.Step{Gate: playbook.GateHostHealthy}, true, previewStep{previewWarn, "jetzt nicht erfüllt: host nicht verbunden"}},
+		{playbook.Step{Gate: playbook.GateClusterHealthy}, true, previewStep{previewFail, "k3s-ansicht ist abgeschaltet"}},
+	} {
+		if got := s.previewStep(ctx, c.step, h, c.online); got != c.want {
+			t.Errorf("%+v: %+v, erwartet %+v", c.step, got, c.want)
+		}
 	}
 }

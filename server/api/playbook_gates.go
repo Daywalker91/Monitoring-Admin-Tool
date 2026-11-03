@@ -99,7 +99,7 @@ func (s *Server) hostGate(id string, since time.Time) (bool, string, error) {
 // Fehlerzustand – mit denselben Ausnahmen wie die Cluster-Alarme.
 func (s *Server) clusterGate(ctx context.Context, since time.Time) (bool, string, error) {
 	if s.cluster == nil {
-		return false, "", errGate{"keine k3s-anbindung (MAT_K8S)"}
+		return false, "", errGate{"k3s-ansicht ist abgeschaltet"}
 	}
 	snap, _ := s.cluster.Current()
 	if snap == nil || snap.FetchedAt < since.Unix() {

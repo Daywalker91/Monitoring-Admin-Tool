@@ -455,9 +455,10 @@ steps:
     when: {step: pruefen, exit_code: 0}
 ```
 
-Im Tab „Playbooks“ startet man ein Playbook nach einer Bestätigung mit den aufgelösten Zielhosts (samt
-Warnungen, etwa wenn eine Fähigkeit fehlt) und verfolgt den Lauf je Host und Schritt; ein Klick auf einen
-Schritt zeigt seine Ausgabe. `serial` hält nach einem Fehler an, ohne den nächsten Host anzufangen;
+Im Tab „Playbooks“ zeigt der Probelauf je Host und Schritt, ob er nach heutigem Stand laufen würde (etwa ob
+eine Fähigkeit fehlt oder ein Gate gerade offen ist), ohne etwas auszulösen. Nach dem Start verfolgt man den
+Lauf je Host und Schritt; ein Klick auf einen Schritt zeigt seine Ausgabe. Gates (`host_healthy`,
+`cluster_healthy`, `check_ok`) warten, bis Host, Cluster oder ein externer Check wieder gesund sind. `serial` hält nach einem Fehler an, ohne den nächsten Host anzufangen;
 `parallel` startet bis `max_parallel` Hosts gleichzeitig. Startet der Server mitten im Lauf neu (etwa weil
 sein Pod beim drain umzieht), macht er dort weiter, ohne einen gestarteten Schritt doppelt auszulösen.
 Exit-Codes (`ok_exit_codes`, `when: exit_code`) meldet der Agent ab v1.6.0.

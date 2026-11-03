@@ -1,5 +1,5 @@
-// Tab „Playbooks“ (M12a): Liste der Playbooks aus MAT_PLAYBOOK_DIR, Start mit
-// Bestätigung (Zielhosts und Schritte), Laufansicht Host × Schritt, Verlauf.
+// Tab „Playbooks“ (M12a/b): Liste der Playbooks aus MAT_PLAYBOOK_DIR, Probelauf
+// (Einschätzung Host × Schritt) und Start mit Bestätigung, Laufansicht Host × Schritt, Verlauf.
 // Nutzt el, fetchJSON, fmtDateTime, fmtDuration, toLogin, ACTION_LABELS,
 // openJobByID aus den anderen Dateien. Werte nur per textContent.
 "use strict";
@@ -74,11 +74,21 @@ function renderPlaybookList(list) {
     const state = el("td");
     if (f.error) {
       state.append(el("span", "fehlerhaft", "error-text"), el("pre", f.error, "pb-error small"));
-    } else {
-      const b = el("button", f.running ? "Lauf ansehen" : "Starten", f.running ? "secondary" : "primary");
+    } else if (f.running) {
+      const b = el("button", "Lauf ansehen", "secondary");
       b.type = "button";
-      b.addEventListener("click", () => f.running ? openRun(f.running) : confirmStart(p.name, b));
+      b.addEventListener("click", () => openRun(f.running));
       state.append(b);
+    } else {
+      const b = el("button", "Starten", "primary");
+      b.type = "button";
+      b.addEventListener("click", () => openProbe(p.name, b, true));
+      const probe = el("button", "Probelauf", "secondary");
+      probe.type = "button";
+      probe.addEventListener("click", () => openProbe(p.name, probe, false));
+      const tools = el("span", null, "pb-actions");
+      tools.append(b, probe);
+      state.append(tools);
     }
     tr.append(state);
     return tr;
@@ -114,11 +124,11 @@ function getStartDialog() {
   d.status = el("p", "", "small error-text");
   d.start = el("button", "Starten", "primary");
   d.start.type = "button";
-  const cancel = el("button", "Abbrechen", "secondary");
-  cancel.type = "button";
-  cancel.addEventListener("click", () => d.el.close());
+  d.cancel = el("button", "Abbrechen", "secondary");
+  d.cancel.type = "button";
+  d.cancel.addEventListener("click", () => d.el.close());
   const actions = el("div", null, "form-actions");
-  actions.append(d.start, cancel, d.status);
+  actions.append(d.start, d.cancel, d.status);
   d.el.append(d.title, d.body, actions);
   d.el.addEventListener("click", ev => { if (ev.target === d.el) d.el.close(); });
   document.body.append(d.el);
@@ -126,7 +136,43 @@ function getStartDialog() {
   return d;
 }
 
-async function confirmStart(name, btn) {
+// Probelauf: Einschätzung je Host und Schritt (Server sendet nichts).
+const PROBE_STATE = { ok: ["✓", "step-ok"], info: ["ℹ", "probe-info"], warn: ["⚠", "probe-warn"], fail: ["✗", "step-failed"] };
+
+function probeTable(preview) {
+  const steps = preview.playbook.steps;
+  const head = el("tr");
+  head.append(el("th", "Host"));
+  steps.forEach((st, i) => {
+    const th = el("th", (i + 1) + ". " + st.id);
+    th.title = stepLabel(st);
+    head.append(th);
+  });
+  const table = el("table", null, "mini pb-grid");
+  table.append(el("thead"), el("tbody"));
+  table.tHead.append(head);
+  for (const h of preview.hosts) {
+    const tr = el("tr");
+    const name = el("td", h.name, "name nowrap");
+    if (!h.online) name.append(el("div", "offline", "warn-text small"));
+    tr.append(name);
+    h.steps.forEach((ps, i) => {
+      const [sym, cls] = PROBE_STATE[ps.state] || ["?", ""];
+      const td = el("td", null, "pb-step " + cls);
+      td.append(el("span", sym), el("div", ps.text, "small pb-msg"));
+      if (steps[i].when) td.append(el("div", "nur wenn " + steps[i].when.step + " …", "muted small"));
+      td.title = stepLabel(steps[i]);
+      tr.append(td);
+    });
+    table.tBodies[0].append(tr);
+  }
+  const wrap = el("div", null, "table-wrap probe-wrap");
+  wrap.append(table);
+  return wrap;
+}
+
+// openProbe zeigt den Probelauf; mit startable zusätzlich den Start.
+async function openProbe(name, btn, startable) {
   btn.disabled = true;
   let preview;
   try {
@@ -139,19 +185,11 @@ async function confirmStart(name, btn) {
   btn.disabled = false;
   const p = preview.playbook;
   const d = getStartDialog();
-  d.title.textContent = "Playbook „" + p.name + "“ starten?";
+  d.title.textContent = startable ? "Playbook „" + p.name + "“ starten?" : "Probelauf „" + p.name + "“";
   d.status.textContent = "";
-  const hosts = el("ul", null, "plain pb-hosts");
-  let warnings = 0;
-  for (const h of preview.hosts) {
-    const li = el("li");
-    li.append(el("b", h.name), el("span", " (" + h.id + ")", "muted"));
-    for (const w of h.warnings || []) {
-      li.append(el("div", "⚠ " + w, "warn-text small"));
-      warnings++;
-    }
-    hosts.append(li);
-  }
+  const count = { fail: 0, warn: 0 };
+  for (const h of preview.hosts) for (const ps of h.steps) if (ps.state in count) count[ps.state]++;
+  const blockers = (preview.blockers || []).map(b => el("p", "⛔ " + b, "banner warn small"));
   const steps = el("ol", null, "pb-steps");
   for (const st of p.steps) {
     const li = el("li", stepLabel(st));
@@ -163,14 +201,20 @@ async function confirmStart(name, btn) {
     steps.append(li);
   }
   const mode = p.mode === "parallel" ? "parallel, bis " + (p.max_parallel || 10) + " Hosts gleichzeitig" : "ein Host nach dem anderen";
+  const summary = [];
+  if (count.fail) summary.push(count.fail + " Schritt(e) schlagen nach heutigem Stand sicher fehl (✗).");
+  if (count.warn) summary.push(count.warn + " Schritt(e) sind gerade nicht erfüllt (⚠), z. B. Host offline oder Gate offen.");
+  summary.push("Gates zeigen den Stand von jetzt. Bei einem Fehler " +
+    ((p.on_error || "stop") === "stop" ? "hält der Lauf an" : "geht es weiter") + " (sofern nicht je Schritt anders).");
   d.body.replaceChildren(
-    el("p", p.description || "", "muted"),
-    el("h3", "Ziele (" + preview.hosts.length + (preview.hosts.length === 1 ? " Host, " : " Hosts, ") + mode + ")"), hosts,
+    el("p", p.description || "", "muted"), ...blockers,
     el("h3", "Schritte"), steps,
-    el("p", (warnings ? warnings + " Warnung(en): diese Schritte werden fehlschlagen. " : "") +
-      "Bei einem Fehler " + ((p.on_error || "stop") === "stop" ? "hält der Lauf an" : "geht es weiter") +
-      " (sofern nicht je Schritt anders).", "small"));
-  d.start.disabled = false;
+    el("h3", "Probelauf (" + preview.hosts.length + (preview.hosts.length === 1 ? " Host, " : " Hosts, ") + mode + ")"),
+    probeTable(preview),
+    el("p", summary.join(" "), "small"));
+  d.start.hidden = !startable;
+  d.cancel.textContent = startable ? "Abbrechen" : "Schließen";
+  d.start.disabled = blockers.length > 0;
   d.start.onclick = async () => {
     d.start.disabled = true;
     try {
