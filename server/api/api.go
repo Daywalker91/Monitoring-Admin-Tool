@@ -130,6 +130,13 @@ func (s *Server) Handler() http.Handler {
 	private.HandleFunc("GET /api/hosts/{id}/updates", s.handleUpdates)
 	private.HandleFunc("GET /api/hosts/{id}/smart", s.handleSmart)
 	private.HandleFunc("POST /api/hosts/{id}/services/watch", s.handleServiceWatch)
+	private.HandleFunc("GET /api/playbooks", s.handlePlaybooks)
+	private.HandleFunc("POST /api/playbooks/reload", s.handleReloadPlaybooks)
+	private.HandleFunc("GET /api/playbooks/{name}/preview", s.handlePlaybookPreview)
+	private.HandleFunc("POST /api/playbooks/{name}/run", s.handleRunPlaybook)
+	private.HandleFunc("GET /api/playbook-runs", s.handlePlaybookRuns)
+	private.HandleFunc("GET /api/playbook-runs/{id}", s.handlePlaybookRun)
+	private.HandleFunc("POST /api/playbook-runs/{id}/cancel", s.handleCancelPlaybookRun)
 	if s.checks != nil {
 		private.HandleFunc("GET /api/checks", s.handleChecks)
 		private.HandleFunc("POST /api/checks", s.handleCreateCheck)

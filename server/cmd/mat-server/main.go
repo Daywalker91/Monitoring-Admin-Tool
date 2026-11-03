@@ -223,6 +223,12 @@ func run(ctx context.Context, listen, dbPath string, retention time.Duration, to
 		}
 		log.Info("k3s-ansicht aktiv")
 	}
+	// Playbooks nur mit Ordner (im k3s per ConfigMap oder Volume).
+	if dir := os.Getenv("MAT_PLAYBOOK_DIR"); dir != "" {
+		apiSrv.WithPlaybooks(dir)
+		go apiSrv.RunPlaybooks(ctx)
+		log.Info("playbooks aktiv", "dir", dir)
+	}
 	if tlsCfg != nil && tlsCfg.Certificates[0].Leaf != nil {
 		apiSrv.WithCertificate(tlsCfg.Certificates[0].Leaf)
 	}
