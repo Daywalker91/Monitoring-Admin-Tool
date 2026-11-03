@@ -129,7 +129,7 @@ func TestValidate(t *testing.T) {
 		{"gate params", base("  - {id: a, gate: host_healthy, params: {x: y}}\n"), "keine params"},
 		{"when auf gate", base("  - {id: a, gate: host_healthy}\n  - {id: b, wait: 1s, when: {step: a, ok: false}}\n"), ""},
 		{"approve", base("  - {id: a, approve: \"node1 ist durch – weiter?\", once: true, timeout: 48h}\n"), ""},
-		{"approve zu lang", base("  - {id: a, approve: "+strings.Repeat("x", 201)+"}\n"), "approve:"},
+		{"approve zu lang", base("  - {id: a, approve: " + strings.Repeat("x", 201) + "}\n"), "approve:"},
 		{"approve timeout", base("  - {id: a, approve: weiter, timeout: 200h}\n"), "timeout"},
 		{"approve und wait", base("  - {id: a, approve: weiter, wait: 1s}\n"), "schließen sich aus"},
 		{"once ohne approve", base("  - {id: a, wait: 1s, once: true}\n"), "once nur bei approve"},
