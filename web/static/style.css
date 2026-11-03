@@ -751,7 +751,7 @@ pre.log-text {
 table.pb-grid td.name { white-space: nowrap; overflow-wrap: normal; width: auto; }
 .pb-grid td.clickable { cursor: pointer; }
 .pb-grid td.clickable:hover { background: var(--bg); }
-.pb-grid .pb-msg { max-width: 28ch; overflow-wrap: anywhere; }
+.pb-grid .pb-msg { max-width: 28ch; white-space: normal; overflow-wrap: anywhere; }
 .step-ok > span:first-child { color: var(--ok); }
 .step-failed > span:first-child { color: var(--crit); }
 .probe-warn > span:first-child { color: var(--warn); }
