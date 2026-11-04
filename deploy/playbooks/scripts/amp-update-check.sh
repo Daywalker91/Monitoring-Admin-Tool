@@ -3,6 +3,8 @@
 # Exit 0 = Update verfügbar, 10 = nichts zu tun, alles andere = Fehler.
 # Ablage: /opt/mat-scripts/, Eigentümer root, chmod 750 (läuft als root).
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# apt-cache policy übersetzt "Installed:"/"Candidate:" (z. B. "Installiert:").
+export LC_ALL=C
 # Der Agent startet im Ordner des Skripts. apt-get update lädt und prüft als
 # Benutzer _apt; darf der den Ordner nicht betreten, schlägt es fehl.
 cd / || exit 2
@@ -31,15 +33,23 @@ fi
 # bis zu 5 × 30 s warten statt sofort aufzugeben.
 try=1
 # $sandbox bewusst ohne Anführungszeichen: leer oder zwei Argumente.
-until out=$(LC_ALL=C apt-get $sandbox update -qq 2>&1); do
+until out=$(apt-get $sandbox update -qq 2>&1); do
   if [ "$try" -ge 5 ] || ! printf '%s' "$out" | grep -q 'Could not get lock'; then
     echo "apt-get update fehlgeschlagen:"; printf '%s\n' "$out" | tail -n 20; exit 2
   fi
   echo "apt ist gesperrt, warte 30 s (Versuch $try/5)"; try=$((try + 1)); sleep 30
 done
-inst=$(apt-cache policy ampinstmgr | awk '/Installed:/ {print $2}')
-cand=$(apt-cache policy ampinstmgr | awk '/Candidate:/ {print $2}')
+policy=$(apt-cache policy ampinstmgr)
+inst=$(printf '%s\n' "$policy" | awk '/Installed:/ {print $2}')
+cand=$(printf '%s\n' "$policy" | awk '/Candidate:/ {print $2}')
 if [ -z "$inst" ] || [ "$inst" = "(none)" ]; then echo "ampinstmgr nicht installiert"; exit 2; fi
+# Ohne Paketquelle steht in der Versionstabelle nur /var/lib/dpkg/status; dann
+# hieße "aktuell" nur "nicht vergleichbar" (z. B. nach do-release-upgrade, das
+# repo.cubecoders.com.list in *.distUpgrade umbenennt).
+if ! printf '%s\n' "$policy" | grep -q '://'; then
+  echo "keine Paketquelle für ampinstmgr (repo.cubecoders.com abgeschaltet?):"
+  printf '%s\n' "$policy"; exit 2
+fi
 if [ -n "$cand" ] && [ "$cand" != "(none)" ] && [ "$inst" != "$cand" ]; then
   echo "ampinstmgr: $inst -> $cand"; exit 0
 fi
