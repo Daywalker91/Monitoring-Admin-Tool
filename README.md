@@ -360,7 +360,7 @@ Der Server prüft feste Regeltypen; Schwelle und Mindestdauer lassen sich in der
 | Swap    | 80 % für 10 min        | Swap belegt (nur Hosts mit Swap)            |
 | Disk    | 90 % für 1 min         | Belegung je Mountpoint                      |
 | Disk-Prognose | < 7 Tage         | Mountpoint ist bei gleichem Trend (lineare Regression der letzten 7 Tage, stündliche Messpunkte, mind. 24 h) bald voll; endet erst über dem 1,5-Fachen der Schwelle |
-| CPU-Temperatur | 80 °C für 5 min | höchster CPU-Sensor (nur Linux-Hosts mit Sensor) |
+| CPU-Temperatur | 80 °C für 5 min | höchster CPU-Sensor (Linux mit Sensor, Windows mit PawnIO) |
 | Check   | 2 min                  | externer Check schlägt ununterbrochen fehl  |
 | Zertifikat | < 14 Tage           | Zertifikat eines HTTPS-Checks läuft bald ab |
 | Node    | 2 min                  | Kubernetes-Node nicht bereit                |
@@ -374,8 +374,25 @@ Ein Alarm löst aus, wenn der Wert die Mindestdauer lang ununterbrochen über de
 wenn er 5 Prozentpunkte (Temperatur: 5 °C) unter die Schwelle fällt.
 
 Die **CPU-Temperatur** liest der Agent unter Linux aus `/sys/class/thermal` (Raspberry Pi, Rockchip,
-`x86_pkg_temp`) und aus den hwmon-Treibern `coretemp`, `k10temp` und `zenpower`. VMs und Windows-Hosts
-haben keinen Wert (in der GUI „–“). In den Host-Details stehen alle gefundenen Sensoren. Pro Alarm gibt es genau zwei Nachrichten: beim Auslösen
+`x86_pkg_temp`) und aus den hwmon-Treibern `coretemp`, `k10temp` und `zenpower`. VMs haben keinen Wert (in
+der GUI „–“). In den Host-Details stehen alle gefundenen Sensoren.
+
+**Windows** hat keine Schnittstelle für die CPU-Temperatur; die ACPI-Thermalzonen fehlen auf Desktop-Boards
+oder zeigen einen festen Wert. Ab Agent v1.9.0 liest der Agent die Temperatur über den Treiber
+[PawnIO](https://pawnio.eu), wenn er am Host installiert ist (nur die signierte Ausgabe, **nicht**
+„unrestricted“). MAT installiert keinen Treiber; ohne PawnIO bleibt der Wert leer, nach der Installation
+übernimmt der Agent ihn innerhalb von 10 min. Unterstützt: Intel Core (Temperatur des ganzen Prozessors,
+sonst der heißeste Kern) und AMD Ryzen/EPYC ab Zen (Tctl, bei 1600X/1700X/1800X/2700X und Threadripper
+1000/2000 auf Tdie korrigiert). Der Agent bringt dafür nur die signierten Module `IntelMSR` und `AMDFamily17`
+mit (LGPL-2.1, [agent/pawnio/modules](agent/pawnio/modules/README.md)) und ruft daraus nur Lesefunktionen
+mit festen Registern auf. Den Treiber dürfen nur Administratoren öffnen. Prüfen in einer
+Administrator-Konsole: `mat-agent check -config …` zeigt die gelesene Temperatur oder den Grund.
+
+**Load unter Windows** (ab v1.9.0): Windows kennt keine Load. Der Agent mittelt die belegten Kerne plus die
+Warteschlange wartender Threads über 1, 5 und 15 Minuten wie Linux. Prozesse, die auf Platte oder Netz
+warten, zählt Linux mit, Windows nicht – vergleichbar, aber nicht gleich.
+
+Pro Alarm gibt es genau zwei Nachrichten: beim Auslösen
 und beim Ende. Aktive Alarme stehen oben in der GUI und unter „Alarme“, zusammen mit dem Verlauf der letzten 7 Tage.
 
 In den Host-Details unter „Alarme für diesen Host“:

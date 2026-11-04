@@ -92,7 +92,8 @@ func (c *Collector) Metrics(ctx context.Context) (proto.Metrics, error) {
 		}
 	}
 	if avg, err := load.AvgWithContext(ctx); err == nil {
-		m.CPU.Load1, m.CPU.Load5, m.CPU.Load15 = round2(avg.Load1), round2(avg.Load5), round2(avg.Load15)
+		l1, l5, l15 := platformLoad(ctx, avg.Load1, avg.Load5, avg.Load15)
+		m.CPU.Load1, m.CPU.Load5, m.CPU.Load15 = round2(l1), round2(l5), round2(l15)
 	}
 
 	if vm, err := mem.VirtualMemoryWithContext(ctx); err == nil {

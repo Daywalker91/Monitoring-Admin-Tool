@@ -39,7 +39,9 @@ Es wird in Meilensteinen gearbeitet. Alles, was zu keinem beauftragten Meilenste
   (`schedule`: daily/weekly/monthly inkl. „first sun“, Zeitzone `TZ`, Tabelle `playbook_schedules`, in der GUI nur pausieren)
 - **M13 (in Arbeit):** winget-Updates unter Windows (`winget upgrade` als Update-Liste, `source update`,
   `upgrade --all` mit derselben Auswahl, nur Quelle `winget`; Ausnahmen per `winget pin` am Host), Agent v1.8.0
-- **Zurückgestellt:** Load und Temperatur unter Windows (gopsutil liefert Load 0, WMI-Thermozonen fehlen) – erst recherchieren
+- **M14 (in Arbeit):** Windows: Load selbst berechnet (belegte Kerne + Warteschlange, EWMA 1/5/15 min),
+  CPU-Temperatur über den am Host installierten Treiber PawnIO (Paket `agent/pawnio`, signierte Module
+  `IntelMSR`/`AMDFamily17` eingebettet), Agent v1.9.0
 
 ## Tech-Stack
 
@@ -78,7 +80,7 @@ oder direkt als Binary. Agenten laufen immer direkt auf den Hosts (Windows-Diens
 ## Code-Architektur
 
 ```
-/agent    Agent: collector (Metriken), client (WebSocket, Jobs), services, packages (apt, dnf, zypper, apk, winget),
+/agent    Agent: collector (Metriken), pawnio (CPU-Temperatur unter Windows), client (WebSocket, Jobs), services, packages (apt, dnf, zypper, apk, winget),
           users (Benutzer anlegen), power (Neustart),
           logs (journalctl/wevtutil), smart (smartctl), update (Self-Update), commands (eigene Befehle),
           progress (Live-Ausgabe von Jobs), terminal (Web-Terminal, PTY über github.com/creack/pty)
@@ -174,6 +176,10 @@ Der Agent läuft als root bzw. SYSTEM, deshalb gilt:
   ohne Passwort nur mit einmaligem Token (je Wiederaufnahme neu, an Sitzung, Benutzer und GUI-Session
   gebunden); „close“ vom Browser beendet sofort und geht nicht an den Agenten. Bekannte Grenze: Ein übernommener
   Server kann auf freigeschalteten Hosts selbst Sitzungen öffnen (in der README unter „Risiken“).
+- **PawnIO (Windows, CPU-Temperatur):** Der Treiber wird nur vom Administrator am Host installiert, nie von
+  MAT. Der Agent lädt nur die eingebetteten, signierten Module aus dem offiziellen Release (Prüfsummen in
+  `agent/pawnio/modules/README.md`) und ruft nur `ioctl_read_msr`/`ioctl_read_smn` mit fest eingetragenen
+  Registern auf; Schreibfunktionen kommen im Code nicht vor, nichts davon kommt vom Server.
 - Der Agent öffnet **keine eingehenden Ports**; er verbindet sich nur ausgehend zum Server.
 - **Cluster-Zugriff des Servers:** lesend (ClusterRole `mat-server-read`); schreibend nur Node absperren/freigeben
   (`patch` auf Nodes) und Pods über die Eviction-API verdrängen – mit eigener, optionaler ClusterRole

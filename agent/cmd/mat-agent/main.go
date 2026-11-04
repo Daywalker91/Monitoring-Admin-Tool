@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"slices"
 	"syscall"
@@ -30,6 +31,7 @@ import (
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/config"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/logs"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/packages"
+	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/pawnio"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/power"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/services"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/agent/smart"
@@ -288,6 +290,13 @@ func runCheck(args []string) error {
 			fmt.Println("warnung: web-terminal bleibt aus:", err)
 		} else {
 			fmt.Printf("web-terminal: als %s mit %s\n", cfg.Terminal.User, cfg.Terminal.Shell)
+		}
+	}
+	if runtime.GOOS == "windows" {
+		if c, name, err := pawnio.CPUTemp(); err != nil {
+			fmt.Println("cpu-temperatur: keine (" + err.Error() + ")")
+		} else {
+			fmt.Printf("cpu-temperatur: %.1f °C (%s, über PawnIO)\n", c, name)
 		}
 	}
 	return nil

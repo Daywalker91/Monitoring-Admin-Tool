@@ -85,8 +85,17 @@ function fmtUptime(bootUnix) {
   return d + " d " + h + " h";
 }
 
-// Windows kennt keinen Load-Wert; gopsutil liefert dort nur Nullen.
-function hasLoad(h) { return h.os !== "windows"; }
+// Windows kennt keinen Load-Wert; ältere Agenten liefern dort nur Nullen, ab
+// v1.9.0 rechnet der Agent ihn selbst (belegte Kerne plus Warteschlange).
+function hasLoad(h) { return h.os !== "windows" || versionAtLeast(h.agent_version, "1.9.0"); }
+
+// versionAtLeast vergleicht "v1.2.3" (Rest wie "-dirty" zählt nicht); "dev" ist 0.0.0.
+function versionAtLeast(v, min) {
+  const parts = s => (String(s || "").replace(/^v/, "").match(/^(\d+)\.(\d+)\.(\d+)/) || [0, 0, 0, 0]).slice(1).map(Number);
+  const a = parts(v), b = parts(min);
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
+  return true;
+}
 
 // Prozentzelle mit Warnstufe ab 80 % bzw. 90 %.
 function pctCell(col, label, v) {

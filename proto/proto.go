@@ -119,7 +119,7 @@ type Metrics struct {
 	Swap  Memory      `json:"swap"`
 	Net   []NetIface  `json:"net"`
 	Disks []DiskUsage `json:"disks"`
-	// CPUTemp ist die CPU-Temperatur in °C; nil = kein Sensor (z. B. Windows, VM).
+	// CPUTemp ist die CPU-Temperatur in °C; nil = kein Sensor (z. B. VM, Windows ohne PawnIO).
 	CPUTemp *float64 `json:"cpu_temp,omitempty"`
 	// Temps sind alle gefundenen Temperatursensoren (nur zur Anzeige).
 	Temps []Temp `json:"temps,omitempty"`

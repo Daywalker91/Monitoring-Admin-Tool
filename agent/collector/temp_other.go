@@ -1,9 +1,8 @@
-//go:build !linux
+//go:build !linux && !windows
 
 package collector
 
 import "github.com/Daywalker91/Monitoring-Admin-Tool/proto"
 
-// cpuTemps: außerhalb von Linux gibt es keine Temperatur. Unter Windows ginge
-// das nur über WMI, oft ungenau, und würde den Agenten vergrößern.
+// cpuTemps: auf anderen Plattformen gibt es keine Temperatur.
 func cpuTemps() (*float64, []proto.Temp) { return nil, nil }
