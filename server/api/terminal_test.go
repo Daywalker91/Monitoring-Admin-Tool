@@ -90,6 +90,13 @@ func serveFakeTerminal(ctx context.Context, ts *httptest.Server, req proto.Termi
 			conn.Write(ctx, websocket.MessageBinary, []byte(ctl.Type))
 			continue
 		}
+		if string(data) == "later" { // Ausgabe kommt später, z. B. während einer Trennung
+			go func() {
+				time.Sleep(150 * time.Millisecond)
+				conn.Write(ctx, websocket.MessageBinary, []byte("spät"))
+			}()
+			continue
+		}
 		if string(data) == "exit" {
 			msg, _ := json.Marshal(proto.TerminalControl{Type: proto.TerminalExit, Reason: "shell beendet"})
 			conn.Write(ctx, websocket.MessageText, msg)
@@ -119,7 +126,7 @@ func dialTerminal(ctx context.Context, c *http.Client, ts *httptest.Server, tick
 	return websocket.Dial(ctx, u, &websocket.DialOptions{HTTPClient: c, HTTPHeader: h})
 }
 
-// readUntilExit liest Daten bis zur exit-Nachricht.
+// readUntilExit liest Daten bis zur exit-Nachricht (resume wird übergangen).
 func readUntilExit(t *testing.T, ctx context.Context, conn *websocket.Conn) (data, reason string) {
 	t.Helper()
 	var b strings.Builder
@@ -133,11 +140,43 @@ func readUntilExit(t *testing.T, ctx context.Context, conn *websocket.Conn) (dat
 			continue
 		}
 		var ctl proto.TerminalControl
-		if json.Unmarshal(msg, &ctl) != nil || ctl.Type != proto.TerminalExit {
+		if json.Unmarshal(msg, &ctl) == nil && ctl.Type == proto.TerminalResume {
+			continue
+		}
+		if ctl.Type != proto.TerminalExit {
 			t.Fatalf("unerwartete steuernachricht %s", msg)
 		}
 		return b.String(), ctl.Reason
 	}
+}
+
+// readResume liest die resume-Nachricht, die der Server nach dem Verbinden schickt.
+func readResume(t *testing.T, ctx context.Context, conn *websocket.Conn) (session, token string) {
+	t.Helper()
+	typ, msg, err := conn.Read(ctx)
+	var ctl proto.TerminalControl
+	if err != nil || typ != websocket.MessageText || json.Unmarshal(msg, &ctl) != nil || ctl.Type != proto.TerminalResume ||
+		!proto.ValidTerminalID(ctl.Session) || ctl.Token == "" {
+		t.Fatalf("resume erwartet: %v %s", err, msg)
+	}
+	return ctl.Session, ctl.Token
+}
+
+func dialResume(ctx context.Context, c *http.Client, ts *httptest.Server, session, token string) (*websocket.Conn, *http.Response, error) {
+	u := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/terminal?session=" + session + "&resume=" + token
+	return websocket.Dial(ctx, u, &websocket.DialOptions{HTTPClient: c, HTTPHeader: http.Header{"Origin": {ts.URL}}})
+}
+
+// waitTerminalAudit wartet, bis die (einzige) Sitzung des Hosts t1 beendet ist.
+func waitTerminalAudit(t *testing.T, c *http.Client, ts *httptest.Server) []store.TerminalSession {
+	t.Helper()
+	var list []store.TerminalSession
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(30 * time.Millisecond) {
+		if getJSON(t, c, ts.URL+"/api/hosts/t1/terminal-sessions", &list); len(list) == 1 && list[0].EndedAt != nil {
+			break
+		}
+	}
+	return list
 }
 
 func TestTerminalFlow(t *testing.T) {
@@ -283,7 +322,11 @@ func TestTerminalAgentSilent(t *testing.T) {
 	}
 }
 
+// TestTerminalBrowserGone: Kommt der Browser nicht zurück, endet die Sitzung nach der Frist.
 func TestTerminalBrowserGone(t *testing.T) {
+	old := terminalResumeWait
+	terminalResumeWait = 300 * time.Millisecond
+	t.Cleanup(func() { terminalResumeWait = old })
 	ts, srv := newTerminalServer(t)
 	c := login(t, ts)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -295,17 +338,13 @@ func TestTerminalBrowserGone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	readResume(t, ctx, conn)
 	conn.Write(ctx, websocket.MessageBinary, []byte("x"))
 	conn.Read(ctx) // echo: Agent ist verbunden
 	conn.Close(websocket.StatusNormalClosure, "")
 
-	var list []store.TerminalSession
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(30 * time.Millisecond) {
-		if getJSON(t, c, ts.URL+"/api/hosts/t1/terminal-sessions", &list); len(list) == 1 && list[0].EndedAt != nil {
-			break
-		}
-	}
-	if len(list) != 1 || list[0].Reason != "browser getrennt" {
+	list := waitTerminalAudit(t, c, ts)
+	if len(list) != 1 || list[0].Reason != "browser nicht zurückgekehrt" {
 		t.Fatalf("audit: %+v", list)
 	}
 	srv.term.mu.Lock()
@@ -313,5 +352,72 @@ func TestTerminalBrowserGone(t *testing.T) {
 	srv.term.mu.Unlock()
 	if n != 0 {
 		t.Fatalf("%d sitzungen übrig", n)
+	}
+}
+
+// TestTerminalResume: Nach einem Abbruch nimmt derselbe Browser die Sitzung mit
+// dem Token wieder auf und bekommt die Ausgabe aus der Zwischenzeit.
+func TestTerminalResume(t *testing.T) {
+	ts, _ := newTerminalServer(t)
+	a, b := login(t, ts), login(t, ts) // zwei GUI-Sessions desselben Benutzers
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	terminalAgent(t, ctx, ts, "t1", true)
+	waitHost(t, a, ts, "online", func(h hostView) bool { return h.Online })
+	ticket, _ := requestTicket(t, a, ts, "t1", testPassword)
+	conn, _, err := dialTerminal(ctx, a, ts, ticket, ts.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, token := readResume(t, ctx, conn)
+	conn.Write(ctx, websocket.MessageBinary, []byte("x"))
+	if _, msg, _ := conn.Read(ctx); string(msg) != "echo:x" {
+		t.Fatalf("echo %q", msg)
+	}
+	conn.Write(ctx, websocket.MessageBinary, []byte("later"))
+	conn.CloseNow() // wie ein Handy, das die App wechselt
+	time.Sleep(400 * time.Millisecond)
+
+	if _, resp, err := dialResume(ctx, b, ts, session, token); err == nil || resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("token aus anderer gui-session: %v", err)
+	}
+	if _, resp, err := dialResume(ctx, a, ts, session, "falsch"); err == nil || resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("falsches token: %v", err)
+	}
+	conn, _, err = dialResume(ctx, a, ts, session, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.CloseNow()
+	if s2, t2 := readResume(t, ctx, conn); s2 != session || t2 == token {
+		t.Fatalf("neues token erwartet: %s %s", s2, t2)
+	}
+	if _, msg, _ := conn.Read(ctx); string(msg) != "spät" {
+		t.Fatalf("gepufferte ausgabe %q", msg)
+	}
+	if _, resp, err := dialResume(ctx, a, ts, session, token); err == nil || resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("token zweimal: %v", err)
+	}
+	conn.Write(ctx, websocket.MessageBinary, []byte("y"))
+	if _, msg, _ := conn.Read(ctx); string(msg) != "echo:y" {
+		t.Fatalf("echo nach wiederaufnahme %q", msg)
+	}
+	// close beendet sofort und geht nicht an den Agenten.
+	conn.Write(ctx, websocket.MessageText, []byte(`{"type":"close"}`))
+	if data, reason := readUntilExit(t, ctx, conn); data != "" || reason != "im browser geschlossen" {
+		t.Fatalf("daten %q, grund %q", data, reason)
+	}
+	if list := waitTerminalAudit(t, a, ts); len(list) != 1 || list[0].Reason != "im browser geschlossen" {
+		t.Fatalf("audit: %+v", list)
+	}
+}
+
+// TestTerminalResumeBuffer: Zu viel Ausgabe während der Trennung verwirft das Älteste.
+func TestTerminalResumeBuffer(t *testing.T) {
+	r := &termRelay{}
+	r.bufferLocked([]byte(strings.Repeat("a", terminalResumeBuf)))
+	r.bufferLocked([]byte("bc"))
+	if len(r.buf) != terminalResumeBuf || !r.dropped || string(r.buf[len(r.buf)-3:]) != "abc" {
+		t.Fatalf("len %d dropped %v", len(r.buf), r.dropped)
 	}
 }

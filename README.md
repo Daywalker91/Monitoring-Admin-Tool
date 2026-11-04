@@ -197,6 +197,12 @@ sudo sh install-agent.sh --server wss://… --fingerprint … --terminal-user ha
 - **Zugang:** nur angemeldet und mit erneuter Passworteingabe je Sitzung (Fehlversuche zählen zur Login-Sperre).
   Der Server gibt dafür ein einmaliges Ticket aus (30 s, gebunden an Benutzer, Host und GUI-Session). Der Agent
   baut je Sitzung eine eigene, ausgehende Verbindung auf; eingehende Ports gibt es weiterhin nicht.
+- **Verbindung abgerissen** (z. B. am Handy die App gewechselt): Die Sitzung bleibt 5 Minuten bestehen, die
+  Shell läuft weiter. Die GUI verbindet sich von selbst neu, sobald die Seite wieder sichtbar ist, und zeigt die
+  Ausgabe aus der Zwischenzeit (der Server hält davon höchstens 256 KB im Arbeitsspeicher, nie auf der Platte).
+  Dafür gibt es kein erneutes Passwort, sondern ein Token, das nur einmal, nur für diese Sitzung und nur in
+  derselben Anmeldung gilt; es liegt im `sessionStorage` des Tabs, sodass auch ein vom Browser verworfener Tab
+  die Sitzung nach dem Neuladen wieder aufnimmt. „Schließen“ beendet die Sitzung sofort.
 - **Grenzen:** `max_sessions` je Host (1–3), Leerlauf ohne Eingabe (`idle_timeout_sec`, Standard 15 min) und
   Gesamtdauer (`max_duration_sec`, Standard 1 h, beides 1 min bis 12 h), Eingabe-Rate und Nachrichtengröße
   begrenzt. Kein Terminal, solange auf dem Host ein Neustart mit drain, ein Playbook oder ein ändernder Job läuft.

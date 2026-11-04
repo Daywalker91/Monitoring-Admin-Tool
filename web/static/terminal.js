@@ -154,14 +154,7 @@ async function connectTerminal(d) {
   // Terminal zuerst aufbauen, damit die Größe für den Agenten feststeht.
   showTermAuth(d, false);
   d.form.hidden = false; // bis das Ticket da ist, bleibt die Eingabe sichtbar
-  d.box.replaceChildren();
-  d.term = new Terminal({ cursorBlink: true, fontSize: 13, scrollback: 5000, convertEol: false,
-    fontFamily: 'Consolas, "SFMono-Regular", Menlo, monospace',
-    theme: { background: "#0d1117", foreground: "#e6edf3" } });
-  d.fit = new FitAddon.FitAddon();
-  d.term.loadAddon(d.fit);
-  d.term.open(d.box);
-  fitTerm(d);
+  createTerm(d);
 
   let ticket;
   try {
@@ -182,29 +175,55 @@ async function connectTerminal(d) {
     return;
   }
   d.form.hidden = true;
-
-  const base = location.pathname.replace(/[^/]*$/, "");
-  const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + base +
-    "ws/terminal?ticket=" + encodeURIComponent(ticket));
-  ws.binaryType = "arraybuffer";
-  d.ws = ws;
   d.ended = false;
+  d.session = d.token = null;
+  d.lostAt = 0;
+  d.retry = 0;
+  d.retryLimit = 0;
+  openTermSocket(d, "ticket=" + encodeURIComponent(ticket));
+}
+
+// createTerm baut xterm.js im Fenster auf; Eingaben gehen an die jeweils
+// aktuelle Verbindung (d.ws), damit sie ein Wiederverbinden überstehen.
+function createTerm(d) {
+  disposeTerm(d);
+  d.box.replaceChildren();
+  d.term = new Terminal({ cursorBlink: true, fontSize: 13, scrollback: 5000, convertEol: false,
+    fontFamily: 'Consolas, "SFMono-Regular", Menlo, monospace',
+    theme: { background: "#0d1117", foreground: "#e6edf3" } });
+  d.fit = new FitAddon.FitAddon();
+  d.term.loadAddon(d.fit);
+  d.term.open(d.box);
+  fitTerm(d);
   const enc = new TextEncoder();
-  const send = data => { if (ws.readyState === WebSocket.OPEN) ws.send(data); };
+  const send = data => { if (d.ws && d.ws.readyState === WebSocket.OPEN) d.ws.send(data); };
   d.term.onData(s => send(enc.encode(s)));
   d.term.onBinary(s => send(Uint8Array.from(s, c => c.charCodeAt(0) & 0xff)));
   d.term.onResize(({ cols, rows }) => send(JSON.stringify({ type: "resize", cols, rows })));
   d.resize = new ResizeObserver(() => fitTerm(d));
   d.resize.observe(d.box);
+}
+
+function openTermSocket(d, query) {
+  const base = location.pathname.replace(/[^/]*$/, "");
+  const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + base +
+    "ws/terminal?" + query);
+  ws.binaryType = "arraybuffer";
+  d.ws = ws;
+  const resumed = d.token !== null;
+  let first = true;
 
   ws.onopen = () => {
-    setTermStatus(d, "verbunden – warte auf den Host …", "muted");
+    d.lostAt = 0;
+    d.retry = d.retryLimit = 0;
+    setTermStatus(d, resumed ? "wieder verbunden" : "verbunden – warte auf den Host …", resumed ? "ok-text" : "muted");
+    // Nach dem Wiederaufnehmen die aktuelle Größe melden (Fenster kann sich gedreht haben).
+    if (resumed) ws.send(JSON.stringify({ type: "resize", cols: d.term.cols, rows: d.term.rows }));
     d.term.focus();
   };
-  let first = true;
   ws.onmessage = ev => {
     if (typeof ev.data !== "string") {
-      if (first) {
+      if (first && !resumed) {
         first = false;
         setTermStatus(d, "verbunden · Leerlauf und Gesamtdauer sind begrenzt", "ok-text");
       }
@@ -214,9 +233,87 @@ async function connectTerminal(d) {
     try {
       const ctl = JSON.parse(ev.data);
       if (ctl.type === "exit") termEnded(d, ctl.reason || "beendet");
+      if (ctl.type === "resume") {
+        d.session = ctl.session;
+        d.token = ctl.token;
+        saveTermResume(d);
+      }
     } catch { /* unbekannte Nachricht */ }
   };
-  ws.onclose = () => termEnded(d, "Verbindung geschlossen");
+  ws.onclose = () => {
+    if (d.ws !== ws) return; // abgelöst
+    d.ws = null;
+    if (!d.ended) termLost(d);
+  };
+}
+
+// --- Wiederaufnehmen -------------------------------------------------------------
+// Reißt die Verbindung ab (Handy: App gewechselt), hält der Server die Sitzung
+// TERM_RESUME_MS lang offen. Das Token (einmal gültig, an diese Anmeldung
+// gebunden) liegt zusätzlich im sessionStorage des Tabs, damit es auch ein vom
+// Browser verworfener und neu geladener Tab noch hat.
+
+const TERM_RESUME_MS = 5 * 60 * 1000;
+const TERM_RESUME_KEY = "mat.terminal";
+
+function saveTermResume(d) {
+  try {
+    sessionStorage.setItem(TERM_RESUME_KEY, JSON.stringify({ host: d.host.id, session: d.session, token: d.token }));
+  } catch { /* ohne Speicher geht nur das Wiederaufnehmen nach dem Neuladen nicht */ }
+}
+
+function clearTermResume() {
+  try { sessionStorage.removeItem(TERM_RESUME_KEY); } catch { /* egal */ }
+}
+
+function termLost(d) {
+  if (!d.token) {
+    termEnded(d, "Verbindung geschlossen");
+    return;
+  }
+  if (!d.lostAt) d.lostAt = Date.now();
+  if (Date.now() - d.lostAt > TERM_RESUME_MS || (d.retryLimit && d.retry >= d.retryLimit)) {
+    termEnded(d, "Verbindung verloren");
+    return;
+  }
+  setTermStatus(d, "getrennt – verbinde neu …", "warn-text");
+  clearTimeout(d.retryTimer);
+  // Im Hintergrund nur langsam versuchen; sichtbar wird sofort neu verbunden (visibilitychange).
+  const delay = document.visibilityState === "visible" ? Math.min(1000 * 2 ** d.retry, 15000) : 30000;
+  d.retry++;
+  d.retryTimer = setTimeout(() => resumeTerminal(d), delay);
+}
+
+function resumeTerminal(d) {
+  clearTimeout(d.retryTimer);
+  if (d.ended || d.ws || !d.token) return;
+  openTermSocket(d, "session=" + encodeURIComponent(d.session) + "&resume=" + encodeURIComponent(d.token));
+}
+
+document.addEventListener("visibilitychange", () => {
+  const d = termDialog;
+  if (document.visibilityState === "visible" && d && d.el.open && !d.ended && !d.ws && d.token) resumeTerminal(d);
+});
+
+// resumeStoredTerminal öffnet nach dem Neuladen eine noch laufende Sitzung
+// wieder (aufgerufen, sobald die Host-Liste da ist). Den alten Bildschirm gibt
+// es dann nicht mehr; Strg+L zeichnet ihn neu.
+function resumeStoredTerminal() {
+  let s;
+  try { s = JSON.parse(sessionStorage.getItem(TERM_RESUME_KEY) || "null"); } catch { return; }
+  if (!s || typeof s.session !== "string" || typeof s.token !== "string") return;
+  const h = lastHosts.find(x => x.id === s.host);
+  if (!h || typeof Terminal === "undefined" || termDialog?.el.open) return;
+  const d = getTermDialog();
+  d.host = h;
+  d.view = termViews.get(h.id) || null;
+  d.title.textContent = "Terminal · " + hostName(h) + " (als " + (h.terminal_user || "?") + ")";
+  showTermAuth(d, false);
+  d.el.showModal();
+  createTerm(d);
+  Object.assign(d, { ended: false, session: s.session, token: s.token, lostAt: Date.now(), retry: 0, retryLimit: 3 });
+  setTermStatus(d, "nehme Sitzung wieder auf …", "muted");
+  resumeTerminal(d);
 }
 
 // fitTerm passt die Größe an das Fenster an, mit einer Spalte Reserve: Auf dem
@@ -231,6 +328,9 @@ function fitTerm(d) {
 function termEnded(d, reason) {
   if (d.ended) return;
   d.ended = true;
+  d.token = null;
+  clearTimeout(d.retryTimer);
+  clearTermResume();
   setTermStatus(d, "Sitzung beendet: " + reason, "muted");
   if (d.term) d.term.options.disableStdin = true;
   if (d.view) loadTermSessions(d.view);
@@ -242,10 +342,16 @@ function disposeTerm(d) {
   d.resize = d.term = d.fit = null;
 }
 
+// endTerminal: Fenster bewusst geschlossen – Sitzung sofort beenden statt sie
+// für ein Wiederaufnehmen offen zu halten.
 function endTerminal(d) {
   d.ended = true;
+  d.token = null;
+  clearTimeout(d.retryTimer);
+  clearTermResume();
   if (d.ws) {
     d.ws.onclose = d.ws.onmessage = null;
+    if (d.ws.readyState === WebSocket.OPEN) d.ws.send(JSON.stringify({ type: "close" }));
     d.ws.close();
     d.ws = null;
   }

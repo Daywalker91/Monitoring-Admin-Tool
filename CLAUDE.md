@@ -169,7 +169,10 @@ Der Agent läuft als root bzw. SYSTEM, deshalb gilt:
   Start nur über `systemd-run` mit fester Argumentliste (eigene Unit `mat-term-<id>`, wird beim Ende gestoppt);
   erneute Passworteingabe je Sitzung, einmaliges Ticket (30 s, an Benutzer, Host und Session gebunden), Origin-
   Prüfung auch beim WebSocket; Leerlauf-, Gesamtzeit-, Sitzungs- und Größenlimits im Agenten; Audit ohne Ein-
-  und Ausgabe. Der Server reicht nur Bytes durch und erzeugt keine Eingaben. Bekannte Grenze: Ein übernommener
+  und Ausgabe. Der Server reicht nur Bytes durch und erzeugt keine Eingaben; reißt die Browser-Verbindung ab,
+  hält er die Sitzung 5 min offen und puffert die Ausgabe nur im Speicher (höchstens 256 KB). Wiederaufnehmen
+  ohne Passwort nur mit einmaligem Token (je Wiederaufnahme neu, an Sitzung, Benutzer und GUI-Session
+  gebunden); „close“ vom Browser beendet sofort und geht nicht an den Agenten. Bekannte Grenze: Ein übernommener
   Server kann auf freigeschalteten Hosts selbst Sitzungen öffnen (in der README unter „Risiken“).
 - Der Agent öffnet **keine eingehenden Ports**; er verbindet sich nur ausgehend zum Server.
 - **Cluster-Zugriff des Servers:** lesend (ClusterRole `mat-server-read`); schreibend nur Node absperren/freigeben

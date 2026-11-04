@@ -3,11 +3,13 @@ package api
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"slices"
 	"sync"
@@ -31,17 +33,28 @@ import (
 //  2. Browser öffnet /ws/terminal?ticket=… (Session-Cookie und Origin geprüft).
 //  3. Server schickt terminal_open an den Agenten; der verbindet sich mit
 //     /ws/agent/terminal/{id} (Agent-Token). Danach werden Nachrichten durchgereicht.
+//  4. Bricht die Browser-Verbindung ab, bleibt die Sitzung terminalResumeWait
+//     bestehen. Der Browser nimmt sie mit /ws/terminal?session=…&resume=<token>
+//     wieder auf (Token aus der letzten resume-Nachricht, einmal gültig, an
+//     Benutzer und GUI-Session gebunden; kein erneutes Passwort). "close" vom
+//     Browser beendet die Sitzung sofort.
 
-// terminalAgentWait: so lange darf sich der Agent mit dem Verbinden Zeit lassen
-// (Variable für Tests).
-var terminalAgentWait = 15 * time.Second
+// Variablen für Tests: terminalAgentWait – so lange darf sich der Agent mit dem
+// Verbinden Zeit lassen; terminalResumeWait – so lange bleibt eine Sitzung nach
+// dem Abbruch der Browser-Verbindung bestehen.
+var (
+	terminalAgentWait  = 15 * time.Second
+	terminalResumeWait = 5 * time.Minute
+)
 
 const (
-	terminalTicketTTL  = 30 * time.Second
-	terminalPerHost    = 3 // Obergrenze im Server (der Agent hat max_sessions)
-	terminalTotal      = 10
-	terminalReadLimit  = proto.TerminalMaxFrame + 1024
-	terminalSessionsUI = 20
+	terminalResumeBuf    = 256 << 10 // Ausgabe, die während einer Trennung gepuffert wird
+	terminalWriteTimeout = 10 * time.Second
+	terminalTicketTTL    = 30 * time.Second
+	terminalPerHost      = 3 // Obergrenze im Server (der Agent hat max_sessions)
+	terminalTotal        = 10
+	terminalReadLimit    = proto.TerminalMaxFrame + 1024
+	terminalSessionsUI   = 20
 )
 
 // terminals hält Tickets und laufende Sitzungen (nur im Speicher).
@@ -62,9 +75,21 @@ type termTicket struct {
 }
 
 type termSession struct {
-	id, host string
-	agent    chan *websocket.Conn // der Agent hat sich verbunden
-	done     chan struct{}        // Sitzung beendet (der Agent-Handler wartet darauf)
+	id, host      string
+	user, sessKey string               // nur dieser Benutzer in dieser GUI-Session darf wieder aufnehmen
+	agent         chan *websocket.Conn // der Agent hat sich verbunden
+	attach        chan termAttach      // ein Browser nimmt die Sitzung wieder auf
+	done          chan struct{}        // Sitzung beendet (die Handler warten darauf)
+
+	mu     sync.Mutex
+	resume string // aktuelles Token zum Wiederaufnehmen, gilt einmal
+}
+
+// termAttach ist eine Browser-Verbindung einer Sitzung.
+type termAttach struct {
+	conn     *websocket.Conn
+	remote   string
+	released chan struct{} // geschlossen, sobald die Sitzung die Verbindung nicht mehr nutzt
 }
 
 // terminalBusy meldet, warum auf dem Host gerade kein Terminal geöffnet werden darf.
@@ -209,6 +234,10 @@ func (s *Server) handleTerminalBrowser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user := userFrom(r.Context())
+	if r.URL.Query().Has("resume") {
+		s.resumeTerminal(w, r, user, auth.SessionKey(c.Value))
+		return
+	}
 	t, ok := s.takeTicket(r.URL.Query().Get("ticket"), user, auth.SessionKey(c.Value))
 	if !ok {
 		http.Error(w, "ticket ungültig oder abgelaufen", http.StatusForbidden)
@@ -242,8 +271,8 @@ func (s *Server) handleTerminalBrowser(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	sess := &termSession{id: proto.TerminalIDPrefix + id, host: t.host,
-		agent: make(chan *websocket.Conn, 1), done: make(chan struct{})}
+	sess := &termSession{id: proto.TerminalIDPrefix + id, host: t.host, user: user, sessKey: t.sessKey,
+		agent: make(chan *websocket.Conn, 1), attach: make(chan termAttach), done: make(chan struct{})}
 	s.term.mu.Lock()
 	s.term.sessions[sess.id] = sess
 	s.term.mu.Unlock()
@@ -265,7 +294,10 @@ func (s *Server) handleTerminalBrowser(w http.ResponseWriter, r *http.Request) {
 	log.Info("terminal angefordert")
 
 	var in, out atomic.Int64
-	reason := s.runTerminal(r.Context(), sess, browser, t, user, &in, &out)
+	// Die Sitzung kann den ersten Browser überleben, deshalb nicht am Kontext
+	// seiner Anfrage hängen.
+	first := termAttach{conn: browser, remote: r.RemoteAddr, released: make(chan struct{})}
+	reason := s.runTerminal(context.WithoutCancel(r.Context()), sess, first, t, &in, &out, log)
 	if err := s.store.FinishTerminalSession(context.Background(), sess.id, s.nowFor(), reason, in.Load(), out.Load()); err != nil {
 		log.Error("terminal-sitzung beenden", "err", err)
 	}
@@ -273,11 +305,12 @@ func (s *Server) handleTerminalBrowser(w http.ResponseWriter, r *http.Request) {
 		"bytes_in", in.Load(), "bytes_out", out.Load())
 }
 
-// runTerminal fordert den Agenten an, wartet auf ihn und reicht dann Nachrichten
-// durch. Liefert den Grund des Endes.
-func (s *Server) runTerminal(ctx context.Context, sess *termSession, browser *websocket.Conn, t termTicket, user string,
-	in, out *atomic.Int64) string {
-	open := proto.TerminalOpen{SessionID: sess.id, Cols: t.cols, Rows: t.rows, User: user}
+// runTerminal fordert den Agenten an, wartet auf ihn und vermittelt dann. Liefert
+// den Grund des Endes.
+func (s *Server) runTerminal(ctx context.Context, sess *termSession, first termAttach, t termTicket,
+	in, out *atomic.Int64, log *slog.Logger) string {
+	browser := first.conn
+	open := proto.TerminalOpen{SessionID: sess.id, Cols: t.cols, Rows: t.rows, User: sess.user}
 	if err := s.sendToAgent(ctx, t.host, proto.TypeTerminalOpen, open); err != nil {
 		reason := "agent nicht erreichbar: " + err.Error()
 		sendTerminalExit(browser, reason)
@@ -293,83 +326,317 @@ func (s *Server) runTerminal(ctx context.Context, sess *termSession, browser *we
 		browser.Close(websocket.StatusNormalClosure, "")
 		return reason
 	case <-ctx.Done():
-		return "browser getrennt"
+		return "server beendet"
 	}
-	return s.relayTerminal(ctx, browser, agent, in, out)
+	r := &termRelay{s: s, sess: sess, agent: agent, in: in, out: out, log: log, detached: make(chan struct{}, 1)}
+	return r.run(ctx, first)
 }
 
-// relayTerminal reicht Nachrichten in beide Richtungen durch, bis eine Seite
-// endet. Steuernachrichten werden geprüft: vom Browser nur resize, vom Agenten
-// nur exit. Lesen läuft unter ctx; endet eine Seite, werden beide geschlossen.
-func (s *Server) relayTerminal(ctx context.Context, browser, agent *websocket.Conn, in, out *atomic.Int64) string {
+// termRelay vermittelt zwischen Agent und dem jeweils verbundenen Browser. Bricht
+// die Browser-Verbindung ab (Handy: App gewechselt, Funkloch), bleibt die
+// Sitzung terminalResumeWait lang bestehen: Die Shell läuft weiter, ihre Ausgabe
+// sammelt sich im Speicher (höchstens terminalResumeBuf, nie auf der Platte),
+// und der Browser kann sie mit dem Token aus der letzten resume-Nachricht wieder
+// aufnehmen. Leerlauf- und Gesamtzeitlimit des Agenten gelten unverändert.
+type termRelay struct {
+	s       *Server
+	sess    *termSession
+	agent   *websocket.Conn
+	in, out *atomic.Int64
+	log     *slog.Logger
+	// detached meldet der Hauptschleife einen Abbruch (Frist starten).
+	detached chan struct{}
+
+	mu      sync.Mutex
+	browser *termAttach        // nil = getrennt
+	bcancel context.CancelFunc // beendet Lesen und Pings des Browsers
+	buf     []byte             // Ausgabe während der Trennung
+	dropped bool               // buf ist übergelaufen
+	pending string             // Grund für den Browser beim Ende (exit des Agenten)
+}
+
+func (r *termRelay) run(ctx context.Context, first termAttach) string {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var once sync.Once
 	var reason string
-	end := func(r string) {
-		once.Do(func() { reason = r })
+	end := func(why string) {
+		once.Do(func() { reason = why })
 		cancel()
 	}
 	// Pings erkennen tote Verbindungen und halten Proxys im Leerlauf offen.
-	go s.pingLoop(ctx, browser, func() { end("browser antwortet nicht") })
-	go s.pingLoop(ctx, agent, func() { end("agent antwortet nicht") })
+	go r.s.pingLoop(ctx, r.agent, func() { end("agent antwortet nicht") })
 	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() { // Agent → Browser
+	wg.Add(1)
+	go func() {
 		defer wg.Done()
-		for {
-			typ, data, err := agent.Read(ctx)
-			if err != nil {
-				end("agent getrennt")
-				return
-			}
-			if typ == websocket.MessageText {
-				var ctl proto.TerminalControl
-				if json.Unmarshal(data, &ctl) != nil || ctl.Validate(true) != nil {
-					continue
-				}
-				if err := browser.Write(ctx, typ, data); err != nil {
-					end("browser getrennt")
-					return
-				}
-				end(ctl.Reason) // exit: der Agent schließt gleich selbst
-				continue
-			}
-			out.Add(int64(len(data)))
-			if err := browser.Write(ctx, typ, data); err != nil {
-				end("browser getrennt")
-				return
-			}
-		}
+		r.fromAgent(ctx, end)
 	}()
-	go func() { // Browser → Agent
-		defer wg.Done()
-		for {
-			typ, data, err := browser.Read(ctx)
-			if err != nil {
-				end("browser getrennt")
-				return
-			}
-			if typ == websocket.MessageText {
-				var ctl proto.TerminalControl
-				if json.Unmarshal(data, &ctl) != nil || ctl.Validate(false) != nil {
-					continue
-				}
-			} else {
-				in.Add(int64(len(data)))
-			}
-			if err := agent.Write(ctx, typ, data); err != nil {
-				end("agent getrennt")
-				return
-			}
+	r.attach(ctx, first, end)
+
+	var grace *time.Timer
+	var graceC <-chan time.Time
+	stopGrace := func() {
+		if grace != nil {
+			grace.Stop()
+			grace, graceC = nil, nil
 		}
-	}()
-	<-ctx.Done()
+	}
+	for ctx.Err() == nil {
+		select {
+		case <-ctx.Done():
+		case <-r.detached:
+			if r.isDetached() && grace == nil {
+				r.log.Info("terminal getrennt, warte auf wiederaufnahme", "wait", terminalResumeWait)
+				grace = time.NewTimer(terminalResumeWait)
+				graceC = grace.C
+			}
+		case a := <-r.sess.attach:
+			stopGrace()
+			r.log.Info("terminal wieder aufgenommen", "remote", a.remote)
+			r.attach(ctx, a, end)
+		case <-graceC:
+			end("browser nicht zurückgekehrt")
+		}
+	}
+	stopGrace()
 	end("server beendet")
-	browser.Close(websocket.StatusNormalClosure, "")
-	agent.Close(websocket.StatusNormalClosure, "")
+	r.mu.Lock()
+	old, bcancel := r.dropLocked()
+	r.mu.Unlock()
+	if old != nil {
+		sendTerminalExit(old.conn, reason)
+		releaseBrowser(old, bcancel)
+	}
+	r.agent.Close(websocket.StatusNormalClosure, "")
 	wg.Wait()
 	return reason
+}
+
+// fromAgent reicht die Ausgabe an den Browser weiter oder puffert sie, solange
+// keiner verbunden ist. Vom Agenten zählt als Steuernachricht nur exit.
+func (r *termRelay) fromAgent(ctx context.Context, end func(string)) {
+	for {
+		typ, data, err := r.agent.Read(ctx)
+		if err != nil {
+			end("agent getrennt")
+			return
+		}
+		if typ == websocket.MessageText {
+			var ctl proto.TerminalControl
+			if json.Unmarshal(data, &ctl) != nil || ctl.Validate(true) != nil {
+				continue
+			}
+			end(ctl.Reason) // exit: der Agent schließt gleich selbst
+			continue
+		}
+		r.out.Add(int64(len(data)))
+		r.mu.Lock()
+		if r.browser != nil {
+			c := r.browser.conn
+			wctx, cancel := context.WithTimeout(context.Background(), terminalWriteTimeout)
+			err := c.Write(wctx, websocket.MessageBinary, data)
+			cancel()
+			if err == nil {
+				r.mu.Unlock()
+				continue
+			}
+			r.bufferLocked(data)
+			old, bcancel := r.dropLocked()
+			r.mu.Unlock()
+			releaseBrowser(old, bcancel)
+			r.notifyDetached()
+			continue
+		}
+		r.bufferLocked(data)
+		r.mu.Unlock()
+	}
+}
+
+// fromBrowser reicht Eingaben an den Agenten weiter. Vom Browser zählen als
+// Steuernachrichten resize (geht weiter) und close (beendet die Sitzung).
+func (r *termRelay) fromBrowser(ctx, bctx context.Context, c *websocket.Conn, end func(string)) {
+	for {
+		typ, data, err := c.Read(bctx)
+		if err != nil {
+			r.lost(c)
+			return
+		}
+		if typ == websocket.MessageText {
+			var ctl proto.TerminalControl
+			if json.Unmarshal(data, &ctl) != nil || ctl.Validate(false) != nil {
+				continue
+			}
+			if ctl.Type == proto.TerminalClose {
+				end("im browser geschlossen")
+				return
+			}
+		} else {
+			r.in.Add(int64(len(data)))
+		}
+		// Schreiben unter ctx der Sitzung: Endete der Kontext des Browsers
+		// mitten im Schreiben, schlösse coder/websocket die Agent-Verbindung.
+		if err := r.agent.Write(ctx, typ, data); err != nil {
+			end("agent getrennt")
+			return
+		}
+	}
+}
+
+// attach macht a zum verbundenen Browser: neues Token, dann die gepufferte
+// Ausgabe. Ein noch verbundener Browser wird abgelöst.
+func (r *termRelay) attach(ctx context.Context, a termAttach, end func(string)) {
+	token, err := r.sess.newResume()
+	r.mu.Lock()
+	old, oldCancel := r.dropLocked()
+	// Eigener Kontext, nicht von ctx abgeleitet: Endet die Sitzung, muss die
+	// exit-Nachricht noch hinaus, bevor die Verbindung schließt (coder/websocket
+	// schließt sie, sobald der Kontext eines Reads endet).
+	bctx, bcancel := context.WithCancel(context.Background())
+	r.browser, r.bcancel = &a, bcancel
+	ok := err == nil && r.writeLocked(websocket.MessageText, resumeMessage(r.sess.id, token))
+	if ok && r.dropped {
+		ok = r.writeLocked(websocket.MessageBinary, []byte("\r\n[… ältere Ausgabe verworfen]\r\n"))
+	}
+	for ok && len(r.buf) > 0 {
+		n := min(len(r.buf), proto.TerminalMaxFrame)
+		if ok = r.writeLocked(websocket.MessageBinary, r.buf[:n]); ok {
+			r.buf = r.buf[n:]
+		}
+	}
+	if ok {
+		r.buf, r.dropped = nil, false
+	}
+	r.mu.Unlock()
+	if old != nil {
+		sendTerminalExit(old.conn, "in einem anderen fenster wieder aufgenommen")
+		releaseBrowser(old, oldCancel)
+	}
+	go r.fromBrowser(ctx, bctx, a.conn, end)
+	go r.s.pingLoop(bctx, a.conn, func() { r.lost(a.conn) })
+	if !ok {
+		r.lost(a.conn)
+	}
+}
+
+// lost meldet, dass die Verbindung c abgebrochen ist; nur der aktuelle Browser zählt.
+func (r *termRelay) lost(c *websocket.Conn) {
+	r.mu.Lock()
+	if r.browser == nil || r.browser.conn != c {
+		r.mu.Unlock()
+		return
+	}
+	old, bcancel := r.dropLocked()
+	r.mu.Unlock()
+	releaseBrowser(old, bcancel)
+	r.notifyDetached()
+}
+
+func (r *termRelay) notifyDetached() {
+	select {
+	case r.detached <- struct{}{}:
+	default:
+	}
+}
+
+func (r *termRelay) isDetached() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.browser == nil
+}
+
+// dropLocked löst den aktuellen Browser; releaseBrowser erledigt den Rest außerhalb der Sperre.
+func (r *termRelay) dropLocked() (*termAttach, context.CancelFunc) {
+	old, bcancel := r.browser, r.bcancel
+	r.browser, r.bcancel = nil, nil
+	return old, bcancel
+}
+
+// releaseBrowser beendet Lesen und Pings eines abgelösten Browsers und gibt dessen
+// Handler frei.
+func releaseBrowser(a *termAttach, bcancel context.CancelFunc) {
+	if a == nil {
+		return
+	}
+	if bcancel != nil {
+		bcancel()
+	}
+	// CloseNow: Ein ordentliches Close wartete auf die Antwort des Browsers,
+	// die ohne laufenden Leser nicht mehr gelesen wird.
+	a.conn.CloseNow()
+	close(a.released)
+}
+
+func (r *termRelay) writeLocked(typ websocket.MessageType, data []byte) bool {
+	wctx, cancel := context.WithTimeout(context.Background(), terminalWriteTimeout)
+	defer cancel()
+	return r.browser.conn.Write(wctx, typ, data) == nil
+}
+
+// bufferLocked hängt Ausgabe an den Puffer; zu viel verwirft das Älteste.
+func (r *termRelay) bufferLocked(data []byte) {
+	r.buf = append(r.buf, data...)
+	if over := len(r.buf) - terminalResumeBuf; over > 0 {
+		r.buf = append([]byte(nil), r.buf[over:]...)
+		r.dropped = true
+	}
+}
+
+func resumeMessage(id, token string) []byte {
+	data, _ := json.Marshal(proto.TerminalControl{Type: proto.TerminalResume, Session: id, Token: token})
+	return data
+}
+
+// newResume erzeugt ein neues Token; das bisherige gilt danach nicht mehr.
+func (t *termSession) newResume() (string, error) {
+	token, err := randomToken(32)
+	t.mu.Lock()
+	t.resume = token // bei einem Fehler leer: Wiederaufnehmen geht dann nicht
+	t.mu.Unlock()
+	return token, err
+}
+
+// takeResume löst ein Token genau einmal ein, nur für denselben Benutzer in
+// derselben GUI-Session.
+func (t *termSession) takeResume(token, user, sessKey string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	ok := t.resume != "" && subtle.ConstantTimeCompare([]byte(token), []byte(t.resume)) == 1 &&
+		t.user == user && t.sessKey == sessKey
+	if ok {
+		t.resume = ""
+	}
+	return ok
+}
+
+// resumeTerminal nimmt eine getrennte (oder noch nicht als getrennt erkannte)
+// Sitzung mit dem Token aus der letzten resume-Nachricht wieder auf.
+func (s *Server) resumeTerminal(w http.ResponseWriter, r *http.Request, user, sessKey string) {
+	q := r.URL.Query()
+	s.term.mu.Lock()
+	sess := s.term.sessions[q.Get("session")]
+	s.term.mu.Unlock()
+	if sess == nil || !sess.takeResume(q.Get("resume"), user, sessKey) {
+		http.Error(w, "sitzung nicht mehr vorhanden oder token ungültig", http.StatusForbidden)
+		return
+	}
+	browser, err := websocket.Accept(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer browser.CloseNow()
+	browser.SetReadLimit(terminalReadLimit)
+	a := termAttach{conn: browser, remote: r.RemoteAddr, released: make(chan struct{})}
+	select {
+	case sess.attach <- a:
+	case <-sess.done:
+		sendTerminalExit(browser, "sitzung beendet")
+		return
+	}
+	select { // die Verbindung gehört jetzt der Sitzung
+	case <-a.released:
+	case <-sess.done:
+	}
 }
 
 // handleTerminalAgent nimmt die Terminal-Verbindung eines Agenten an.

@@ -191,7 +191,8 @@ func (m *Manager) run(ioCtx context.Context, proc Proc, conn Conn) string {
 				}
 			case websocket.MessageText:
 				var ctl proto.TerminalControl
-				if json.Unmarshal(data, &ctl) != nil || ctl.Validate(false) != nil {
+				// Nur resize; "close" endet schon im Server.
+				if json.Unmarshal(data, &ctl) != nil || ctl.Validate(false) != nil || ctl.Type != proto.TerminalResize {
 					continue // unbekannte Steuernachrichten ignorieren
 				}
 				if err := proc.Resize(ctl.Cols, ctl.Rows); err != nil {

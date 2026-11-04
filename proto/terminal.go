@@ -18,7 +18,9 @@ import (
 //   - Binärnachrichten sind Terminal-Daten (Eingabe bzw. Ausgabe), höchstens
 //     TerminalMaxFrame Bytes.
 //   - Textnachrichten sind TerminalControl (JSON): "resize" vom Browser, "exit"
-//     (Grund des Endes) vom Agenten.
+//     (Grund des Endes) vom Agenten. Nur zwischen Browser und Server: "close"
+//     (Browser beendet die Sitzung bewusst) und "resume" (Server → Browser:
+//     Token, um die Sitzung nach einem Verbindungsabbruch wieder aufzunehmen).
 
 // CapTerminal meldet ein freigeschaltetes Web-Terminal.
 const CapTerminal Capability = "terminal"
@@ -30,6 +32,8 @@ const TypeTerminalOpen = "terminal_open"
 const (
 	TerminalResize = "resize" // Browser → Agent: neue Größe
 	TerminalExit   = "exit"   // Agent → Browser: Sitzung endet, Reason nennt den Grund
+	TerminalClose  = "close"  // Browser → Server: Sitzung sofort beenden (geht nicht an den Agenten)
+	TerminalResume = "resume" // Server → Browser: Session und Token zum Wiederaufnehmen
 )
 
 // Grenzen für Terminal-Sitzungen.
@@ -89,16 +93,20 @@ type TerminalControl struct {
 	Cols   int    `json:"cols,omitempty"`
 	Rows   int    `json:"rows,omitempty"`
 	Reason string `json:"reason,omitempty"`
+	// Nur bei resume (vom Server erzeugt, wird nicht geprüft).
+	Session string `json:"session,omitempty"`
+	Token   string `json:"token,omitempty"`
 }
 
 // Validate prüft eine Steuernachricht; fromAgent wählt die erlaubte Richtung
-// (Agent: nur exit, Browser: nur resize).
+// (Agent: nur exit, Browser: resize und close).
 func (t *TerminalControl) Validate(fromAgent bool) error {
 	switch {
 	case fromAgent && t.Type == TerminalExit:
 		if len(t.Reason) > maxTerminalReason {
 			return fmt.Errorf("grund zu lang")
 		}
+	case !fromAgent && t.Type == TerminalClose:
 	case !fromAgent && t.Type == TerminalResize:
 		if !validTerminalSize(t.Cols, t.Rows) {
 			return fmt.Errorf("ungültige terminalgröße")

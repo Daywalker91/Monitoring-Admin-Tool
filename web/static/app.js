@@ -641,8 +641,15 @@ function syncChildren(parent, nodes) {
   }
 }
 
+let termResumeChecked = false;
+
 function render(hosts) {
   lastHosts = hosts;
+  // Einmal nach dem Laden: ein vom Browser verworfener Tab nimmt sein Terminal wieder auf.
+  if (!termResumeChecked) {
+    termResumeChecked = true;
+    if (typeof resumeStoredTerminal === "function") resumeStoredTerminal();
+  }
   const tbody = document.querySelector("#hosts tbody");
   const rows = [];
   const groups = groupHosts(hosts);
