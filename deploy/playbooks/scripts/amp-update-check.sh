@@ -3,6 +3,9 @@
 # Exit 0 = Update verfügbar, 10 = nichts zu tun, alles andere = Fehler.
 # Ablage: /opt/mat-scripts/, Eigentümer root, chmod 750 (läuft als root).
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Der Agent startet im Ordner des Skripts. apt-get update lädt und prüft als
+# Benutzer _apt; darf der den Ordner nicht betreten, schlägt es fehl.
+cd / || exit 2
 
 # Andere Release-Streams als Mainline stehen nicht im Paketmanager: kein
 # Vergleich möglich, ein Update wird angenommen (getamp update ist wiederholbar).
