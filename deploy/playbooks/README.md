@@ -149,6 +149,16 @@ install -o root -g root -m 750 amp-update-check.sh amp-update.sh /opt/mat-script
 }
 ```
 
+Die Unit des Agenten macht `/root` und `/home` schreibgeschützt (`ProtectHome=read-only`). `getamp` schreibt
+sein Log nach `/root`, `ampinstmgr upgradeall` die Instanzen unter `/home/amp`; ohne Freigabe bricht
+`getamp update` mit „Read-only file system“ ab. Deshalb auf AMP-Hosts nur diese beiden Ordner freigeben:
+
+```sh
+install -d /etc/systemd/system/mat-agent.service.d
+printf '[Service]\nReadWritePaths=/root /home/amp\n' > /etc/systemd/system/mat-agent.service.d/amp.conf
+systemctl daemon-reload && systemctl restart mat-agent
+```
+
 Danach den Agent-Dienst neu starten; `mat-agent check -config …` zeigt die erkannten Befehle. Die Exit-Codes
 meldet der Agent ab v1.6.0; ältere melden jeden Fehler als 1, dann hält der Lauf bei „kein Update“ an.
 
