@@ -18,10 +18,20 @@ if [ -f "$STREAM_FILE" ]; then
 fi
 
 command -v apt-get >/dev/null 2>&1 || { echo "kein apt: Skript nicht unterstützt"; exit 2; }
+# Auf manchen Hosts fehlt systemd-Diensten CAP_SETUID (Bit 7 in CapEff). Dann
+# scheitert apt beim Wechsel zu _apt ("seteuid 105 failed"); wie der Agent bei
+# packages.refresh ohne diese Sandbox laden. Die Signaturprüfung bleibt.
+sandbox=
+capeff=$(awk '/^CapEff:/ {print $2}' /proc/self/status 2>/dev/null)
+if [ -n "$capeff" ] && [ $(( 0x$capeff >> 7 & 1 )) -eq 0 ]; then
+  echo "Hinweis: CAP_SETUID fehlt, apt lädt ohne _apt-Sandbox als root."
+  sandbox="-o APT::Sandbox::User=root"
+fi
 # Hält gerade ein anderer apt-Prozess die Sperre (apt-daily, unattended-upgrades),
 # bis zu 5 × 30 s warten statt sofort aufzugeben.
 try=1
-until out=$(LC_ALL=C apt-get update -qq 2>&1); do
+# $sandbox bewusst ohne Anführungszeichen: leer oder zwei Argumente.
+until out=$(LC_ALL=C apt-get $sandbox update -qq 2>&1); do
   if [ "$try" -ge 5 ] || ! printf '%s' "$out" | grep -q 'Could not get lock'; then
     echo "apt-get update fehlgeschlagen:"; printf '%s\n' "$out" | tail -n 20; exit 2
   fi
