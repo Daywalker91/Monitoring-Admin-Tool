@@ -16,7 +16,8 @@ offene Updates (apt) und Neustart, neue k3s-Versionen im Tab „Cluster“, frei
 M8 fertig – Prognose „Platte voll“ je Mountpoint (mit Alarm), eigene Befehle mit fester Befehlszeile aus `agent.json`; Live-Ausgabe laufender Jobs.
 M10 fertig – Pakete installieren und Benutzer anlegen, neben apt auch dnf, zypper und apk, unter Windows Installation per winget.
 M9 fertig – Neustart von k3s-Hosts mit drain (absperren, Pods verdrängen, Neustart, freigeben); „Node nicht bereit“ folgt dem Wartungsfenster des Hosts.
-M13 – Updates per winget unter Windows (Liste offener Updates, „Updates installieren“).
+M13 fertig – Updates per winget unter Windows (Liste offener Updates, „Updates installieren“).
+M14 fertig – Load und CPU-Temperatur unter Windows (Temperatur über den Treiber PawnIO), Zoom im Verlauf.
 
 ## Schnellstart (lokal)
 
