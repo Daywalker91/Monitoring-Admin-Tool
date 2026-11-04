@@ -15,9 +15,15 @@ if [ -f "$STREAM_FILE" ]; then
 fi
 
 command -v apt-get >/dev/null 2>&1 || { echo "kein apt: Skript nicht unterstützt"; exit 2; }
-if ! out=$(apt-get update -qq 2>&1); then
-  echo "apt-get update fehlgeschlagen:"; printf '%s\n' "$out" | tail -n 20; exit 2
-fi
+# Hält gerade ein anderer apt-Prozess die Sperre (apt-daily, unattended-upgrades),
+# bis zu 5 × 30 s warten statt sofort aufzugeben.
+try=1
+until out=$(LC_ALL=C apt-get update -qq 2>&1); do
+  if [ "$try" -ge 5 ] || ! printf '%s' "$out" | grep -q 'Could not get lock'; then
+    echo "apt-get update fehlgeschlagen:"; printf '%s\n' "$out" | tail -n 20; exit 2
+  fi
+  echo "apt ist gesperrt, warte 30 s (Versuch $try/5)"; try=$((try + 1)); sleep 30
+done
 inst=$(apt-cache policy ampinstmgr | awk '/Installed:/ {print $2}')
 cand=$(apt-cache policy ampinstmgr | awk '/Candidate:/ {print $2}')
 if [ -z "$inst" ] || [ "$inst" = "(none)" ]; then echo "ampinstmgr nicht installiert"; exit 2; fi
