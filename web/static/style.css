@@ -153,10 +153,19 @@ button.danger:hover { background: var(--crit); color: var(--panel); }
 
 /* Verlauf */
 .detail-grid section.history { grid-column: 1 / -1; }
-.detail-grid section.host-services { grid-column: span 2; }
 .detail-grid section.host-logs { grid-column: 1 / -1; }
-.detail-grid section.host-smart { grid-column: span 2; }
-@media (max-width: 900px) { .detail-grid section.host-smart { grid-column: 1 / -1; } }
+/* Zwei Felder breit; Updates und Dienste stehen in einer Zeile und sind dadurch gleich hoch. */
+.detail-grid section.host-disks,
+.detail-grid section.host-smart,
+.detail-grid section.host-meta-section,
+.detail-grid section.host-packages,
+.detail-grid section.host-services { grid-column: span 2; }
+@media (max-width: 900px) {
+  .detail-grid section.host-disks,
+  .detail-grid section.host-smart,
+  .detail-grid section.host-meta-section,
+  .detail-grid section.host-packages { grid-column: 1 / -1; }
+}
 .host-logs select, .host-logs input[type=search] { padding: 5px 8px; font: inherit; font-size: 13px; color: var(--text);
   background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
 .host-logs input[type=search] { flex: 1 1 160px; min-width: 0; }
@@ -164,6 +173,8 @@ button.danger:hover { background: var(--crit); color: var(--panel); }
 .history.loading .chart-grid { opacity: 0.6; transition: opacity 0.2s; }
 .history-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 .history-head h3 { margin: 0; }
+.history-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.history-tools button.small-btn { margin: 0; }
 
 .segmented { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
 .segmented button {
@@ -193,6 +204,8 @@ button.danger:hover { background: var(--crit); color: var(--panel); }
 
 .chart-plot { position: relative; }
 .chart-plot svg { display: block; overflow: visible; touch-action: pan-y; }
+.chart.zoomable svg { cursor: crosshair; }
+.chart-plot .zoom-sel { fill: var(--bar); fill-opacity: 0.15; stroke: var(--bar); stroke-width: 1; }
 .chart-plot svg:focus-visible { outline: 2px solid var(--bar); outline-offset: 2px; border-radius: 2px; }
 .chart .grid line { stroke: var(--border); stroke-width: 1; }
 .chart .axis-label { fill: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }

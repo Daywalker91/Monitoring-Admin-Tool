@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -217,6 +218,25 @@ func TestAgentFlow(t *testing.T) {
 	resp.Body.Close()
 	if len(hist) != 1 {
 		t.Fatalf("historie: %+v", hist)
+	}
+	// Zoom: Ausschnitt mit from/to; zu kurz oder zu alt wird abgelehnt.
+	now := time.Now().Unix()
+	for q, want := range map[string]int{
+		fmt.Sprintf("from=%d&to=%d", now-600, now+5):         http.StatusOK,
+		fmt.Sprintf("from=%d&to=%d", now-30, now):            http.StatusBadRequest,
+		fmt.Sprintf("from=%d&to=%d", now-9*86400, now-86400): http.StatusBadRequest,
+		"from=x&to=1": http.StatusBadRequest,
+	} {
+		resp, err := c.Get(ts.URL + "/api/hosts/test-1/history?points=300&" + q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		hist = nil
+		json.NewDecoder(resp.Body).Decode(&hist)
+		resp.Body.Close()
+		if resp.StatusCode != want || (want == http.StatusOK && len(hist) != 1) {
+			t.Fatalf("%s: %d %+v", q, resp.StatusCode, hist)
+		}
 	}
 
 	// Anzeigename und Gruppe.

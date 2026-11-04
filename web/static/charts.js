@@ -2,6 +2,7 @@
 // - eine y-Achse pro Diagramm (mehrere Größen → mehrere Diagramme)
 // - Lücken, wo Messpunkte fehlen (Host offline), statt durchgezogener Linien
 // - Fadenkreuz + Tooltip mit allen Serien, auch per Tastatur (Pfeiltasten)
+// - Zoom: waagerecht ziehen wählt einen Zeitraum, Doppelklick setzt zurück
 // Texte werden nur per textContent gesetzt.
 "use strict";
 
@@ -82,13 +83,14 @@ const Charts = (() => {
    * Erzeugt ein Liniendiagramm.
    * opts: {
    *   title, series: [{ key, name, cls }], format(v), scale: "pct" | "bytes",
-   *   area: bool (Fläche unter einer einzelnen Serie)
+   *   area: bool (Fläche unter einer einzelnen Serie),
+   *   onZoom(startTs, endTs), onReset() (optional: Zoom durch Ziehen bzw. Doppelklick)
    * }
    * Rückgabe: { el, update(points, startTs, endTs, gapSec) }
    */
   function lineChart(opts) {
     const fig = document.createElement("figure");
-    fig.className = "chart";
+    fig.className = opts.onZoom ? "chart zoomable" : "chart";
 
     const head = div("chart-head");
     head.append(div("chart-title", opts.title));
@@ -120,6 +122,8 @@ const Charts = (() => {
     let drawnWidth = 0;
     let hoverIdx = -1;
     let geom = null;
+    let drag = null; // { x0, x1 } während des Ziehens (Pixel im SVG)
+    let sel = null;  // Rechteck der Auswahl
 
     function draw() {
       const width = plot.clientWidth;
@@ -203,7 +207,10 @@ const Charts = (() => {
       hover.append(svgEl("line", { y1: M.top, y2: M.top + ih }, "crosshair"));
       for (const s of opts.series) hover.append(svgEl("circle", { r: 4 }, "dot " + s.cls));
       svg.append(hover);
+      sel = svgEl("rect", { y: M.top, height: ih, visibility: "hidden" }, "zoom-sel");
+      svg.append(sel);
       svg.append(svgEl("rect", { x: M.left, y: M.top, width: iw, height: ih, fill: "transparent" }, "hit"));
+      drawSel();
 
       if (hoverIdx >= 0) showHover(Math.min(hoverIdx, points.length - 1));
     }
@@ -247,13 +254,47 @@ const Charts = (() => {
       tip.hidden = true;
     }
 
+    // Pixel ↔ Zeit innerhalb der Plotfläche.
+    const tsAt = px => state.start + ((px - M.left) / (drawnWidth - M.left - M.right)) * (state.end - state.start);
+    const plotX = ev => {
+      const r = svg.getBoundingClientRect();
+      return Math.max(M.left, Math.min(drawnWidth - M.right, ev.clientX - r.left));
+    };
+
+    function drawSel() {
+      if (!sel) return;
+      if (!drag) {
+        sel.setAttribute("visibility", "hidden");
+        return;
+      }
+      sel.setAttribute("x", Math.min(drag.x0, drag.x1));
+      sel.setAttribute("width", Math.abs(drag.x1 - drag.x0));
+      sel.setAttribute("visibility", "visible");
+    }
+
     svg.addEventListener("pointermove", ev => {
       if (!state || !state.points.length || !geom) return;
-      const r = svg.getBoundingClientRect();
-      const px = ev.clientX - r.left;
-      const ts = state.start + ((px - M.left) / (drawnWidth - M.left - M.right)) * (state.end - state.start);
-      showHover(nearest(state.points, ts));
+      if (drag) {
+        drag.x1 = plotX(ev);
+        drawSel();
+      }
+      showHover(nearest(state.points, tsAt(ev.clientX - svg.getBoundingClientRect().left)));
     });
+    svg.addEventListener("pointerdown", ev => {
+      if (!opts.onZoom || !state || !geom || ev.button !== 0) return;
+      drag = { x0: plotX(ev), x1: plotX(ev) };
+      svg.setPointerCapture(ev.pointerId);
+    });
+    svg.addEventListener("pointerup", () => {
+      if (!drag) return;
+      const { x0, x1 } = drag;
+      drag = null;
+      drawSel();
+      // Unter 8 px war es ein Antippen, kein Ziehen.
+      if (Math.abs(x1 - x0) >= 8) opts.onZoom(tsAt(Math.min(x0, x1)), tsAt(Math.max(x0, x1)));
+    });
+    svg.addEventListener("pointercancel", () => { drag = null; drawSel(); });
+    svg.addEventListener("dblclick", () => opts.onReset?.());
     svg.addEventListener("pointerleave", hideHover);
     svg.addEventListener("blur", hideHover);
     svg.addEventListener("keydown", ev => {

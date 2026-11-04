@@ -16,9 +16,17 @@ function hostTerminalSection(h) {
     v = createTermView(h);
     termViews.set(h.id, v);
   }
+  // Ohne Freischaltung bleibt die Kachel mit Hinweis stehen, damit das Raster
+  // der Host-Details bei allen Hosts gleich aussieht.
   const enabled = (h.capabilities || []).includes("terminal");
-  v.el.hidden = !enabled;
-  if (!enabled) return v.el;
+  v.open.hidden = !enabled;
+  if (!enabled) {
+    v.table.hidden = true;
+    v.info.textContent = h.os === "windows"
+      ? "Nicht verfügbar: Das Web-Terminal gibt es nur unter Linux mit systemd."
+      : "Nicht verfügbar: auf diesem Host nicht freigeschaltet (Block „terminal“ in agent.json).";
+    return v.el;
+  }
   v.info.textContent = "Shell als " + (h.terminal_user || "?") + ". Eingaben und Ausgaben werden nicht gespeichert.";
   v.open.disabled = !h.online;
   v.open.title = h.online ? "" : "Host ist offline";

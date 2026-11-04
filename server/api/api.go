@@ -93,7 +93,7 @@ func (s *Server) WithVersion(v string) *Server {
 }
 
 // Dateien, die ohne Anmeldung erreichbar sein müssen (Login-Seite).
-var publicFiles = []string{"/login.html", "/login.js", "/style.css"}
+var publicFiles = []string{"/login.html", "/login.js", "/style.css", "/favicon.svg"}
 
 // Handler liefert den HTTP-Router. Alles außer Login, Agent-WebSocket und
 // Health-Check erfordert eine gültige Session.
@@ -532,12 +532,25 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	span := time.Duration(hours) * time.Hour
+	since := s.nowFor().Add(-span)
+	var until time.Time
+	// Ausschnitt für den Zoom: from/to (Unix-Sekunden) ersetzen hours.
+	if q.Has("from") {
+		from, err1 := strconv.ParseInt(q.Get("from"), 10, 64)
+		to, err2 := strconv.ParseInt(q.Get("to"), 10, 64)
+		now := s.nowFor().Unix()
+		if err1 != nil || err2 != nil || to-from < 60 || from < now-8*86400 || to > now+3600 {
+			http.Error(w, "from/to: ausschnitt ab 60 s innerhalb der letzten 8 tage", http.StatusBadRequest)
+			return
+		}
+		since, until = time.Unix(from, 0), time.Unix(to, 0)
+		span = until.Sub(since)
+	}
 	var bucket time.Duration
 	if maxPoints > 0 {
 		bucket = (span + time.Duration(maxPoints) - 1) / time.Duration(maxPoints)
 	}
-	since := s.nowFor().Add(-span)
-	points, err := s.store.History(r.Context(), r.PathValue("id"), since, bucket)
+	points, err := s.store.History(r.Context(), r.PathValue("id"), since, until, bucket)
 	if err != nil {
 		s.log.Error("historie lesen", "err", err)
 		http.Error(w, "interner fehler", http.StatusInternalServerError)

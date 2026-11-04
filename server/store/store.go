@@ -311,19 +311,24 @@ type HistoryPoint struct {
 	CPUTemp    *float64 `json:"cpu_temp"` // °C; nil = kein Sensor
 }
 
-// History liefert die Historie eines Hosts ab since. Bei bucket > 1 s werden
+// History liefert die Historie eines Hosts ab since bis until (Nullwert = bis
+// jetzt; für den Zoom in der GUI). Bei bucket > 1 s werden
 // die Punkte zu Mittelwerten je Zeitfenster verdichtet; ts ist dann der Beginn
 // des Fensters.
-func (s *Store) History(ctx context.Context, hostID string, since time.Time, bucket time.Duration) ([]HistoryPoint, error) {
+func (s *Store) History(ctx context.Context, hostID string, since, until time.Time, bucket time.Duration) ([]HistoryPoint, error) {
 	b := int64(bucket / time.Second)
 	if b < 1 {
 		b = 1
 	}
+	var end int64 // 0 = bis jetzt
+	if !until.IsZero() {
+		end = until.Unix()
+	}
 	rows, err := s.db.QueryContext(ctx, `
 SELECT (ts / ?1) * ?1 AS t, AVG(cpu_pct), AVG(load1), AVG(mem_pct), AVG(swap_pct),
        AVG(net_rx_bps), AVG(net_tx_bps), MAX(disk_max_pct), AVG(cpu_temp)
-FROM metrics_history WHERE host_id = ?2 AND ts >= ?3
-GROUP BY t ORDER BY t`, b, hostID, since.Unix())
+FROM metrics_history WHERE host_id = ?2 AND ts >= ?3 AND (?4 = 0 OR ts <= ?4)
+GROUP BY t ORDER BY t`, b, hostID, since.Unix(), end)
 	if err != nil {
 		return nil, fmt.Errorf("historie lesen: %w", err)
 	}

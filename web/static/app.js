@@ -195,6 +195,7 @@ function hostRow(h) {
 
 const HISTORY_POINTS = 300;
 const HISTORY_REFRESH_MS = 30000;
+const HISTORY_MIN_ZOOM = 300; // kleinster Ausschnitt in Sekunden
 const RANGES = [["1 h", 1], ["24 h", 24], ["7 d", 168]];
 const historyViews = new Map();
 
@@ -205,7 +206,8 @@ function fmtRateShort(n, axis) {
 }
 
 function createHistoryView(h) {
-  const v = { id: h.id, hours: 1, data: null, fetchedAt: 0, loading: false, interval: h.interval_sec };
+  // zoom: null oder { from, to } (Unix-Sekunden), per Ziehen im Diagramm gewählt.
+  const v = { id: h.id, hours: 1, zoom: null, data: null, dataKey: "", fetchedAt: 0, loading: false, interval: h.interval_sec };
   const sec = el("section", null, "history");
 
   const head = el("div", null, "history-head");
@@ -219,29 +221,39 @@ function createHistoryView(h) {
     b.setAttribute("aria-pressed", String(hours === v.hours));
     b.addEventListener("click", ev => {
       ev.stopPropagation();
-      if (v.hours === hours) return;
+      if (v.hours === hours && !v.zoom) return;
       v.hours = hours;
       ranges.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
-      v.fetchedAt = 0;
-      loadHistory(v);
+      setZoom(v, null);
     });
     ranges.append(b);
   }
-  head.append(ranges);
+  const tools = el("div", null, "history-tools");
+  tools.append(el("span", "Zum Vergrößern im Diagramm waagerecht ziehen", "muted small hide-sm"));
+  v.reset = el("button", "Zoom zurücksetzen", "secondary small-btn");
+  v.reset.type = "button";
+  v.reset.hidden = true;
+  v.reset.addEventListener("click", ev => {
+    ev.stopPropagation();
+    setZoom(v, null);
+  });
+  tools.append(v.reset, ranges);
+  head.append(tools);
   sec.append(head);
 
   const pct = (n, axis) => axis ? n.toFixed(0) + "%" : (n ?? 0).toFixed(1) + " %";
+  const zoom = { onZoom: (from, to) => setZoom(v, { from, to }), onReset: () => setZoom(v, null) };
   v.charts = [
-    Charts.lineChart({ title: "CPU", scale: "pct", area: true, format: pct,
+    Charts.lineChart({ ...zoom, title: "CPU", scale: "pct", area: true, format: pct,
       series: [{ key: "cpu_pct", name: "CPU", cls: "s1" }] }),
-    Charts.lineChart({ title: "RAM", scale: "pct", area: true, format: pct,
+    Charts.lineChart({ ...zoom, title: "RAM", scale: "pct", area: true, format: pct,
       series: [{ key: "mem_pct", name: "RAM", cls: "s1" }] }),
-    Charts.lineChart({ title: "Netz", scale: "bytes", format: fmtRateShort,
+    Charts.lineChart({ ...zoom, title: "Netz", scale: "bytes", format: fmtRateShort,
       series: [{ key: "net_rx_bps", name: "↓ empfangen", cls: "s1" }, { key: "net_tx_bps", name: "↑ gesendet", cls: "s2" }] }),
   ];
   v.hasTemp = h.metrics?.cpu_temp != null;
   if (v.hasTemp) {
-    v.charts.push(Charts.lineChart({ title: "CPU-Temperatur", format: (n, axis) => axis ? n.toFixed(0) + "°" : fmtTemp(n),
+    v.charts.push(Charts.lineChart({ ...zoom, title: "CPU-Temperatur", format: (n, axis) => axis ? n.toFixed(0) + "°" : fmtTemp(n),
       series: [{ key: "cpu_temp", name: "Temperatur", cls: "s1" }] }));
   }
   const grid = el("div", null, "chart-grid");
@@ -272,7 +284,8 @@ function createHistoryView(h) {
 function fillHistoryTable(v) {
   if (!v.details.open || !v.data) return;
   const opts = { hour: "2-digit", minute: "2-digit" };
-  if (v.hours > 24) Object.assign(opts, { day: "numeric", month: "numeric" });
+  const [start, end] = historySpan(v);
+  if (end - start > 86400) Object.assign(opts, { day: "numeric", month: "numeric" });
   const rows = [...v.data].reverse().map(p => [
     [new Date(p.ts * 1000).toLocaleString("de-DE", opts)],
     [fmtPct(p.cpu_pct), "num"], [fmtPct(p.mem_pct), "num"],
@@ -284,19 +297,48 @@ function fillHistoryTable(v) {
   fillTable(tbody, rows);
 }
 
+// setZoom wählt einen Ausschnitt (null = ganzer Zeitraum). Zu kleine Ausschnitte
+// werden um ihre Mitte auf HISTORY_MIN_ZOOM erweitert.
+function setZoom(v, z) {
+  if (z) {
+    if (z.to - z.from < HISTORY_MIN_ZOOM) {
+      const mid = (z.from + z.to) / 2;
+      z = { from: mid - HISTORY_MIN_ZOOM / 2, to: mid + HISTORY_MIN_ZOOM / 2 };
+    }
+    z = { from: Math.floor(z.from), to: Math.ceil(z.to) };
+  }
+  v.zoom = z;
+  v.reset.hidden = !z;
+  loadHistory(v);
+}
+
+// historySpan liefert [start, end] der Anzeige in Unix-Sekunden.
+function historySpan(v) {
+  if (v.zoom) return [v.zoom.from, v.zoom.to];
+  const end = Date.now() / 1000;
+  return [end - v.hours * 3600, end];
+}
+
+const historyKey = v => v.zoom ? `z${v.zoom.from}-${v.zoom.to}` : `h${v.hours}`;
+
+// loadHistory holt den Verlauf; ohne Zoom höchstens alle HISTORY_REFRESH_MS neu,
+// ein Ausschnitt bleibt stehen (sonst liefe er beim Ansehen davon).
 async function loadHistory(v) {
-  if (v.loading || Date.now() - v.fetchedAt < HISTORY_REFRESH_MS) return;
+  const key = historyKey(v);
+  if (v.loading) return;
+  if (v.dataKey === key && (v.zoom || Date.now() - v.fetchedAt < HISTORY_REFRESH_MS)) return;
   v.loading = true;
   v.el.classList.add("loading"); // altes Bild bleibt gedimmt stehen, bis neue Daten da sind
-  const hours = v.hours;
+  const range = v.zoom ? `from=${v.zoom.from}&to=${v.zoom.to}` : `hours=${v.hours}`;
   try {
-    const resp = await fetch(`api/hosts/${encodeURIComponent(v.id)}/history?hours=${hours}&points=${HISTORY_POINTS}`,
+    const resp = await fetch(`api/hosts/${encodeURIComponent(v.id)}/history?${range}&points=${HISTORY_POINTS}`,
       { cache: "no-store" });
     if (resp.status === 401) return toLogin();
     if (!resp.ok) throw new Error("HTTP " + resp.status);
     const data = await resp.json();
-    if (hours !== v.hours) return; // Zeitraum wurde inzwischen gewechselt
+    if (key !== historyKey(v)) return; // Zeitraum wurde inzwischen gewechselt
     v.data = data;
+    v.dataKey = key;
     v.fetchedAt = Date.now();
     drawHistory(v);
   } catch (e) {
@@ -304,14 +346,13 @@ async function loadHistory(v) {
   } finally {
     v.loading = false;
     v.el.classList.remove("loading");
-    if (hours !== v.hours) loadHistory(v);
+    if (key !== historyKey(v)) loadHistory(v);
   }
 }
 
 function drawHistory(v) {
-  const end = Date.now() / 1000;
-  const start = end - v.hours * 3600;
-  const bucket = (v.hours * 3600) / HISTORY_POINTS;
+  const [start, end] = historySpan(v);
+  const bucket = (end - start) / HISTORY_POINTS;
   // Lücke, wenn mehr als ~3 Messintervalle bzw. 2,5 Fenster fehlen.
   const gap = Math.max(bucket * 2.5, (v.interval || 10) * 3);
   for (const c of v.charts) c.update(v.data, start, end, gap);
@@ -569,7 +610,7 @@ function createMetaView(h) {
     "erfasst, aber nicht gemeldet.", "muted small"));
   form.addEventListener("click", ev => ev.stopPropagation());
   form.addEventListener("submit", ev => { ev.preventDefault(); saveMeta(v, save); });
-  v.el = el("section");
+  v.el = el("section", null, "host-meta-section");
   v.el.append(form);
   return v;
 }

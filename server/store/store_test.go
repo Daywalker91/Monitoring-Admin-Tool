@@ -62,7 +62,7 @@ func TestHostLifecycle(t *testing.T) {
 		t.Fatalf("letzter stand falsch: %s (%v)", hosts[0].Metrics, err)
 	}
 
-	hist, err := s.History(ctx, "pi-1", now.Add(-time.Minute), 0)
+	hist, err := s.History(ctx, "pi-1", now.Add(-time.Minute), time.Time{}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestHostLifecycle(t *testing.T) {
 		t.Fatal("zweites DeleteHost meldet found")
 	}
 	hosts, _ = s.ListHosts(ctx)
-	hist, _ = s.History(ctx, "pi-1", time.Time{}, 0)
+	hist, _ = s.History(ctx, "pi-1", time.Time{}, time.Time{}, 0)
 	if len(hosts) != 0 || len(hist) != 0 {
 		t.Fatalf("nach dem Löschen: %d hosts, %d historie", len(hosts), len(hist))
 	}
@@ -102,7 +102,7 @@ func TestPrune(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("gelöscht: %d, erwartet 1", n)
 	}
-	hist, _ := s.History(ctx, "a", time.Time{}, 0)
+	hist, _ := s.History(ctx, "a", time.Time{}, time.Time{}, 0)
 	if len(hist) != 2 {
 		t.Fatalf("verbleibend: %d, erwartet 2", len(hist))
 	}
@@ -120,7 +120,7 @@ func TestHistoryBuckets(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	hist, err := s.History(ctx, "a", base, time.Minute)
+	hist, err := s.History(ctx, "a", base, time.Time{}, time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,6 +129,11 @@ func TestHistoryBuckets(t *testing.T) {
 	}
 	if hist[0].TS != base.Unix() || hist[0].CPUPct != 25 || hist[1].CPUPct != 85 {
 		t.Fatalf("mittelwerte falsch: %+v", hist)
+	}
+	// Ausschnitt (Zoom): nur Punkte bis until.
+	hist, err = s.History(ctx, "a", base.Add(20*time.Second), base.Add(40*time.Second), 0)
+	if err != nil || len(hist) != 3 || hist[0].CPUPct != 20 || hist[2].CPUPct != 40 {
+		t.Fatalf("ausschnitt: %v %+v", err, hist)
 	}
 }
 
@@ -144,7 +149,7 @@ func TestHistoryCPUTemp(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	hist, err := s.History(ctx, "a", base, time.Minute)
+	hist, err := s.History(ctx, "a", base, time.Time{}, time.Minute)
 	if err != nil || len(hist) != 2 {
 		t.Fatalf("historie: %+v %v", hist, err)
 	}
@@ -173,7 +178,7 @@ func TestMigrateCPUTemp(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	hist, err := s.History(context.Background(), "a", time.Unix(0, 0), time.Second)
+	hist, err := s.History(context.Background(), "a", time.Unix(0, 0), time.Time{}, time.Second)
 	if err != nil || len(hist) != 1 || hist[0].CPUTemp != nil || hist[0].MemPct != 2 {
 		t.Fatalf("nach migration: %+v %v", hist, err)
 	}
