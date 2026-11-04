@@ -30,8 +30,8 @@ func init() {
 // Updates ist der Update-Stand eines Hosts.
 type Updates struct {
 	Time time.Time `json:"time"`
-	// Manager ist die Paketverwaltung ("apt", "dnf", "zypper", "apk"); leer =
-	// keine Update-Liste (z. B. Windows, dann ist nur RebootRequired belegt).
+	// Manager ist die Paketverwaltung ("apt", "dnf", "zypper", "apk", "winget");
+	// leer = keine Update-Liste (dann ist nur RebootRequired belegt).
 	Manager        string    `json:"manager,omitempty"`
 	Packages       []Package `json:"packages,omitempty"` // höchstens maxPackages
 	Upgradable     int       `json:"upgradable"`         // alle, auch über maxPackages hinaus

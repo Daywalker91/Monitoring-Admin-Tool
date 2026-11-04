@@ -84,13 +84,15 @@ function renderPackageView(v) {
 
   const caps = h.capabilities || [];
   const actions = [];
-  // Ohne Paketverwaltung mit Update-Liste (Windows) gibt es nur "Paket installieren" unter „Aktionen“.
+  // Ohne Paketverwaltung mit Update-Liste (ältere Agenten unter Windows) gibt es nur "Paket installieren" unter „Aktionen“.
   if (caps.includes("packages") && u?.manager) {
     actions.push(["packages.refresh", "Paketlisten holen", "Paketlisten auf „" + hostName(h) + "“ aktualisieren (" + u.manager + ")?"]);
     if (u.upgradable > 0) {
+      const note = u.manager === "winget"
+        ? "Installer können laufende Programme beenden oder einen Neustart auslösen. Mit „winget pin add“ festgehaltene Pakete bleiben unberührt."
+        : "Geänderte Konfigurationsdateien bleiben erhalten.";
       actions.push(["packages.upgrade", "Updates installieren (" + u.upgradable + ")",
-        u.upgradable + " Updates auf „" + hostName(h) + "“ installieren (" + u.manager + ")?\n" +
-        "Geänderte Konfigurationsdateien bleiben erhalten." + k3sWarning(h)]);
+        u.upgradable + " Updates auf „" + hostName(h) + "“ installieren (" + u.manager + ")?\n" + note + k3sWarning(h)]);
     }
   }
   if (caps.includes("reboot") && h.k8s_drain) {

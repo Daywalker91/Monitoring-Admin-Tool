@@ -192,19 +192,78 @@ func TestJobExitCodes(t *testing.T) {
 	}
 }
 
-func TestWingetInstallOnly(t *testing.T) {
-	c := &Checker{mgr: wingetManager(`C:\w\winget.exe`), rebootRequired: func() bool { return true }, run: (&fakeHost{}).run}
-	if !c.Supported() {
-		t.Fatal("winget nicht unterstützt")
+func TestWingetJobs(t *testing.T) {
+	host := &fakeHost{reply: func(string) (string, error) { return "", nil }}
+	c := &Checker{mgr: wingetManager(`C:\w\winget.exe`), rebootRequired: func() bool { return true }, run: host.run}
+	if _, _, err := c.Refresh(context.Background(), nil); err != nil {
+		t.Fatal(err)
 	}
-	if _, _, err := c.Refresh(context.Background(), nil); err == nil {
-		t.Fatal("refresh mit winget")
+	if _, _, err := c.Upgrade(context.Background(), nil); err != nil {
+		t.Fatal(err)
 	}
+	want := []string{
+		`C:\w\winget.exe source update --name winget --disable-interactivity`,
+		`C:\w\winget.exe upgrade --source winget --accept-source-agreements --disable-interactivity --all --silent --accept-package-agreements`,
+	}
+	if !slices.Equal(host.calls, want) {
+		t.Fatalf("aufrufe: %q", host.calls)
+	}
+	// "Kein Update anwendbar" ist kein Fehler, ein anderer Code schon.
+	host.reply = func(string) (string, error) { return "", fakeExit(int(wingetNotApplicable)) }
+	if _, _, err := c.Upgrade(context.Background(), nil); err != nil {
+		t.Fatalf("0x8A15002B: %v", err)
+	}
+	host.reply = func(string) (string, error) { return "", fakeExit(1) }
 	if _, _, err := c.Upgrade(context.Background(), nil); err == nil {
-		t.Fatal("upgrade mit winget")
+		t.Fatal("exit 1 ist fehler")
 	}
-	if u := c.Status(context.Background()); u.Manager != "" || !u.RebootRequired {
+	host.reply = func(string) (string, error) { return wingetDE, nil }
+	if u := c.Status(context.Background()); u.Manager != "winget" || u.Upgradable != 2 || !u.RebootRequired || u.Error != "" {
 		t.Fatalf("status: %+v", u)
+	}
+}
+
+const wingetEN = "   - \r   \\ \r   | \r" +
+	"  ██████████████████████████████  1.40 MB / 1.40 MB\r\n" +
+	"Name                              Id                             Version      Available    Source\n" +
+	"--------------------------------------------------------------------------------------------------\n" +
+	"Git                               Git.Git                        2.44.0       2.45.1       winget\n" +
+	"Microsoft Visual C++ 2015-2022 R… Microsoft.VCRedist.2015+.x64   14.38.33135… 14.40.33810… winget\n" +
+	"7-Zip 23.01 (x64)                 7zip.7zip                      23.01        24.08        winget\n" +
+	"3 upgrades available.\n" +
+	"\n" +
+	"The following packages have an upgrade available, but require explicit targeting for upgrade:\n" +
+	"Name     Id                Version Available Source\n" +
+	"---------------------------------------------------\n" +
+	"CubeAMP  CubeCoders.AMP    2.6.0   2.8.0     winget\n"
+
+const wingetDE = "Name                     ID                  Version  Verfügbar Quelle\n" +
+	"-----------------------------------------------------------------------\n" +
+	"Mozilla Firefox (x64 de) Mozilla.Firefox.de  131.0    132.0.1   winget\n" +
+	"Notepad++ (64-bit x64)   Notepad++.Notepad++ 8.6.9    8.7       winget\n" +
+	"2 Aktualisierungen verfügbar.\n"
+
+func TestParseWingetUpgrade(t *testing.T) {
+	pkgs, total := parseWingetUpgrade([]byte(wingetEN))
+	want := []proto.Package{
+		{Name: "Git.Git", From: "2.44.0", To: "2.45.1"},
+		{Name: "Microsoft.VCRedist.2015+.x64", From: "14.38.33135…", To: "14.40.33810…"},
+		{Name: "7zip.7zip", From: "23.01", To: "24.08"},
+	}
+	if total != 3 || !slices.Equal(pkgs, want) {
+		t.Fatalf("en: %d %+v", total, pkgs)
+	}
+	pkgs, total = parseWingetUpgrade([]byte(wingetDE))
+	if total != 2 || pkgs[0] != (proto.Package{Name: "Mozilla.Firefox.de", From: "131.0", To: "132.0.1"}) || pkgs[1].Name != "Notepad++.Notepad++" {
+		t.Fatalf("de: %d %+v", total, pkgs)
+	}
+	// Ohne Source-Spalte (eine Quelle ausgewählt) und ohne Updates.
+	noSource := "Name  Id       Version Available\n--------------------------------\nGit   Git.Git  2.44.0  2.45.1\n1 upgrades available.\n"
+	if pkgs, total = parseWingetUpgrade([]byte(noSource)); total != 1 || pkgs[0].To != "2.45.1" {
+		t.Fatalf("ohne quelle: %d %+v", total, pkgs)
+	}
+	if pkgs, total = parseWingetUpgrade([]byte("No installed package found matching input criteria.\n")); total != 0 || pkgs != nil {
+		t.Fatalf("leer: %d %+v", total, pkgs)
 	}
 }
 

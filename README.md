@@ -16,6 +16,7 @@ offene Updates (apt) und Neustart, neue k3s-Versionen im Tab „Cluster“, frei
 M8 fertig – Prognose „Platte voll“ je Mountpoint (mit Alarm), eigene Befehle mit fester Befehlszeile aus `agent.json`; Live-Ausgabe laufender Jobs.
 M10 fertig – Pakete installieren und Benutzer anlegen, neben apt auch dnf, zypper und apk, unter Windows Installation per winget.
 M9 fertig – Neustart von k3s-Hosts mit drain (absperren, Pods verdrängen, Neustart, freigeben); „Node nicht bereit“ folgt dem Wartungsfenster des Hosts.
+M13 – Updates per winget unter Windows (Liste offener Updates, „Updates installieren“).
 
 ## Schnellstart (lokal)
 
@@ -80,7 +81,7 @@ Unter Windows ändert `-Jobs`/`-LogSources` auch eine vorhandene Konfiguration (
 | Eintrag    | erlaubt                                         |
 |------------|-------------------------------------------------|
 | `services` | Dienste starten, stoppen, neu starten (`systemctl` bzw. Windows-Dienst-Manager) |
-| `packages` | Paketlisten holen, Updates installieren, ein Paket installieren (apt, dnf, zypper, apk; Windows: nur installieren per winget) |
+| `packages` | Paketlisten holen, Updates installieren, ein Paket installieren (apt, dnf, zypper, apk; Windows: winget) |
 | `reboot`   | Neustart (`systemctl reboot` bzw. `shutdown.exe /r`) |
 | `users`    | Benutzer anlegen, ohne nutzbares Passwort (`useradd` bzw. BusyBox `adduser`, Windows: `net user`) |
 
@@ -89,7 +90,8 @@ auf einen Eintrag öffnet die Ausgabe; bei Paket-Jobs läuft sie ab Agent v1.3.0
 Der Agent prüft die Parameter selbst noch einmal, steuert nur Dienste aus seiner eigenen Liste und
 nie sich selbst. Lesend arbeitet er immer: Dienstliste, offene Updates (`apt-get -s upgrade`,
 höchstens alle 30 min) und ob ein Neustart nötig ist (`/var/run/reboot-required` bzw. Registry).
-Unter Windows gibt es nur den Neustart-Hinweis, keine Liste offener Windows-Updates.
+Unter Windows listet der Agent offene winget-Updates (ab v1.8.0), aber keine Windows-Updates; von diesen kommt
+nur der Neustart-Hinweis.
 
 **Pakete installieren** (`package.install`, ab M10): genau ein Paket je Job, entfernt wird nichts. Auch wer
 `packages` schon freigeschaltet hat, darf nach dem Agent-Update damit installieren. Erlaubt sind nur
@@ -103,7 +105,21 @@ es nur Paket-Jobs und `user.create`, das Install-Skript, Self-Update, Dienste un
 **winget** läuft als SYSTEM, ohne den Eintrag im Benutzerprofil: Der Agent nimmt `winget.exe` aus
 `C:\Program Files\WindowsApps\Microsoft.DesktopAppInstaller_*` und meldet die Fähigkeit nur, wenn der Selbsttest
 beim Start klappt. Installiert wird nur mit exakter ID aus der Quelle `winget` (z. B. `Git.Git`) und
-`--scope machine`; Pakete ohne systemweite Installation schlagen fehl. Paketlisten und Updates gibt es dort nicht.
+`--scope machine`; Pakete ohne systemweite Installation schlagen fehl.
+
+Ab Agent v1.8.0 auch Updates: Die Liste kommt aus `winget upgrade --source winget` (höchstens alle 30 min),
+„Paketlisten holen“ ist `winget source update`, „Updates installieren“ ist `winget upgrade --all --silent` mit
+derselben Auswahl. Als SYSTEM sieht winget nur Programme, die für alle Benutzer installiert sind; Programme aus
+einem Benutzerprofil und aus dem Microsoft Store bleiben unberührt, ebenso solche mit unbekannter Version.
+Ein Programm nimmt man am Host aus, indem man es festhält (als Administrator, z. B. für AMP, das sein eigenes
+Update-Skript hat):
+
+```powershell
+winget pin add --id CubeCoders.AMP --blocking
+```
+
+Installer können laufende Programme beenden oder selbst neu starten – deshalb nur in einem ruhigen Moment
+auslösen. Sicherheitsupdates kennt winget nicht.
 
 **Benutzer anlegen** (`user.create`, ab M10): Kein Passwort läuft je über Server, GUI oder Verlauf. Unter Linux
 bleibt das Passwort gesperrt; der Benutzer wird per SSH-Key oder `passwd` als root eingerichtet. Mit „sudo“

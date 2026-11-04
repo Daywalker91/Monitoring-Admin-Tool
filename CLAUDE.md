@@ -37,6 +37,8 @@ Es wird in Meilensteinen gearbeitet. Alles, was zu keinem beauftragten Meilenste
 - **M12b/c (fertig):** Gates (`host_healthy`, `cluster_healthy`, `check_ok`; 30 s stabil, nur Daten nach Schrittbeginn),
   Probelauf (Einschätzung Host × Schritt, sendet nichts), Freigabe-Schritte (`approve`, `once`, Frist), Zeitplan
   (`schedule`: daily/weekly/monthly inkl. „first sun“, Zeitzone `TZ`, Tabelle `playbook_schedules`, in der GUI nur pausieren)
+- **M13 (in Arbeit):** winget-Updates unter Windows (`winget upgrade` als Update-Liste, `source update`,
+  `upgrade --all` mit derselben Auswahl, nur Quelle `winget`; Ausnahmen per `winget pin` am Host), Agent v1.8.0
 - **Zurückgestellt:** Load und Temperatur unter Windows (gopsutil liefert Load 0, WMI-Thermozonen fehlen) – erst recherchieren
 
 ## Tech-Stack
