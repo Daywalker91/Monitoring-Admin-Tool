@@ -151,11 +151,12 @@ install -o root -g root -m 750 amp-update-check.sh amp-update.sh /opt/mat-script
 
 Die Unit des Agenten macht `/root` und `/home` schreibgeschützt (`ProtectHome=read-only`). `getamp` schreibt
 sein Log nach `/root`, `ampinstmgr upgradeall` die Instanzen unter `/home/amp`; ohne Freigabe bricht
-`getamp update` mit „Read-only file system“ ab. Deshalb auf AMP-Hosts nur diese beiden Ordner freigeben:
+`getamp update` mit „Read-only file system“ ab. `ReadWritePaths=/root /home/amp` reicht nicht (auf Ubuntu 24.04
+blieb `/root` schreibgeschützt), deshalb auf AMP-Hosts den Schutz abschalten:
 
 ```sh
 install -d /etc/systemd/system/mat-agent.service.d
-printf '[Service]\nReadWritePaths=/root /home/amp\n' > /etc/systemd/system/mat-agent.service.d/amp.conf
+printf '[Service]\nProtectHome=no\n' > /etc/systemd/system/mat-agent.service.d/amp.conf
 systemctl daemon-reload && systemctl restart mat-agent
 ```
 
