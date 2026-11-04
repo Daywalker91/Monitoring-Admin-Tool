@@ -26,7 +26,10 @@ steps:
 
 // TestPlaybookGate: Das Gate wartet, bis die Prüfung stabil erfüllt ist.
 func TestPlaybookGate(t *testing.T) {
-	s, f, _ := newPlaybookServer(t, filepath.Join(t.TempDir(), "mat.db"), threeHosts(), map[string]string{"g.yaml": gateBook})
+	// Die Frist zählt in ganzen Sekunden ab dem Start (abgerundet): Mit 1s blieben
+	// kurz vor einem Sekundenwechsel nur Millisekunden, der Test war wackelig.
+	book := strings.Replace(gateBook, "timeout: 1s", "timeout: 5s", 1)
+	s, f, _ := newPlaybookServer(t, filepath.Join(t.TempDir(), "mat.db"), threeHosts(), map[string]string{"g.yaml": book})
 	var calls atomic.Int32
 	f.gate = func(host string, step playbook.Step) (bool, string, error) {
 		if step.Gate != playbook.GateClusterHealthy {
