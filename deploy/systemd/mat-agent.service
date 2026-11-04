@@ -18,8 +18,10 @@ ExecStart=/usr/local/bin/mat-agent -config /etc/mat-agent/agent.json
 Restart=always
 RestartSec=5
 
-# Läuft als root, weil Admin-Jobs (Pakete, Neustart) ausgeführt werden.
-User=root
+# Läuft als root (Standard von systemd), weil Admin-Jobs (Pakete, Neustart)
+# ausgeführt werden. Bewusst kein "User=root": Zusammen mit der Härtung unten
+# nimmt systemd 255 (Ubuntu 24.04) dann CAP_SETUID aus dem aktiven Satz, und
+# apt-get scheitert beim Wechsel zu _apt ("seteuid 105 failed").
 # Hält den Agenten selbst klein (Ziel im Betrieb: 10–25 MB). Bewusst kein
 # MemoryMax: Die Grenze gälte für die ganze Unit, also auch für apt-get und
 # dpkg aus einem Paket-Job; ein OOM-Kill mitten im Upgrade hinterließe halb
