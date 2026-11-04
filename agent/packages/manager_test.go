@@ -3,6 +3,7 @@ package packages
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -261,6 +262,17 @@ func TestParseWingetUpgrade(t *testing.T) {
 	noSource := "Name  Id       Version Available\n--------------------------------\nGit   Git.Git  2.44.0  2.45.1\n1 upgrades available.\n"
 	if pkgs, total = parseWingetUpgrade([]byte(noSource)); total != 1 || pkgs[0].To != "2.45.1" {
 		t.Fatalf("ohne quelle: %d %+v", total, pkgs)
+	}
+	// Nachgebaut aus gameserver3 (winget v1.29.380, deutsch, mit --source: ohne Spalte „Quelle“).
+	row := func(name, id, from, to string) string { return fmt.Sprintf("%-61s%-29s%-14s%s\n", name, id, from, to) }
+	gs3 := row("Name", "ID", "Version", "Verfügbar") + strings.Repeat("-", 112) + "\n" +
+		row("CPUID CPU-Z 2.19", "CPUID.CPU-Z", "2.19", "3.01") +
+		row("Microsoft Visual C++ 2015-2022 Redistributable (x64) - 14.44…", "Microsoft.VCRedist.2015+.x64", "14.44.35211.0", "14.51.36247.0") +
+		row("Python Launcher", "Python.Launcher", "< 3.14.7", "3.14.7") +
+		"3 Aktualisierungen verfügbar.\n"
+	pkgs, total = parseWingetUpgrade([]byte(gs3))
+	if total != 3 || pkgs[1] != (proto.Package{Name: "Microsoft.VCRedist.2015+.x64", From: "14.44.35211.0", To: "14.51.36247.0"}) || pkgs[2].From != "< 3.14.7" {
+		t.Fatalf("gameserver3: %d %+v", total, pkgs)
 	}
 	if pkgs, total = parseWingetUpgrade([]byte("No installed package found matching input criteria.\n")); total != 0 || pkgs != nil {
 		t.Fatalf("leer: %d %+v", total, pkgs)
