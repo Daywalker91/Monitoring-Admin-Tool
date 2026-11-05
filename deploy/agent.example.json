@@ -7,5 +7,6 @@
   "log_level": "info",
   "ca_file": "/etc/mat-agent/server.crt",
   "jobs": [],
-  "log_sources": []
+  "log_sources": [],
+  "commands": {}
 }

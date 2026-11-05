@@ -3,21 +3,31 @@
 Selbst gebautes Monitoring- und Administrationstool fürs Homelab: ein schlanker Agent auf jeder Maschine,
 ein zentraler Server mit Web-GUI.
 
-**Stand:** M1 fertig – Metriken erfassen (CPU, RAM/Swap, Netzwerk, Speicher, Top-Prozesse),
-per WebSocket übertragen, in SQLite speichern (7 Tage Historie) und als responsive Host-Liste anzeigen.
-M2 fertig – GUI-Login, Verlaufsdiagramme, Prometheus-Endpunkt, HTTPS/wss.
-M3 fertig – Alarme mit Schwellwerten, Anzeige in der GUI, Benachrichtigung per ntfy und E-Mail.
-M4 fertig – Installation als Dienst (Windows, systemd), Server in k3s, Alarme je Host, Stummschalten, Erinnerungen.
-M5 fertig – Self-Update der Agenten aus signierten GitHub-Releases, Warnung vor Ablauf des Server-Zertifikats.
-M6 fertig – CPU-Temperatur, externe Checks (HTTP(S), Ping, TCP), k3s-Ansicht; Hosts umbenennen (Anzeigename,
-auch in Alarmen) und in Gruppen ordnen – intern bleibt die Agent-ID die Kennung.
-M7 fertig – Admin-Aktionen als Jobs mit Verlauf, Dienste überwachen und steuern,
-offene Updates (apt) und Neustart, neue k3s-Versionen im Tab „Cluster“, freigegebene Logs lesen, SMART der Datenträger; Alarme quittieren, Wartungsfenster, Abhängigkeiten.
-M8 fertig – Prognose „Platte voll“ je Mountpoint (mit Alarm), eigene Befehle mit fester Befehlszeile aus `agent.json`; Live-Ausgabe laufender Jobs.
-M10 fertig – Pakete installieren und Benutzer anlegen, neben apt auch dnf, zypper und apk, unter Windows Installation per winget.
-M9 fertig – Neustart von k3s-Hosts mit drain (absperren, Pods verdrängen, Neustart, freigeben); „Node nicht bereit“ folgt dem Wartungsfenster des Hosts.
-M13 fertig – Updates per winget unter Windows (Liste offener Updates, „Updates installieren“).
-M14 fertig – Load und CPU-Temperatur unter Windows (Temperatur über den Treiber PawnIO), Zoom im Verlauf.
+Der Agent verbindet sich nur ausgehend zum Server und öffnet keine Ports. Ändernde Aktionen schaltet man
+am Host frei, nie über Server oder GUI.
+
+**Stand:** v1.9.0, Meilensteine M1–M14 fertig.
+
+| Meilenstein | Inhalt |
+|-------------|--------|
+| M1  | Metriken (CPU, RAM/Swap, Netzwerk, Speicher, Top-Prozesse) per WebSocket übertragen, in SQLite speichern (7 Tage), responsive Host-Liste |
+| M2  | GUI-Login, Verlaufsdiagramme, Prometheus-Endpunkt, HTTPS/wss |
+| M3  | Alarme mit Schwellwerten, Benachrichtigung per ntfy und E-Mail |
+| M4  | Installation als Dienst (Windows, systemd), Server in k3s, Alarme je Host, Stummschalten, Erinnerungen |
+| M5  | Self-Update der Agenten aus signierten GitHub-Releases, Warnung vor Ablauf des Server-Zertifikats |
+| M6  | CPU-Temperatur, externe Checks (HTTP(S), Ping, TCP), k3s-Ansicht, Anzeigename und Gruppe je Host |
+| M7  | Admin-Aktionen als Jobs mit Verlauf: Dienste, Updates, Neustart, Logs; SMART, k3s-Versionen; Alarme quittieren, Wartungsfenster, Abhängigkeiten |
+| M8  | Prognose „Platte voll“ (mit Alarm), eigene Befehle aus `agent.json`, Live-Ausgabe laufender Jobs |
+| M9  | Neustart von k3s-Hosts mit drain (absperren, Pods verdrängen, Neustart, freigeben) |
+| M10 | Pakete installieren und Benutzer anlegen; apt, dnf, zypper, apk, unter Windows winget |
+| M11 | Web-Terminal (Linux mit systemd, nie als root, eigene Freischaltung) |
+| M12 | Playbooks: Schrittfolgen über mehrere Hosts, Gates, Freigaben, Probelauf, Zeitplan |
+| M13 | winget-Updates unter Windows (Liste offener Updates, „Updates installieren“) |
+| M14 | Load und CPU-Temperatur unter Windows (Temperatur über den Treiber PawnIO), Zoom im Verlauf |
+
+Was davon unter Windows geht: Metriken, Dienste, Neustart, Logs (Ereignisprotokoll), SMART, eigene Befehle,
+winget (Installieren und Updates), Benutzer anlegen, Self-Update; Load ab v1.9.0, CPU-Temperatur mit PawnIO.
+Kein Web-Terminal und keine Windows-Updates.
 
 ## Schnellstart (lokal)
 
@@ -29,6 +39,17 @@ go run ./agent/cmd/mat-agent -server ws://127.0.0.1:8080/ws/agent
 ```
 
 GUI: <http://127.0.0.1:8080/>
+
+## GUI
+
+- **Hosts:** Liste mit aktuellen Werten, nach Gruppen zusammengefasst (einklappbar). Ein Klick klappt die
+  Details auf: Verlauf, CPU je Kern, Netz, Top-Prozesse, Speicher, SMART, Agent, Name/Gruppe/Abhängigkeit,
+  Terminal, Updates und Neustart, Dienste, Logs, Aktionen und Alarme. Fehlt einem Host etwas, bleibt die
+  Kachel an ihrem Platz und zeigt „nicht verfügbar“.
+- **Verlauf:** 1 h, 24 h oder 7 d. Zum Hineinzoomen waagerecht über ein Diagramm ziehen (mit Maus oder
+  Finger, mindestens 5 Minuten); Doppelklick oder „Zoom zurücksetzen“ zeigt wieder den ganzen Zeitraum.
+- **Tabs:** Hosts, Checks, Cluster (nur in k3s), Playbooks (mit `MAT_PLAYBOOK_DIR`), Alarme und
+  Einstellungen (Alarmregeln, Wartungsfenster, Benachrichtigungen, Agent-Updates, Agent installieren).
 
 ## GUI-Benutzer
 
@@ -56,7 +77,12 @@ Per Flags (`-server`, `-token`, `-id`, `-interval`, `-process-interval`, `-log-l
 (`-config agent.json`, Vorlage: [deploy/agent.example.json](deploy/agent.example.json)).
 Das Token kann auch über `MAT_AGENT_TOKEN` gesetzt werden. Ohne `-config` und `-server` liest der Agent
 die Konfiguration vom festen Ort (`%ProgramData%\mat-agent\agent.json` bzw. `/etc/mat-agent/agent.json`).
-`mat-agent check [flags]` prüft die Konfiguration, ohne zu verbinden.
+`mat-agent check [flags]` prüft die Konfiguration, ohne zu verbinden, und zeigt die freigeschalteten Jobs,
+eigene Befehle, das Web-Terminal und (unter Windows) die CPU-Temperatur. Nach einer Änderung an `agent.json` den Dienst neu starten.
+
+Was der Agent außer Metriken darf, steht nur in `agent.json`: `jobs` (ändernde Aktionen), `log_sources`
+(lesbare Logs), `commands` (eigene Befehle) und `terminal` (Web-Terminal). Fehlt ein Eintrag, meldet der
+Agent die Fähigkeit nicht.
 
 ### Admin-Aktionen freischalten
 
@@ -171,8 +197,8 @@ meldet der Agent alle 30 min die Werte aller Datenträger aus `smartctl --scan-o
 weckt keine schlafenden Platten). SD-Karten und eMMC liefern meist keine Werte.
 
 k3s selbst ist per Install-Skript installiert, nicht über apt: `packages.upgrade` aktualisiert nur
-das Betriebssystem. Vor Upgrade oder Neustart eines Nodes am besten `kubectl drain`, und immer nur
-einen Node gleichzeitig.
+das Betriebssystem. k3s-Nodes immer nur einzeln neu starten, am besten mit „Neu starten mit drain“
+(siehe k3s-Ansicht) oder als Playbook mit `k3s.drain_reboot` und `gate: cluster_healthy`.
 
 ### Web-Terminal (ab Agent v1.7.0)
 
@@ -305,7 +331,7 @@ Alle `/api/*`-Endpunkte außer Login/Logout erfordern eine Session.
 | `POST /api/logout`              | Abmelden                                   |
 | `GET /api/me`                   | angemeldeter Benutzer                      |
 | `GET /api/hosts`                | alle Hosts mit letztem Stand               |
-| `GET /api/hosts/{id}/history`   | Historie, `?hours=1..168`, `?points=0..2000` verdichtet |
+| `GET /api/hosts/{id}/history`   | Historie, `?hours=1..168` oder `?from=&to=` (Unix-Sekunden, mind. 60 s, höchstens 8 Tage zurück), `?points=0..2000` verdichtet |
 | `DELETE /api/hosts/{id}`        | Host samt Historie entfernen (nur offline) |
 | `POST /api/hosts/{id}/meta`     | Anzeigename und Gruppe (`{"display_name":"…","group":"…"}`, leer = zurücksetzen) |
 | `GET/POST /api/hosts/{id}/jobs` | Verlauf der Aktionen / Aktion starten (`{"action":"service.restart","params":{"name":"nginx"}}`) |
@@ -351,7 +377,7 @@ Alle `/api/*`-Endpunkte außer Login/Logout erfordern eine Session.
 
 ## Alarme
 
-Der Server prüft feste Regeltypen; Schwelle und Mindestdauer lassen sich in der GUI unter „Regeln“ ändern:
+Der Server prüft feste Regeltypen; Schwelle und Mindestdauer lassen sich unter Einstellungen → Alarmregeln ändern:
 
 | Regel   | Standard               | Bedeutung                                   |
 |---------|------------------------|---------------------------------------------|
@@ -404,7 +430,7 @@ In den Host-Details unter „Alarme für diesen Host“:
   aber nicht gemeldet. Ist ein Alarm nach dem Ende der Stummschaltung noch aktiv, wird er nachgemeldet;
   sein Ende wird nur gemeldet, wenn auch der Beginn gemeldet wurde.
 
-Unter „Regeln“ lässt sich eine **Erinnerung** einstellen: Alarme, die nach N Stunden noch aktiv sind,
+Bei den Alarmregeln lässt sich eine **Erinnerung** einstellen: Alarme, die nach N Stunden noch aktiv sind,
 werden erneut gemeldet (0 = aus).
 
 **Quittieren:** Aktive Alarme lassen sich in der Alarmansicht mit Kommentar quittieren. Danach
@@ -424,7 +450,7 @@ Meldungen kommt nur die des Routers. Schleifen lehnt der Server ab.
 ### Benachrichtigungen
 
 Kanäle werden nur über Umgebungsvariablen des Servers eingerichtet (Zugangsdaten nie in GUI oder Datenbank).
-Ohne Kanal erscheinen Alarme nur in der GUI. Funktionstest: „Regeln“ → „Testnachricht senden“.
+Ohne Kanal erscheinen Alarme nur in der GUI. Funktionstest: Einstellungen → Benachrichtigungen → „Testnachricht senden“.
 
 **ntfy** (Push aufs Handy, [ntfy.sh](https://ntfy.sh) oder selbst gehostet):
 
@@ -466,7 +492,7 @@ $env:MAT_HEARTBEAT_PAYLOAD  = "off"     # optional: nur GET ohne Status
 
 Die erste Meldung geht 1 min nach dem Start raus, damit die Agenten verbunden sind.
 
-Standard ist ein POST mit dem Feld `payload`, z. B. „MAT 1.5.0 · 5/6 Hosts online · 2 Alarme“
+Standard ist ein POST mit dem Feld `payload`, z. B. „MAT 1.9.0 · 5/6 Hosts online · 2 Alarme“
 (keine Hostnamen); ipv64 zeigt ihn im Event-Log. Ist die Datenbank nicht lesbar, bleibt das
 Lebenszeichen aus. URL und Token werden nie geloggt. Kontingent beachten: bei ipv64 zählt jeder
 Ping (3m = 480/Tag); beim Wächter Zeitraum und Karenzzeit größer als das Intervall wählen
@@ -610,14 +636,14 @@ Binary zurück und meldet das in der GUI.
 ### Release erstellen
 
 ```powershell
-git tag v0.5.1
-git push origin v0.5.1
+git tag v1.9.1
+git push origin v1.9.1
 ```
 
 Der Workflow [release.yml](.github/workflows/release.yml) testet, wartet auf die Freigabe in der
 Environment `release`, baut alle Agenten, signiert `release.json` mit dem Secret `RELEASE_SIGNING_KEY`,
 prüft die Signatur gegen den eingebauten Schlüssel und veröffentlicht den Release. Parallel baut
-[server-image.yml](.github/workflows/server-image.yml) das Server-Image `:0.5.1`.
+[server-image.yml](.github/workflows/server-image.yml) das Server-Image `:1.9.1`.
 
 Einmalige Einrichtung des Schlüssels:
 
@@ -648,9 +674,9 @@ scrape_configs:
 ```
 
 Metriken (Präfix `mat_`): `alerts_firing` (je Host und Regel), `host_up`, `host_info`, `host_last_seen_timestamp_seconds`, `host_boot_time_seconds`,
-`cpu_usage_percent`, `cpu_core_usage_percent`, `load1/5/15` (nicht unter Windows), `memory_total/used_bytes`,
+`cpu_usage_percent`, `cpu_core_usage_percent`, `load1/5/15` (unter Windows ab Agent v1.9.0), `memory_total/used_bytes`,
 `swap_total/used_bytes`, `network_{receive,transmit}_{bytes,packets}_per_second`, `network_{receive,transmit}_errors_total`,
-`filesystem_size/used_bytes`, `filesystem_full_in_days` (Prognose, nur wachsende Mountpoints), `cpu_temperature_celsius` und `sensor_temperature_celsius` (je Sensor, nur Linux-Hosts mit Sensor).
+`filesystem_size/used_bytes`, `filesystem_full_in_days` (Prognose, nur wachsende Mountpoints), `cpu_temperature_celsius` und `sensor_temperature_celsius` (je Sensor; nur Hosts mit Sensor, unter Windows mit PawnIO).
 Updates (M7): `updates_pending`, `updates_security_pending` (nur Hosts mit Update-Liste) und `reboot_required`.
 SMART (Labels `device`, `model`): `smart_healthy`, `smart_temperature_celsius`, `smart_power_on_hours`,
 `smart_reallocated_sectors`, `smart_pending_sectors`, `smart_percentage_used`, `smart_media_errors`.

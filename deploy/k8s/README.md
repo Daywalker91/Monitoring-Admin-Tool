@@ -68,7 +68,7 @@ kubectl auth can-i --list --as=system:serviceaccount:monitoring:mat-server
 
 ## Versionen
 
-Neben `:main` gibt es zu jedem Release-Tag ein festes Image (`v0.5.1` → `:0.5.1`). Mit festem Tag rollt
+Neben `:main` gibt es zu jedem Release-Tag ein festes Image (`v1.9.0` → `:1.9.0`). Mit festem Tag rollt
 ArgoCD ein Update aus, sobald der Tag im Manifest geändert wird; `:main` braucht dagegen
 `kubectl rollout restart`. Der Server braucht ausgehend Zugriff auf GitHub (Agent-Updates).
 
