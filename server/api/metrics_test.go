@@ -25,6 +25,25 @@ func TestEscapeLabel(t *testing.T) {
 	}
 }
 
+func TestHasLoad(t *testing.T) {
+	cases := []struct {
+		os, version string
+		want        bool
+	}{
+		{"linux", "dev", true},
+		{"windows", "v1.8.0", false},
+		{"windows", "dev", false},
+		{"windows", "v1.9.0", true},
+		{"windows", "v1.9.0-3-gabc1234", true},
+		{"windows", "v1.10.0", true},
+	}
+	for _, c := range cases {
+		if got := hasLoad(c.os, c.version); got != c.want {
+			t.Errorf("hasLoad(%q, %q) = %v, erwartet %v", c.os, c.version, got, c.want)
+		}
+	}
+}
+
 func TestMetricsDisabled(t *testing.T) {
 	ts := newTestServer(t)
 	if code := status(t, newClient(t), "GET", ts.URL+"/metrics", ""); code != http.StatusNotFound {

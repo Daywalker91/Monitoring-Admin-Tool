@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Daywalker91/Monitoring-Admin-Tool/internal/release"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/proto"
 	"github.com/Daywalker91/Monitoring-Admin-Tool/server/alert"
 )
@@ -153,7 +154,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		for i, v := range m.CPU.PerCore {
 			mw.add("mat_cpu_core_usage_percent", "gauge", "CPU-Auslastung je Kern in Prozent.", v, "host", h.ID, "core", strconv.Itoa(i))
 		}
-		if h.OS != "windows" { // Windows kennt keinen Load-Wert
+		if hasLoad(h.OS, h.AgentVersion) {
 			mw.add("mat_load1", "gauge", "Load-Durchschnitt über 1 Minute.", m.CPU.Load1, host...)
 			mw.add("mat_load5", "gauge", "Load-Durchschnitt über 5 Minuten.", m.CPU.Load5, host...)
 			mw.add("mat_load15", "gauge", "Load-Durchschnitt über 15 Minuten.", m.CPU.Load15, host...)
@@ -193,6 +194,12 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = w.Write(mw.bytes())
+}
+
+// hasLoad meldet, ob der Host eine Load liefert: Windows kennt keine, der
+// Agent berechnet sie dort erst ab v1.9.0 selbst (ältere melden 0).
+func hasLoad(osName, agentVersion string) bool {
+	return osName != "windows" || !release.Newer("v1.9.0", agentVersion)
 }
 
 // checkMetrics ergänzt die externen Checks.
